@@ -113,6 +113,48 @@ http://your-server/
 
 The app container runs database migrations automatically on startup.
 
+## Portainer Stack Install
+
+Portainer can deploy this repository directly from GitHub using `docker-compose.yml`.
+The Compose file does not use `env_file`, so Portainer does not need a `.env` file mounted beside
+the stack.
+
+In Portainer:
+
+1. Go to `Stacks`.
+2. Add a new stack.
+3. Choose the Git repository option.
+4. Repository URL:
+
+```text
+https://github.com/cosmicc/Mileage-Logger.git
+```
+
+5. Compose path:
+
+```text
+docker-compose.yml
+```
+
+6. Import or enter the environment variables from `.env.docker.example`.
+7. Change these required secret values before deploying:
+   - `SECRET_KEY`
+   - `POSTGRES_PASSWORD`
+   - `DATABASE_URL`
+   - `OWNTRACKS_API_TOKEN`
+   - `OWNTRACKS_PASSWORD`
+8. Deploy the stack.
+
+If you change `POSTGRES_PASSWORD`, make sure `DATABASE_URL` uses the same password:
+
+```env
+POSTGRES_PASSWORD=your-db-password
+DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage_logger
+```
+
+The app will receive configuration from the environment variables imported into the Portainer
+stack.
+
 ## Configure OwnTracks
 
 In OwnTracks on Android:

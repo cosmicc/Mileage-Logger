@@ -94,7 +94,7 @@ http://owntracks:password@your-server/api/owntracks
 For internet-facing use, put TLS in front of this stack or extend the Nginx container
 with certificates so OwnTracks sends location data over HTTPS.
 
-See [INSTALL.md](INSTALL.md) for the full Docker installation and configuration guide.
+See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
 ## OwnTracks HTTP Setup
 
