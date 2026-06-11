@@ -47,6 +47,7 @@
 
 <section class="panel">
   <h2>Monthly Trips</h2>
+  <p class="summary-line">Stop threshold: {{ owntracks_stop_minutes }} minutes.</p>
   <table>
     <thead>
       <tr>
@@ -57,7 +58,7 @@
         <th>Miles</th>
         <th>Include</th>
         <th>Notes</th>
-        <th></th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -74,7 +75,12 @@
         <td><input form="{{ form_id }}" class="compact" type="number" name="miles" min="0" step="0.01" value="{{ "%.2f"|format(trip.miles) }}"></td>
         <td><input form="{{ form_id }}" type="checkbox" name="include_in_report" {% if trip.include_in_report %}checked{% endif %}></td>
         <td><input form="{{ form_id }}" type="text" name="notes" value="{{ trip.notes }}"></td>
-        <td><button form="{{ form_id }}" type="submit">Save</button></td>
+        <td>
+          <button form="{{ form_id }}" type="submit">Save</button>
+          <form action="/trips/{{ trip.id }}/false-stop" method="post">
+            <button type="submit">False Stop</button>
+          </form>
+        </td>
       </tr>
       {% else %}
       <tr><td colspan="8">No trips for this month.</td></tr>

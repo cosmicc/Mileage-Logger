@@ -65,20 +65,16 @@ def included_trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
     return list(db.scalars(stmt))
 
 
-def _format_coordinates(latitude: Decimal, longitude: Decimal) -> str:
-    return f"{latitude:.5f}, {longitude:.5f}"
-
-
 def _origin_location(trip: Trip) -> str:
     if trip.origin_site is not None:
         return trip.origin_site.name
-    return f"Unknown ({_format_coordinates(trip.start_latitude, trip.start_longitude)})"
+    return "Unknown"
 
 
 def _destination_location(trip: Trip) -> str:
     if trip.destination_site is not None:
         return trip.destination_site.name
-    return f"Unknown ({_format_coordinates(trip.end_latitude, trip.end_longitude)})"
+    return "Unknown"
 
 
 def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:

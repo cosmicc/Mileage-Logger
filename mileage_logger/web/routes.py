@@ -26,6 +26,11 @@ from mileage_logger.services.gas_prices import (
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
+from mileage_logger.services.mileage import (
+    FalseStopMergeError,
+    mark_trip_manually_reviewed,
+    merge_false_stop_into_next_trip,
+)
 from mileage_logger.services.pdf import generate_monthly_pdf
 
 router = APIRouter()
@@ -112,6 +117,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "monthly_gas": monthly_gas,
             "monthly_gas_error": monthly_gas_error,
             "vehicle_mpg": settings.vehicle_mpg,
+            "owntracks_stop_minutes": settings.owntracks_stop_minutes,
         },
     )
 
@@ -155,6 +161,7 @@ def trips(
             "next_year": next_year,
             "next_month": next_month,
             "vehicle_mpg": settings.vehicle_mpg,
+            "owntracks_stop_minutes": settings.owntracks_stop_minutes,
         },
     )
 
@@ -173,9 +180,25 @@ def update_trip_form(
     trip.miles = miles.quantize(Decimal("0.01"))
     trip.include_in_report = include_in_report == "on"
     trip.notes = notes
+    mark_trip_manually_reviewed(trip)
     db.commit()
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
+        status_code=303,
+    )
+
+
+@router.post("/trips/{trip_id}/false-stop")
+def false_stop_trip_form(
+    trip_id: int,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    try:
+        merged_trip = merge_false_stop_into_next_trip(db, trip_id)
+    except FalseStopMergeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(
+        url=f"/trips?year={merged_trip.trip_date.year}&month={merged_trip.trip_date.month}",
         status_code=303,
     )
 

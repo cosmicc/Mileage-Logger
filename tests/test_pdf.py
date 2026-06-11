@@ -67,3 +67,22 @@ def test_trip_report_rows_include_monthly_start_and_stop_mileage() -> None:
     assert rows[0].stop_miles == Decimal("12.50")
     assert rows[1].start_miles == Decimal("12.50")
     assert rows[1].stop_miles == Decimal("19.75")
+
+
+def test_trip_report_rows_use_unknown_for_unresolved_sites() -> None:
+    started_at = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    trip = Trip(
+        trip_date=date(2026, 6, 11),
+        started_at=started_at,
+        ended_at=started_at + timedelta(minutes=20),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("12.50"),
+    )
+
+    rows = trip_report_rows([trip])
+
+    assert rows[0].from_location == "Unknown"
+    assert rows[0].to_location == "Unknown"

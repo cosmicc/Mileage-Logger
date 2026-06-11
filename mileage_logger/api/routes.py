@@ -14,6 +14,7 @@ from mileage_logger.services.gas_prices import (
     fetch_and_save_current_snapshot,
     upsert_manual_monthly_price,
 )
+from mileage_logger.services.mileage import mark_trip_manually_reviewed
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     UnsupportedOwnTracksType,
@@ -95,6 +96,7 @@ def update_trip(trip_id: int, update: TripUpdate, db: Session = Depends(get_db))
         trip.include_in_report = update.include_in_report
     if update.notes is not None:
         trip.notes = update.notes
+    mark_trip_manually_reviewed(trip)
     db.commit()
     return {"status": "updated"}
 

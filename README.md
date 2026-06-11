@@ -155,8 +155,9 @@ The app generates trips between qualifying stops:
   `OWNTRACKS_UNKNOWN_STOP_RADIUS_M`, default `150` meters.
 - A trip starts when you leave the previous qualifying stop and ends when you arrive at the next
   qualifying stop.
-- Unknown stops generate trips with a blank origin or destination site. If source rows still exist,
-  later site updates can be reflected by the automatic processor.
+- Unknown stops generate trips labelled `Unknown` when they are not waypoints and cannot be
+  matched through Google Places. If source rows still exist, later site updates can be reflected by
+  the automatic processor.
 - If `GOOGLE_PLACES_API_KEY` is set, unknown qualifying stops are checked against Google Places and
   a matching business can be created as an app site automatically.
 
@@ -168,6 +169,13 @@ A background processor also runs while the web app is up. It recalculates the cu
 interval and finalizes completed days. Once a day is complete, the processor calculates that day's
 trips one last time and purges the processed `owntracks_locations` rows for that completed day.
 Current-day rows are kept so live tracking data is not deleted before the day is finished.
+
+If a stop was not a real destination, use the trip's `False Stop` action on the Trips page. The app
+deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
+to the next trip so the intermediate stop is removed.
+
+In Docker, change the stop wait threshold with `OWNTRACKS_STOP_MINUTES`. If unset, it defaults to
+`10`.
 
 Useful Docker environment options:
 

@@ -6,8 +6,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import Base, OwnTracksLocation, Site, Trip
 from mileage_logger.services.mileage import (
+    FALSE_STOP_MERGED_SOURCE,
     generate_trips,
     haversine_miles,
+    mark_trip_manually_reviewed,
+    merge_false_stop_into_next_trip,
     purge_processed_owntracks_locations,
 )
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
@@ -82,6 +85,88 @@ def test_generate_trips_between_stops_that_last_at_least_ten_minutes() -> None:
     assert trips[0].ended_at == (day + timedelta(minutes=25)).replace(tzinfo=None)
 
 
+def test_generate_trips_includes_return_to_single_point_final_waypoint() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = Site(
+        name="Home",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=120,
+    )
+    client = Site(
+        name="Client",
+        latitude=Decimal("42.3440"),
+        longitude=Decimal("-83.0600"),
+        radius_m=120,
+    )
+    db.add_all(
+        [
+            home,
+            client,
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=30), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=45), "42.3441", "-83.0601"),
+            _location(day + timedelta(minutes=75), "42.3314", "-83.0458"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(
+        db,
+        day.date(),
+        day.date(),
+        as_of=day + timedelta(minutes=90),
+    )
+
+    assert len(trips) == 2
+    assert trips[0].origin_site_id == home.id
+    assert trips[0].destination_site_id == client.id
+    assert trips[1].origin_site_id == client.id
+    assert trips[1].destination_site_id == home.id
+    assert trips[1].ended_at == (day + timedelta(minutes=75)).replace(tzinfo=None)
+
+
+def test_generate_trips_allows_trip_across_midnight() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 23, 0, tzinfo=UTC)
+    client = Site(
+        name="Client",
+        latitude=Decimal("42.3440"),
+        longitude=Decimal("-83.0600"),
+        radius_m=120,
+    )
+    home = Site(
+        name="Home",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=120,
+    )
+    db.add_all(
+        [
+            client,
+            home,
+            _location(day, "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=15), "42.3441", "-83.0601"),
+            _location(day + timedelta(minutes=75), "42.3314", "-83.0458"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(
+        db,
+        day.date(),
+        (day + timedelta(days=1)).date(),
+        as_of=day + timedelta(minutes=90),
+    )
+
+    assert len(trips) == 1
+    assert trips[0].trip_date == day.date()
+    assert trips[0].origin_site_id == client.id
+    assert trips[0].destination_site_id == home.id
+
+
 def test_generate_trips_ignores_short_client_stops() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
@@ -109,7 +194,15 @@ def test_generate_trips_ignores_short_client_stops() -> None:
     )
     db.commit()
 
-    assert generate_trips(db, day.date(), day.date()) == []
+    assert (
+        generate_trips(
+            db,
+            day.date(),
+            day.date(),
+            as_of=day + timedelta(minutes=34),
+        )
+        == []
+    )
 
 
 def test_generate_trips_to_unknown_stationary_stop() -> None:
@@ -139,6 +232,36 @@ def test_generate_trips_to_unknown_stationary_stop() -> None:
     assert trips[0].destination_site_id is None
     assert "unknown stationary stop" in trips[0].notes
     assert db.scalar(select(Trip).where(Trip.id == trips[0].id)) is not None
+
+
+def test_generate_trips_does_not_treat_single_unknown_final_point_as_stop() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client_a = Site(
+        name="Client A",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=120,
+    )
+    db.add_all(
+        [
+            client_a,
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3500", "-83.0700"),
+        ]
+    )
+    db.commit()
+
+    assert (
+        generate_trips(
+            db,
+            day.date(),
+            day.date(),
+            as_of=day + timedelta(hours=2),
+        )
+        == []
+    )
 
 
 def test_generate_trips_uses_google_enriched_unknown_stop(monkeypatch) -> None:
@@ -279,3 +402,182 @@ def test_automatic_trip_processing_finalizes_and_purges_completed_days() -> None
     assert [location.captured_at for location in remaining_locations] == [
         current_day.replace(tzinfo=None)
     ]
+
+
+def test_automatic_trip_processing_handles_midnight_return_before_purge() -> None:
+    db = _session()
+    previous_day = datetime(2026, 6, 11, 23, 0, tzinfo=UTC)
+    current_day = datetime(2026, 6, 12, 0, 30, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            Site(
+                name="Home",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            _location(previous_day, "42.3440", "-83.0600"),
+            _location(previous_day + timedelta(minutes=15), "42.3441", "-83.0601"),
+            _location(previous_day + timedelta(minutes=75), "42.3314", "-83.0458"),
+        ]
+    )
+    db.commit()
+
+    result = run_automatic_trip_processing(
+        db,
+        touched_date=current_day.date(),
+        now=current_day,
+    )
+
+    trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    remaining_locations = list(db.scalars(select(OwnTracksLocation)))
+    assert result.generated == 1
+    assert result.purged_owntracks == 2
+    assert len(trips) == 1
+    assert trips[0].trip_date == previous_day.date()
+    assert trips[0].origin_site.name == "Client"
+    assert trips[0].destination_site.name == "Home"
+    assert [location.captured_at for location in remaining_locations] == [
+        (previous_day + timedelta(minutes=75)).replace(tzinfo=None)
+    ]
+
+
+def test_merge_false_stop_into_next_trip_adds_miles_and_removes_stop() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client_a = Site(
+        name="Client A",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=120,
+    )
+    false_stop = Site(
+        name="False Stop",
+        latitude=Decimal("42.3370"),
+        longitude=Decimal("-83.0520"),
+        radius_m=120,
+    )
+    client_b = Site(
+        name="Client B",
+        latitude=Decimal("42.3440"),
+        longitude=Decimal("-83.0600"),
+        radius_m=120,
+    )
+    db.add_all(
+        [
+            client_a,
+            false_stop,
+            client_b,
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3370", "-83.0520"),
+            _location(day + timedelta(minutes=38), "42.3371", "-83.0521"),
+            _location(day + timedelta(minutes=50), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=63), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+    trips = generate_trips(db, day.date(), day.date())
+    first_trip, second_trip = trips
+    expected_miles = first_trip.miles + second_trip.miles
+
+    merged_trip = merge_false_stop_into_next_trip(db, first_trip.id)
+
+    remaining_trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    assert remaining_trips == [merged_trip]
+    assert merged_trip.origin_site_id == client_a.id
+    assert merged_trip.destination_site_id == client_b.id
+    assert merged_trip.started_at == first_trip.started_at
+    assert merged_trip.ended_at == second_trip.ended_at
+    assert merged_trip.miles == expected_miles
+    assert merged_trip.include_in_report is True
+    assert merged_trip.source == FALSE_STOP_MERGED_SOURCE
+    assert "Merged false stop at False Stop" in merged_trip.notes
+
+
+def test_false_stop_merge_is_preserved_when_trips_regenerate() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client A",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="False Stop",
+                latitude=Decimal("42.3370"),
+                longitude=Decimal("-83.0520"),
+                radius_m=120,
+            ),
+            Site(
+                name="Client B",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3370", "-83.0520"),
+            _location(day + timedelta(minutes=38), "42.3371", "-83.0521"),
+            _location(day + timedelta(minutes=50), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=63), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+    trips = generate_trips(db, day.date(), day.date())
+    merged_trip = merge_false_stop_into_next_trip(db, trips[0].id)
+
+    regenerated = generate_trips(db, day.date(), day.date())
+
+    remaining_trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    assert regenerated == []
+    assert remaining_trips == [merged_trip]
+    assert remaining_trips[0].source == FALSE_STOP_MERGED_SOURCE
+
+
+def test_manually_reviewed_trip_is_preserved_when_trips_regenerate() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client A",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Client B",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=38), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+    trip = generate_trips(db, day.date(), day.date())[0]
+    trip.include_in_report = False
+    trip.notes = "Personal errand."
+    mark_trip_manually_reviewed(trip)
+    db.commit()
+
+    regenerated = generate_trips(db, day.date(), day.date())
+
+    remaining_trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    assert regenerated == []
+    assert remaining_trips == [trip]
+    assert remaining_trips[0].include_in_report is False
+    assert remaining_trips[0].notes == "Personal errand."

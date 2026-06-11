@@ -46,11 +46,33 @@ def _oldest_owntracks_date(db: Session) -> date | None:
     return captured_at.date() if captured_at is not None else None
 
 
-def _generate_for_date(db: Session, day: date, processed_dates: list[date]) -> int:
+def _generate_for_date(
+    db: Session,
+    day: date,
+    processed_dates: list[date],
+    *,
+    as_of: datetime,
+) -> int:
     if day in processed_dates:
         return 0
     processed_dates.append(day)
-    return len(generate_trips(db, day, day))
+    return len(generate_trips(db, day, day, as_of=as_of))
+
+
+def _generate_for_range(
+    db: Session,
+    start_date: date,
+    end_date: date,
+    processed_dates: list[date],
+    *,
+    as_of: datetime,
+) -> int:
+    day = start_date
+    while day <= end_date:
+        if day not in processed_dates:
+            processed_dates.append(day)
+        day += timedelta(days=1)
+    return len(generate_trips(db, start_date, end_date, as_of=as_of))
 
 
 def run_automatic_trip_processing(
@@ -68,16 +90,22 @@ def run_automatic_trip_processing(
 
     with _PROCESSING_LOCK:
         if touched_date is not None:
-            generated += _generate_for_date(db, touched_date, processed_dates)
+            generated += _generate_for_range(
+                db,
+                touched_date - timedelta(days=1),
+                touched_date,
+                processed_dates,
+                as_of=current_dt,
+            )
         elif _has_owntracks_locations_for_date(db, today):
-            generated += _generate_for_date(db, today, processed_dates)
+            generated += _generate_for_date(db, today, processed_dates, as_of=current_dt)
 
         if finalize_completed_days:
             oldest_date = _oldest_owntracks_date(db)
             if oldest_date is not None:
                 day = oldest_date
                 while day < today:
-                    generated += _generate_for_date(db, day, processed_dates)
+                    generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
                     purged += purge_processed_owntracks_locations(db, day, day, now=current_dt)
                     day += timedelta(days=1)
 
