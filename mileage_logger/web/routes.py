@@ -19,7 +19,8 @@ from mileage_logger.services.mileage import generate_trips
 from mileage_logger.services.pdf import generate_monthly_pdf
 
 router = APIRouter()
-templates = Jinja2Templates(directory=Path(__file__).resolve().parent / "templates")
+WEB_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"])
 
 
 def _current_year_month() -> tuple[int, int]:

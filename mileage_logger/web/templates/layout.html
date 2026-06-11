@@ -3,8 +3,11 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
     <title>Mileage Logger</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v=20260611-dark">
+    <style>
+      {% include "styles.css" %}
+    </style>
   </head>
   <body>
     <header class="topbar">
