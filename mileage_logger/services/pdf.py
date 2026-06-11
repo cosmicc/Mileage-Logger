@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
@@ -22,15 +22,28 @@ class TripReportRow:
     trip_date: date
     from_location: str
     to_location: str
-    started_at: datetime
-    ended_at: datetime
     start_miles: Decimal
     stop_miles: Decimal
     trip_miles: Decimal
 
 
-def calculate_reimbursement(total_miles: Decimal, effective_rate: Decimal) -> Decimal:
-    return (total_miles * effective_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+def calculate_reimbursement_gallons(total_miles: Decimal, vehicle_mpg: Decimal) -> Decimal:
+    if vehicle_mpg <= 0:
+        raise ValueError("vehicle_mpg must be greater than zero")
+    return (total_miles / vehicle_mpg).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+
+
+def calculate_reimbursement(
+    total_miles: Decimal,
+    monthly_gas_price: Decimal,
+    vehicle_mpg: Decimal,
+) -> Decimal:
+    if vehicle_mpg <= 0:
+        raise ValueError("vehicle_mpg must be greater than zero")
+    return ((total_miles / vehicle_mpg) * monthly_gas_price).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -83,8 +96,6 @@ def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
                 trip_date=trip.trip_date,
                 from_location=_origin_location(trip),
                 to_location=_destination_location(trip),
-                started_at=trip.started_at,
-                ended_at=trip.ended_at,
                 start_miles=start_miles,
                 stop_miles=stop_miles,
                 trip_miles=trip_miles,
@@ -99,7 +110,12 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     gas_price = get_or_create_monthly_price(db, year, month)
     trips = included_trips_for_month(db, year, month)
     total_miles = included_monthly_miles(db, year, month)
-    reimbursement_total = calculate_reimbursement(total_miles, gas_price.effective_rate)
+    reimbursement_gallons = calculate_reimbursement_gallons(total_miles, settings.vehicle_mpg)
+    reimbursement_total = calculate_reimbursement(
+        total_miles,
+        gas_price.average_price_per_gallon,
+        settings.vehicle_mpg,
+    )
     report_rows = trip_report_rows(trips)
 
     output_dir = Path(settings.report_output_dir)
@@ -128,15 +144,13 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
         Spacer(1, 16),
     ]
 
-    trip_rows = [["Date", "From", "To", "Depart", "Arrive", "Start Mi", "Stop Mi", "Trip Mi"]]
+    trip_rows = [["Date", "From", "To", "Start Mi", "Stop Mi", "Trip Mi"]]
     for row in report_rows:
         trip_rows.append(
             [
                 row.trip_date.isoformat(),
                 Paragraph(row.from_location, table_cell),
                 Paragraph(row.to_location, table_cell),
-                row.started_at.strftime("%H:%M"),
-                row.ended_at.strftime("%H:%M"),
                 f"{row.start_miles:.2f}",
                 f"{row.stop_miles:.2f}",
                 f"{row.trip_miles:.2f}",
@@ -144,9 +158,9 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
         )
 
     if len(trip_rows) == 1:
-        trip_rows.append(["", "No included trips", "", "", "", "0.00", "0.00", "0.00"])
+        trip_rows.append(["", "No included trips", "", "0.00", "0.00", "0.00"])
 
-    table = Table(trip_rows, repeatRows=1, colWidths=[62, 180, 180, 48, 48, 64, 64, 60])
+    table = Table(trip_rows, repeatRows=1, colWidths=[70, 210, 210, 70, 70, 70])
     table.setStyle(
         TableStyle(
             [
@@ -165,10 +179,10 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     story.append(Spacer(1, 18))
 
     summary_data = [
-        ["Michigan monthly average gas price", f"${gas_price.average_price_per_gallon:.3f}"],
-        ["Buffer", f"${gas_price.buffer_per_gallon:.2f}"],
-        ["Reimbursement rate", f"${gas_price.effective_rate:.3f}"],
+        ["Michigan Avg Monthly Gas Price", f"${gas_price.average_price_per_gallon:.3f}"],
+        ["Vehicle MPG", f"{settings.vehicle_mpg:.1f}"],
         ["Total trip miles for month", f"{total_miles:.2f}"],
+        ["Reimbursement gallons", f"{reimbursement_gallons:.3f}"],
         ["Total reimbursement", f"${reimbursement_total:.2f}"],
     ]
     summary = Table(summary_data, hAlign="RIGHT", colWidths=[220, 120])

@@ -2,11 +2,20 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from mileage_logger.models import Site, Trip
-from mileage_logger.services.pdf import calculate_reimbursement, trip_report_rows
+from mileage_logger.services.pdf import (
+    calculate_reimbursement,
+    calculate_reimbursement_gallons,
+    trip_report_rows,
+)
 
 
 def test_calculate_reimbursement_uses_requested_formula() -> None:
-    assert calculate_reimbursement(Decimal("120.50"), Decimal("4.250")) == Decimal("512.13")
+    assert calculate_reimbursement_gallons(Decimal("120.50"), Decimal("25.0")) == Decimal("4.820")
+    assert calculate_reimbursement(
+        Decimal("120.50"),
+        Decimal("4.250"),
+        Decimal("25.0"),
+    ) == Decimal("20.49")
 
 
 def test_trip_report_rows_include_monthly_start_and_stop_mileage() -> None:

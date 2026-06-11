@@ -44,6 +44,7 @@ services:
       GAS_PRICE_SOURCE: "${GAS_PRICE_SOURCE:-aaa_current}"
       EIA_API_KEY: "${EIA_API_KEY:-}"
       EIA_SERIES_ID: "${EIA_SERIES_ID:-}"
+      VEHICLE_MPG: "${VEHICLE_MPG:-25.0}"
       REPORT_OUTPUT_DIR: /data/reports
       LOG_DIR: /data/logs
     volumes:
@@ -102,6 +103,7 @@ services:
       GAS_PRICE_SOURCE: "${GAS_PRICE_SOURCE:-aaa_current}"
       EIA_API_KEY: "${EIA_API_KEY:-}"
       EIA_SERIES_ID: "${EIA_SERIES_ID:-}"
+      VEHICLE_MPG: "${VEHICLE_MPG:-25.0}"
       GAS_SNAPSHOT_INTERVAL_SECONDS: "${GAS_SNAPSHOT_INTERVAL_SECONDS:-86400}"
       GAS_SNAPSHOT_RUN_ON_STARTUP: "${GAS_SNAPSHOT_RUN_ON_STARTUP:-true}"
       REPORT_OUTPUT_DIR: /data/reports

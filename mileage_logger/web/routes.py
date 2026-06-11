@@ -81,6 +81,7 @@ def _masked_database_url(url: str) -> str:
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    settings = get_settings()
     year, month = _current_year_month()
     monthly_gas, monthly_gas_error = _monthly_gas_context(db, year, month)
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
@@ -110,6 +111,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "latest_report": latest_report,
             "monthly_gas": monthly_gas,
             "monthly_gas_error": monthly_gas_error,
+            "vehicle_mpg": settings.vehicle_mpg,
         },
     )
 
@@ -147,6 +149,7 @@ def trips(
     )
     all_trips = list(db.scalars(stmt))
     monthly_gas, monthly_gas_error = _monthly_gas_context(db, year, month)
+    settings = get_settings()
     return templates.TemplateResponse(
         request,
         "trips.html",
@@ -161,6 +164,7 @@ def trips(
             "previous_month": previous_month,
             "next_year": next_year,
             "next_month": next_month,
+            "vehicle_mpg": settings.vehicle_mpg,
         },
     )
 

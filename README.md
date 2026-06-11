@@ -20,16 +20,18 @@ monthly reimbursement PDF logs.
 
 ## Fuel Price Policy
 
-The reimbursement formula is implemented exactly as requested:
+The reimbursement formula is:
 
 ```text
-monthly included miles * (Michigan monthly average gas price + $0.50 buffer)
+monthly included miles / vehicle MPG = reimbursement gallons
+reimbursement gallons * Michigan monthly average gas price = total reimbursement
 ```
 
 The first provider can fetch the current AAA Michigan regular gasoline average and store daily
 snapshots. Monthly reports use a saved manual monthly average when present, or the average of
 stored daily snapshots for that month. Historical Michigan monthly pricing sources can be added
 behind `mileage_logger.services.gas_prices.GasPriceProvider` without changing report generation.
+Set `VEHICLE_MPG` to the fuel economy that should be used for reimbursement calculations.
 
 EIA support is scaffolded because the official API requires an API key and the exact series should
 be configured with `EIA_SERIES_ID` once the preferred Michigan data series is selected.

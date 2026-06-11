@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     gas_price_source: str = "aaa_current"
     eia_api_key: str = ""
     eia_series_id: str = ""
+    vehicle_mpg: Decimal = Field(default=Decimal("25.0"), gt=Decimal("0"))
 
     report_output_dir: str = "reports"
     log_dir: str = "logs"

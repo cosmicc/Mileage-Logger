@@ -23,6 +23,8 @@
       <dd><span class="pill {{ 'good' if settings.mqtt_enabled else 'muted' }}">{{ "Yes" if settings.mqtt_enabled else "No" }}</span></dd>
       <dt>Gas Source</dt>
       <dd>{{ settings.gas_price_source }}</dd>
+      <dt>Vehicle MPG</dt>
+      <dd>{{ "%.1f"|format(settings.vehicle_mpg) }}</dd>
     </dl>
   </div>
 

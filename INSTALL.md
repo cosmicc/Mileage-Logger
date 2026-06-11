@@ -89,6 +89,7 @@ GOOGLE_PLACES_AUTO_CREATE_SITES=true
 REPORT_OUTPUT_DIR=/data/reports
 LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
+VEHICLE_MPG=25.0
 ```
 
 The generated `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are what you enter in OwnTracks HTTP
@@ -301,11 +302,18 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 4. Let OwnTracks collect location points.
 5. Generate trips from the dashboard.
 6. Open `Trips`, choose the report month, review trips, and uncheck personal drives.
-7. Add or fetch the monthly gas price for that month.
+7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.
 
 Older months can be selected from the `Trips` page. The PDF can be generated for any month that has
 included trips and a saved monthly gas price or daily gas snapshots for that month.
+
+Reimbursement is calculated as:
+
+```text
+total included trip miles / VEHICLE_MPG = reimbursement gallons
+reimbursement gallons * Michigan monthly average gas price = total reimbursement
+```
 
 PDF reports are stored in the Docker volume `reports_data` at `/data/reports` inside the app
 container.

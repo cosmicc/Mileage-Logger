@@ -24,6 +24,10 @@
     <span>MI Monthly Avg Gas</span>
     <strong>{% if monthly_gas %}${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
   </div>
+  <div class="stat">
+    <span>Vehicle MPG</span>
+    <strong>{{ "%.1f"|format(vehicle_mpg) }}</strong>
+  </div>
 </section>
 
 <section class="panel split-panel">
@@ -38,6 +42,7 @@
     <p class="summary-line warning">Gas price unavailable.</p>
     <p>{{ monthly_gas_error or "The next gas snapshot will try again automatically." }}</p>
     {% endif %}
+    <p>Vehicle MPG: {{ "%.1f"|format(vehicle_mpg) }}.</p>
   </div>
   <form action="/gas-prices/refresh" method="post">
     <input type="hidden" name="next_url" value="/">
