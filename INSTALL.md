@@ -77,6 +77,7 @@ Important values:
 
 ```env
 HTTP_PORT=80
+WEB_ALLOWED_CIDRS=
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 REPORT_OUTPUT_DIR=/data/reports
@@ -86,6 +87,30 @@ GAS_PRICE_SOURCE=aaa_current
 
 The generated `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are what you enter in OwnTracks HTTP
 mode.
+
+## Restrict Web UI By IP
+
+The nginx container can leave OwnTracks/API endpoints open while restricting the browser UI to
+specific IP blocks.
+
+Set `WEB_ALLOWED_CIDRS` to comma-separated CIDR blocks:
+
+```env
+WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
+```
+
+With this set:
+
+- `/api/` remains reachable from any IP so OwnTracks can keep sending data.
+- `/`, `/trips`, `/sites`, `/diagnostics`, `/static/`, and other web UI paths require a matching
+  client IP.
+
+Leave `WEB_ALLOWED_CIDRS` blank to keep the current behavior and allow all clients to access the
+web UI.
+
+If this stack is behind another reverse proxy, nginx will usually see that proxy's IP address
+instead of the original client IP. In that setup, enforce IP restrictions at the outer proxy or
+include the proxy's address in `WEB_ALLOWED_CIDRS`.
 
 ## Start The Stack
 
@@ -146,7 +171,8 @@ docker-compose.yml
    - `DATABASE_URL`
    - `OWNTRACKS_API_TOKEN`
    - `OWNTRACKS_PASSWORD`
-8. Deploy the stack.
+8. Optional: set `WEB_ALLOWED_CIDRS` to restrict web UI access while keeping `/api/` open.
+9. Deploy the stack.
 
 If you change `POSTGRES_PASSWORD`, make sure `DATABASE_URL` uses the same password:
 
@@ -192,10 +218,10 @@ http://your-server/api/owntracks
 You can also use the Recorder-compatible endpoint:
 
 ```text
-http://your-server/pub
+http://your-server/api/pub
 ```
 
-The app supports both `/api/owntracks` and `/pub`.
+The app supports both `/api/owntracks` and `/api/pub`.
 
 ## Test Ingestion
 
@@ -389,3 +415,6 @@ Then restart:
 ```bash
 docker compose up -d
 ```
+
+If the web UI returns `403 Forbidden`, your client IP does not match `WEB_ALLOWED_CIDRS`.
+The `/api/health` endpoint should still be reachable because API paths are intentionally open.

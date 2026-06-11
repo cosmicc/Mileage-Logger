@@ -8,7 +8,7 @@ monthly reimbursement PDF logs.
 
 - FastAPI web app with server-rendered review screens.
 - PostgreSQL models and Alembic migration.
-- OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/pub`.
+- OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/+/+` topics.
 - Work-site geofence model used to turn location points into daily trips.
 - Manual include/exclude controls for personal drives.
@@ -56,6 +56,7 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Daily gas price snapshot worker.
 - Persistent Docker volumes for database data and generated PDF reports.
 - In-app diagnostics page for app and gas price query logs.
+- Optional web UI IP allowlist while keeping `/api/` reachable for OwnTracks.
 
 Create a production `.env` with generated passwords:
 
@@ -95,6 +96,17 @@ http://owntracks:password@your-server/api/owntracks
 For internet-facing use, put TLS in front of this stack or extend the Nginx container
 with certificates so OwnTracks sends location data over HTTPS.
 
+To restrict the browser UI while leaving OwnTracks/API access open, set `WEB_ALLOWED_CIDRS`
+to comma-separated IP blocks:
+
+```env
+WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
+```
+
+When this is blank, the web UI is open to all clients. When set, `/api/` stays reachable from any
+IP, but pages such as `/`, `/trips`, `/sites`, `/diagnostics`, and `/static/` require a matching
+client IP.
+
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
 ## OwnTracks HTTP Setup
@@ -108,7 +120,7 @@ https://your-host.example.com/api/owntracks
 If `OWNTRACKS_API_TOKEN` is set, send it as `X-Api-Key` or `Authorization: Bearer ...`.
 If `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are set, use OwnTracks HTTP Basic Auth.
 
-The `/pub` alias is also available for Recorder-style setups.
+The `/api/pub` alias is also available for Recorder-style setups.
 
 ## MQTT Setup
 
