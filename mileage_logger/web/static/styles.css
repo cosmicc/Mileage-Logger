@@ -400,6 +400,28 @@ td input[type="text"] {
   overflow-wrap: anywhere;
 }
 
+.payload-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 850;
+}
+
+.payload-details pre {
+  width: min(520px, 72vw);
+  max-height: 260px;
+  margin: 10px 0 0;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d0c0a;
+  color: #d8d0c1;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .log-panel pre {
   max-height: 360px;
   margin: 0;

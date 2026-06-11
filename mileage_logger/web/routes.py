@@ -238,6 +238,13 @@ def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse
     latest_report = db.scalar(
         select(MonthlyReport).order_by(MonthlyReport.created_at.desc()).limit(1)
     )
+    recent_locations = list(
+        db.scalars(
+            select(OwnTracksLocation)
+            .order_by(OwnTracksLocation.received_at.desc(), OwnTracksLocation.id.desc())
+            .limit(20)
+        )
+    )
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
@@ -253,6 +260,7 @@ def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse
             "latest_snapshot": latest_snapshot,
             "latest_monthly_gas": latest_monthly_gas,
             "latest_report": latest_report,
+            "recent_locations": recent_locations,
             "app_log_lines": _tail_file(log_dir / "app.log"),
             "gas_log_lines": _tail_file(log_dir / "gas-snapshot.log"),
         },

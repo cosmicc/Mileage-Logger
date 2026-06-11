@@ -57,6 +57,47 @@
   </div>
 </section>
 
+<section class="panel">
+  <h2>Recent OwnTracks Entries</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Captured</th>
+        <th>Received</th>
+        <th>User / Device</th>
+        <th>Coordinates</th>
+        <th>Accuracy</th>
+        <th>Battery</th>
+        <th>Topic</th>
+        <th>Payload</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for location in recent_locations %}
+      <tr>
+        <td>{{ location.id }}</td>
+        <td>{{ location.captured_at }}</td>
+        <td>{{ location.received_at }}</td>
+        <td>{{ location.user or "-" }} / {{ location.device or "-" }}</td>
+        <td>{{ location.latitude }}, {{ location.longitude }}</td>
+        <td>{{ location.accuracy_m if location.accuracy_m is not none else "-" }}</td>
+        <td>{{ location.battery_percent if location.battery_percent is not none else "-" }}</td>
+        <td>{{ location.topic or "-" }}</td>
+        <td>
+          <details class="payload-details">
+            <summary>View</summary>
+            <pre>{{ location.raw_payload | tojson(indent=2) }}</pre>
+          </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9">No OwnTracks database entries found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
 <section class="panel log-panel">
   <h2>App Log</h2>
   <pre>{% for line in app_log_lines %}{{ line }}
