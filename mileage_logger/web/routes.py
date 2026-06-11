@@ -186,6 +186,28 @@ def create_site_form(
     return RedirectResponse(url="/sites", status_code=303)
 
 
+@router.post("/sites/{site_id}")
+def update_site_form(
+    site_id: int,
+    name: str = Form(...),
+    latitude: Decimal = Form(...),
+    longitude: Decimal = Form(...),
+    radius_m: int = Form(...),
+    active: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    site = db.get(Site, site_id)
+    if site is None:
+        raise HTTPException(status_code=404, detail="Site not found")
+    site.name = name
+    site.latitude = latitude
+    site.longitude = longitude
+    site.radius_m = radius_m
+    site.active = active == "on"
+    db.commit()
+    return RedirectResponse(url="/sites", status_code=303)
+
+
 @router.post("/gas-prices/refresh")
 def refresh_gas_price_form(
     next_url: str = Form(default="/"),

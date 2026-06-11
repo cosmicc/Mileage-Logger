@@ -271,6 +271,26 @@ input.compact {
   min-width: 92px;
 }
 
+.site-name-input {
+  width: min(240px, 28vw);
+}
+
+.coordinate-input {
+  width: 150px;
+  min-width: 150px;
+}
+
+.radius-input {
+  width: 96px;
+  min-width: 96px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 button {
   min-height: 40px;
   padding: 9px 15px;

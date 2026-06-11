@@ -28,19 +28,30 @@
         <th>Longitude</th>
         <th>Radius</th>
         <th>Status</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for site in sites %}
+      {% set form_id = "site-form-" ~ site.id %}
       <tr>
-        <td>{{ site.name }}</td>
-        <td>{{ site.latitude }}</td>
-        <td>{{ site.longitude }}</td>
-        <td>{{ site.radius_m }} m</td>
-        <td><span class="pill {{ 'good' if site.active else 'muted' }}">{{ "Active" if site.active else "Inactive" }}</span></td>
+        <td>
+          <form id="{{ form_id }}" action="/sites/{{ site.id }}" method="post"></form>
+          <input form="{{ form_id }}" class="site-name-input" type="text" name="name" value="{{ site.name }}" required>
+        </td>
+        <td><input form="{{ form_id }}" class="coordinate-input" type="number" name="latitude" step="0.0000001" value="{{ site.latitude }}" required></td>
+        <td><input form="{{ form_id }}" class="coordinate-input" type="number" name="longitude" step="0.0000001" value="{{ site.longitude }}" required></td>
+        <td><input form="{{ form_id }}" class="radius-input" type="number" name="radius_m" min="1" value="{{ site.radius_m }}" required></td>
+        <td>
+          <label class="checkbox-label">
+            <input form="{{ form_id }}" type="checkbox" name="active" {% if site.active %}checked{% endif %}>
+            <span class="pill {{ 'good' if site.active else 'muted' }}">{{ "Active" if site.active else "Inactive" }}</span>
+          </label>
+        </td>
+        <td><button form="{{ form_id }}" type="submit">Save</button></td>
       </tr>
       {% else %}
-      <tr><td colspan="5">No sites configured yet.</td></tr>
+      <tr><td colspan="6">No sites configured yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
