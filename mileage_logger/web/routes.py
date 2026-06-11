@@ -28,8 +28,8 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import (
     FalseStopMergeError,
-    mark_trip_manually_reviewed,
     merge_false_stop_into_next_trip,
+    update_trip_location_names,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
 
@@ -169,18 +169,14 @@ def trips(
 @router.post("/trips/{trip_id}")
 def update_trip_form(
     trip_id: int,
-    miles: Decimal = Form(...),
-    include_in_report: str | None = Form(default=None),
-    notes: str = Form(default=""),
+    origin_name: str = Form(...),
+    destination_name: str = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    trip.miles = miles.quantize(Decimal("0.01"))
-    trip.include_in_report = include_in_report == "on"
-    trip.notes = notes
-    mark_trip_manually_reviewed(trip)
+    update_trip_location_names(trip, origin_name, destination_name)
     db.commit()
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",

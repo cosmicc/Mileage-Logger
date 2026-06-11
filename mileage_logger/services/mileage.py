@@ -7,7 +7,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
-from mileage_logger.models import OwnTracksLocation, Site, Trip
+from mileage_logger.models import (
+    OwnTracksLocation,
+    Site,
+    Trip,
+    UNKNOWN_LOCATION_NAME,
+    normalize_location_name,
+)
 from mileage_logger.services.places import create_site_from_google_place
 
 METERS_PER_MILE = Decimal("1609.344")
@@ -279,6 +285,12 @@ def _trip_notes(origin: StopVisit, destination: StopVisit, minimum_minutes: int)
     return " ".join(notes)
 
 
+def _stop_location_name(stop: StopVisit) -> str:
+    if stop.site is not None:
+        return stop.site.name
+    return UNKNOWN_LOCATION_NAME
+
+
 def _enrich_unknown_stops(db: Session, stops: list[StopVisit]) -> None:
     for stop in stops:
         if stop.site is not None:
@@ -384,6 +396,8 @@ def generate_trips(
             start_longitude=origin.ended_location.longitude,
             end_latitude=destination.started_location.latitude,
             end_longitude=destination.started_location.longitude,
+            origin_name=_stop_location_name(origin),
+            destination_name=_stop_location_name(destination),
             miles=miles,
             include_in_report=True,
             source=AUTO_TRIP_SOURCE,
@@ -401,6 +415,12 @@ def generate_trips(
 def mark_trip_manually_reviewed(trip: Trip) -> None:
     if trip.source == AUTO_TRIP_SOURCE:
         trip.source = MANUAL_TRIP_SOURCE
+
+
+def update_trip_location_names(trip: Trip, origin_name: str, destination_name: str) -> None:
+    trip.origin_name = normalize_location_name(origin_name)
+    trip.destination_name = normalize_location_name(destination_name)
+    mark_trip_manually_reviewed(trip)
 
 
 def _append_note(existing_notes: str | None, note: str) -> str:
@@ -424,9 +444,7 @@ def merge_false_stop_into_next_trip(db: Session, trip_id: int) -> Trip:
     if next_trip is None:
         raise FalseStopMergeError("No later trip is available to merge into")
 
-    false_stop_name = (
-        false_stop_trip.destination_site.name if false_stop_trip.destination_site else "Unknown"
-    )
+    false_stop_name = false_stop_trip.destination_display_name
     merged_miles = (false_stop_trip.miles + next_trip.miles).quantize(
         Decimal("0.01"),
         rounding=ROUND_HALF_UP,
@@ -434,6 +452,7 @@ def merge_false_stop_into_next_trip(db: Session, trip_id: int) -> Trip:
 
     next_trip.trip_date = false_stop_trip.trip_date
     next_trip.origin_site_id = false_stop_trip.origin_site_id
+    next_trip.origin_name = false_stop_trip.origin_display_name
     next_trip.started_at = false_stop_trip.started_at
     next_trip.start_latitude = false_stop_trip.start_latitude
     next_trip.start_longitude = false_stop_trip.start_longitude

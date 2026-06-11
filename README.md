@@ -199,7 +199,7 @@ and set `GOOGLE_PLACES_API_KEY` if you want unknown client stops named automatic
 1. Create work sites in the `Sites` page with latitude, longitude, and geofence radius.
 2. Send OwnTracks data through HTTP or MQTT.
 3. Let the app automatically create trips from incoming OwnTracks data.
-4. Review `Trips`, switch to the needed month, edit miles/notes, and exclude personal drives.
+4. Review `Trips`, switch to the needed month, and edit the start/end location names if needed.
 5. Add or fetch a monthly gas price for that report month.
 6. Download the monthly PDF report from the `Trips` page.
 

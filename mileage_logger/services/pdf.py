@@ -22,8 +22,6 @@ class TripReportRow:
     trip_date: date
     from_location: str
     to_location: str
-    start_miles: Decimal
-    stop_miles: Decimal
     trip_miles: Decimal
 
 
@@ -66,38 +64,25 @@ def included_trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
 
 
 def _origin_location(trip: Trip) -> str:
-    if trip.origin_site is not None:
-        return trip.origin_site.name
-    return "Unknown"
+    return trip.origin_display_name
 
 
 def _destination_location(trip: Trip) -> str:
-    if trip.destination_site is not None:
-        return trip.destination_site.name
-    return "Unknown"
+    return trip.destination_display_name
 
 
 def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
     rows: list[TripReportRow] = []
-    running_miles = Decimal("0.00")
     for trip in trips:
         trip_miles = Decimal(trip.miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        start_miles = running_miles
-        stop_miles = (running_miles + trip_miles).quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP,
-        )
         rows.append(
             TripReportRow(
                 trip_date=trip.trip_date,
                 from_location=_origin_location(trip),
                 to_location=_destination_location(trip),
-                start_miles=start_miles,
-                stop_miles=stop_miles,
                 trip_miles=trip_miles,
             )
         )
-        running_miles = stop_miles
     return rows
 
 
@@ -140,23 +125,21 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
         Spacer(1, 16),
     ]
 
-    trip_rows = [["Date", "From", "To", "Start Mi", "Stop Mi", "Trip Mi"]]
+    trip_rows = [["Date", "From", "To", "Trip Mi"]]
     for row in report_rows:
         trip_rows.append(
             [
                 row.trip_date.isoformat(),
                 Paragraph(row.from_location, table_cell),
                 Paragraph(row.to_location, table_cell),
-                f"{row.start_miles:.2f}",
-                f"{row.stop_miles:.2f}",
                 f"{row.trip_miles:.2f}",
             ]
         )
 
     if len(trip_rows) == 1:
-        trip_rows.append(["", "No included trips", "", "0.00", "0.00", "0.00"])
+        trip_rows.append(["", "No included trips", "", "0.00"])
 
-    table = Table(trip_rows, repeatRows=1, colWidths=[70, 210, 210, 70, 70, 70])
+    table = Table(trip_rows, repeatRows=1, colWidths=[80, 280, 280, 80])
     table.setStyle(
         TableStyle(
             [

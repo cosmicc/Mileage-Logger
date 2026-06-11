@@ -12,6 +12,7 @@ from mileage_logger.services.mileage import (
     mark_trip_manually_reviewed,
     merge_false_stop_into_next_trip,
     purge_processed_owntracks_locations,
+    update_trip_location_names,
 )
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
 
@@ -81,6 +82,8 @@ def test_generate_trips_between_stops_that_last_at_least_ten_minutes() -> None:
     assert len(trips) == 1
     assert trips[0].origin_site_id == client_a.id
     assert trips[0].destination_site_id == client_b.id
+    assert trips[0].origin_display_name == "Client A"
+    assert trips[0].destination_display_name == "Client B"
     assert trips[0].started_at == (day + timedelta(minutes=12)).replace(tzinfo=None)
     assert trips[0].ended_at == (day + timedelta(minutes=25)).replace(tzinfo=None)
 
@@ -581,3 +584,40 @@ def test_manually_reviewed_trip_is_preserved_when_trips_regenerate() -> None:
     assert remaining_trips == [trip]
     assert remaining_trips[0].include_in_report is False
     assert remaining_trips[0].notes == "Personal errand."
+
+
+def test_edited_trip_location_names_are_preserved_when_trips_regenerate() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client A",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Client B",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=38), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+    trip = generate_trips(db, day.date(), day.date())[0]
+    update_trip_location_names(trip, "Edited Start", "Edited End")
+    db.commit()
+
+    regenerated = generate_trips(db, day.date(), day.date())
+
+    remaining_trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    assert regenerated == []
+    assert remaining_trips == [trip]
+    assert remaining_trips[0].origin_display_name == "Edited Start"
+    assert remaining_trips[0].destination_display_name == "Edited End"

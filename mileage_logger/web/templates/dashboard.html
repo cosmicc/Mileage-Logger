@@ -72,8 +72,8 @@
       {% for trip in recent_trips %}
       <tr>
         <td>{{ trip.trip_date }}</td>
-        <td>{{ trip.origin_site.name if trip.origin_site else "Unknown" }}</td>
-        <td>{{ trip.destination_site.name if trip.destination_site else "Unknown" }}</td>
+        <td>{{ trip.origin_display_name }}</td>
+        <td>{{ trip.destination_display_name }}</td>
         <td>{{ "%.2f"|format(trip.miles) }}</td>
         <td><span class="pill {{ 'good' if trip.include_in_report else 'muted' }}">{{ "Yes" if trip.include_in_report else "No" }}</span></td>
       </tr>

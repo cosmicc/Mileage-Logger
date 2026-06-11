@@ -31,9 +31,8 @@ class LocationRead(BaseModel):
 
 
 class TripUpdate(BaseModel):
-    miles: Decimal | None = Field(default=None, ge=0)
-    include_in_report: bool | None = None
-    notes: str | None = None
+    origin_name: str = Field(min_length=1, max_length=160)
+    destination_name: str = Field(min_length=1, max_length=160)
 
 
 class TripRead(BaseModel):
@@ -43,6 +42,8 @@ class TripRead(BaseModel):
     trip_date: date
     started_at: datetime
     ended_at: datetime
+    origin_name: str | None
+    destination_name: str | None
     miles: Decimal
     include_in_report: bool
     source: str

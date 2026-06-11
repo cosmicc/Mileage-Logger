@@ -56,8 +56,6 @@
         <th>To</th>
         <th>Time</th>
         <th>Miles</th>
-        <th>Include</th>
-        <th>Notes</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -69,12 +67,10 @@
           <form id="{{ form_id }}" action="/trips/{{ trip.id }}" method="post"></form>
           {{ trip.trip_date }}
         </td>
-        <td>{{ trip.origin_site.name if trip.origin_site else "Unknown" }}</td>
-        <td>{{ trip.destination_site.name if trip.destination_site else "Unknown" }}</td>
+        <td><input form="{{ form_id }}" type="text" name="origin_name" maxlength="160" required value="{{ trip.origin_display_name }}"></td>
+        <td><input form="{{ form_id }}" type="text" name="destination_name" maxlength="160" required value="{{ trip.destination_display_name }}"></td>
         <td>{{ trip.started_at.strftime("%H:%M") }} - {{ trip.ended_at.strftime("%H:%M") }}</td>
-        <td><input form="{{ form_id }}" class="compact" type="number" name="miles" min="0" step="0.01" value="{{ "%.2f"|format(trip.miles) }}"></td>
-        <td><input form="{{ form_id }}" type="checkbox" name="include_in_report" {% if trip.include_in_report %}checked{% endif %}></td>
-        <td><input form="{{ form_id }}" type="text" name="notes" value="{{ trip.notes }}"></td>
+        <td>{{ "%.2f"|format(trip.miles) }}</td>
         <td>
           <button form="{{ form_id }}" type="submit">Save</button>
           <form action="/trips/{{ trip.id }}/false-stop" method="post">
@@ -83,7 +79,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="8">No trips for this month.</td></tr>
+      <tr><td colspan="6">No trips for this month.</td></tr>
       {% endfor %}
     </tbody>
   </table>

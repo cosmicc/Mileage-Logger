@@ -4,6 +4,13 @@ from decimal import Decimal
 from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+UNKNOWN_LOCATION_NAME = "Unknown"
+
+
+def normalize_location_name(value: str | None) -> str:
+    cleaned = (value or "").strip()
+    return cleaned or UNKNOWN_LOCATION_NAME
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -62,6 +69,8 @@ class Trip(Base):
     start_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     end_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     end_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    origin_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    destination_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     miles: Mapped[Decimal] = mapped_column(Numeric(9, 2))
     include_in_report: Mapped[bool] = mapped_column(Boolean, default=True)
     source: Mapped[str] = mapped_column(String(40), default="auto")
@@ -77,6 +86,22 @@ class Trip(Base):
     destination_site: Mapped[Site | None] = relationship(
         back_populates="destination_trips", foreign_keys=[destination_site_id]
     )
+
+    @property
+    def origin_display_name(self) -> str:
+        if self.origin_name and self.origin_name.strip():
+            return self.origin_name.strip()
+        if self.origin_site is not None:
+            return self.origin_site.name
+        return UNKNOWN_LOCATION_NAME
+
+    @property
+    def destination_display_name(self) -> str:
+        if self.destination_name and self.destination_name.strip():
+            return self.destination_name.strip()
+        if self.destination_site is not None:
+            return self.destination_site.name
+        return UNKNOWN_LOCATION_NAME
 
 
 class GasPriceSnapshot(Base):
