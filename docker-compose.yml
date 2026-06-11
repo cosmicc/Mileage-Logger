@@ -38,8 +38,10 @@ services:
       EIA_API_KEY: "${EIA_API_KEY:-}"
       EIA_SERIES_ID: "${EIA_SERIES_ID:-}"
       REPORT_OUTPUT_DIR: /data/reports
+      LOG_DIR: /data/logs
     volumes:
       - reports_data:/data/reports
+      - logs_data:/data/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -90,9 +92,11 @@ services:
       GAS_SNAPSHOT_INTERVAL_SECONDS: "${GAS_SNAPSHOT_INTERVAL_SECONDS:-86400}"
       GAS_SNAPSHOT_RUN_ON_STARTUP: "${GAS_SNAPSHOT_RUN_ON_STARTUP:-true}"
       REPORT_OUTPUT_DIR: /data/reports
+      LOG_DIR: /data/logs
       RUN_MIGRATIONS: "false"
     volumes:
       - reports_data:/data/reports
+      - logs_data:/data/logs
     depends_on:
       app:
         condition: service_healthy
@@ -101,3 +105,4 @@ services:
 volumes:
   postgres_data:
   reports_data:
+  logs_data:

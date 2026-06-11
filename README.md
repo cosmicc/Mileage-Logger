@@ -55,6 +55,7 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Nginx reverse proxy on port `80`.
 - Daily gas price snapshot worker.
 - Persistent Docker volumes for database data and generated PDF reports.
+- In-app diagnostics page for app and gas price query logs.
 
 Create a production `.env` with generated passwords:
 

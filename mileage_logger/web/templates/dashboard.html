@@ -21,9 +21,28 @@
     <strong>{{ trip_count }}</strong>
   </div>
   <div class="stat">
-    <span>Latest Report</span>
-    <strong>{% if latest_report %}${{ "%.2f"|format(latest_report.reimbursement_total) }}{% else %}None{% endif %}</strong>
+    <span>MI Monthly Avg Gas</span>
+    <strong>{% if monthly_gas %}${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
   </div>
+</section>
+
+<section class="panel split-panel">
+  <div>
+    <h2>Current Gas Price</h2>
+    {% if monthly_gas %}
+    <p class="summary-line">
+      Michigan monthly average is ${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }} per gallon.
+    </p>
+    <p>Source: {{ monthly_gas.source_detail }}.</p>
+    {% else %}
+    <p class="summary-line warning">Gas price unavailable.</p>
+    <p>{{ monthly_gas_error or "The next gas snapshot will try again automatically." }}</p>
+    {% endif %}
+  </div>
+  <form action="/gas-prices/refresh" method="post">
+    <input type="hidden" name="next_url" value="/">
+    <button type="submit">Refresh Online Price</button>
+  </form>
 </section>
 
 <section class="panel">

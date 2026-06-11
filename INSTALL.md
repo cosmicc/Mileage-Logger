@@ -6,6 +6,7 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 - `app`: FastAPI mileage logger.
 - `nginx`: reverse proxy that serves the web app on HTTP port `80`.
 - `gas-snapshot`: daily Michigan gas price snapshot worker.
+- `logs_data`: shared Docker volume for diagnostics logs.
 
 ## Requirements
 
@@ -64,6 +65,7 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `POSTGRES_PASSWORD`
 - `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
+  - `LOG_DIR`
 
 Review the file before starting:
 
@@ -78,6 +80,7 @@ HTTP_PORT=80
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 REPORT_OUTPUT_DIR=/data/reports
+LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
 ```
 
@@ -155,6 +158,14 @@ DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage
 The app will receive configuration from the environment variables imported into the Portainer
 stack.
 
+The diagnostics page is available at:
+
+```text
+http://your-server/diagnostics
+```
+
+It shows app status, recent database records, recent app logs, and recent gas price query logs.
+
 ## Configure OwnTracks
 
 In OwnTracks on Android:
@@ -224,6 +235,9 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 PDF reports are stored in the Docker volume `reports_data` at `/data/reports` inside the app
 container.
 
+Runtime logs are stored in the Docker volume `logs_data` at `/data/logs` inside the app and
+gas-snapshot containers.
+
 ## Gas Price Worker
 
 The `gas-snapshot` service runs:
@@ -247,6 +261,8 @@ View gas worker logs:
 ```bash
 docker compose logs -f gas-snapshot
 ```
+
+You can also view recent gas price query logs from the in-app `Diagnostics` page.
 
 ## MQTT Mode
 

@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.models import GasPriceSnapshot, MonthlyGasPrice
+
+logger = logging.getLogger(__name__)
 
 
 class GasPriceUnavailable(RuntimeError):
@@ -35,14 +38,18 @@ class GasPriceProvider:
 class AaaMichiganGasPriceProvider(GasPriceProvider):
     source_name = "aaa_current"
     url = "https://gasprices.aaa.com/?state=MI"
+    headers = {"User-Agent": "MileageLogger/0.1"}
 
     def current_regular_price(self, state: str) -> GasPriceReading:
         if state.upper() != "MI":
             raise GasPriceUnavailable("AAA provider is configured only for Michigan")
 
-        response = httpx.get(self.url, timeout=20)
+        logger.info("Fetching AAA Michigan gas price from %s", self.url)
+        response = httpx.get(self.url, headers=self.headers, timeout=20)
         response.raise_for_status()
-        match = re.search(r"Current Avg\.\s*\$([0-9]+\.[0-9]+)", response.text)
+        match = re.search(r"Current Avg\.</td>\s*<td>\$([0-9]+\.[0-9]+)</td>", response.text)
+        if match is None:
+            match = re.search(r"Current Avg\.\s*\$([0-9]+\.[0-9]+)", response.text)
         if not match:
             raise GasPriceUnavailable("Could not locate the Michigan current regular gas price")
 
@@ -65,6 +72,7 @@ class EiaSeriesProvider(GasPriceProvider):
             raise GasPriceUnavailable("EIA_API_KEY and EIA_SERIES_ID are required")
 
         url = f"https://api.eia.gov/v2/seriesid/{settings.eia_series_id}"
+        logger.info("Fetching EIA gas price series=%s", settings.eia_series_id)
         response = httpx.get(url, params={"api_key": settings.eia_api_key}, timeout=20)
         response.raise_for_status()
         data = response.json()
@@ -117,6 +125,13 @@ def save_daily_snapshot(db: Session, reading: GasPriceReading) -> GasPriceSnapsh
         snapshot.source_detail = reading.source_detail
     db.commit()
     db.refresh(snapshot)
+    logger.info(
+        "Saved gas price snapshot state=%s date=%s price=%s source=%s",
+        snapshot.state,
+        snapshot.observed_on,
+        snapshot.price_per_gallon,
+        snapshot.source,
+    )
     return snapshot
 
 
@@ -126,7 +141,7 @@ def fetch_and_save_current_snapshot(db: Session) -> GasPriceSnapshot:
     return save_daily_snapshot(db, reading)
 
 
-def upsert_manual_monthly_price(
+def upsert_monthly_price(
     db: Session,
     *,
     year: int,
@@ -134,7 +149,8 @@ def upsert_manual_monthly_price(
     state: str,
     average_price_per_gallon: Decimal,
     buffer_per_gallon: Decimal,
-    source_detail: str = "manual",
+    source: str,
+    source_detail: str,
 ) -> MonthlyGasPrice:
     state = state.upper()
     effective_rate = (average_price_per_gallon + buffer_per_gallon).quantize(Decimal("0.001"))
@@ -153,7 +169,7 @@ def upsert_manual_monthly_price(
             average_price_per_gallon=average_price_per_gallon,
             buffer_per_gallon=buffer_per_gallon,
             effective_rate=effective_rate,
-            source="manual",
+            source=source,
             source_detail=source_detail,
         )
         db.add(monthly)
@@ -161,11 +177,41 @@ def upsert_manual_monthly_price(
         monthly.average_price_per_gallon = average_price_per_gallon
         monthly.buffer_per_gallon = buffer_per_gallon
         monthly.effective_rate = effective_rate
-        monthly.source = "manual"
+        monthly.source = source
         monthly.source_detail = source_detail
     db.commit()
     db.refresh(monthly)
+    logger.info(
+        "Saved monthly gas price state=%s year=%s month=%s average=%s source=%s",
+        monthly.state,
+        monthly.year,
+        monthly.month,
+        monthly.average_price_per_gallon,
+        monthly.source,
+    )
     return monthly
+
+
+def upsert_manual_monthly_price(
+    db: Session,
+    *,
+    year: int,
+    month: int,
+    state: str,
+    average_price_per_gallon: Decimal,
+    buffer_per_gallon: Decimal,
+    source_detail: str = "manual",
+) -> MonthlyGasPrice:
+    return upsert_monthly_price(
+        db,
+        year=year,
+        month=month,
+        state=state,
+        average_price_per_gallon=average_price_per_gallon,
+        buffer_per_gallon=buffer_per_gallon,
+        source="manual",
+        source_detail=source_detail,
+    )
 
 
 def monthly_price_from_snapshots(db: Session, year: int, month: int, state: str) -> Decimal | None:
@@ -207,12 +253,37 @@ def get_or_create_monthly_price(db: Session, year: int, month: int) -> MonthlyGa
             "No monthly gas price is available. Add one manually or collect daily snapshots."
         )
 
-    return upsert_manual_monthly_price(
+    return upsert_monthly_price(
         db,
         year=year,
         month=month,
         state=state,
         average_price_per_gallon=average,
         buffer_per_gallon=settings.gas_price_buffer,
+        source="snapshot_average",
         source_detail="average of stored daily snapshots",
+    )
+
+
+def refresh_current_monthly_price(db: Session) -> MonthlyGasPrice:
+    settings = get_settings()
+    snapshot = fetch_and_save_current_snapshot(db)
+    average = monthly_price_from_snapshots(
+        db,
+        snapshot.observed_on.year,
+        snapshot.observed_on.month,
+        snapshot.state,
+    )
+    if average is None:
+        raise GasPriceUnavailable("No gas price snapshots are available for the current month")
+
+    return upsert_monthly_price(
+        db,
+        year=snapshot.observed_on.year,
+        month=snapshot.observed_on.month,
+        state=snapshot.state,
+        average_price_per_gallon=average,
+        buffer_per_gallon=settings.gas_price_buffer,
+        source="online_snapshot_average",
+        source_detail=f"average of stored online snapshots; latest {snapshot.source_detail}",
     )

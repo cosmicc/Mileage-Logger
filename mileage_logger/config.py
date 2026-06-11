@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     eia_series_id: str = ""
 
     report_output_dir: str = "reports"
+    log_dir: str = "logs"
     min_trip_miles: Decimal = Field(default=Decimal("0.10"), ge=Decimal("0"))
 
 

@@ -1,0 +1,73 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Diagnostics</h1>
+    <p>Runtime status, data counts, and recent app/gas query logs.</p>
+  </div>
+</section>
+
+<section class="diagnostics-grid">
+  <div class="panel">
+    <h2>Application</h2>
+    <dl class="diagnostic-list">
+      <dt>Environment</dt>
+      <dd>{{ settings.app_env }}</dd>
+      <dt>Database</dt>
+      <dd>{{ database_url }}</dd>
+      <dt>Report Directory</dt>
+      <dd>{{ settings.report_output_dir }}</dd>
+      <dt>Log Directory</dt>
+      <dd>{{ settings.log_dir }}</dd>
+      <dt>MQTT Enabled</dt>
+      <dd><span class="pill {{ 'good' if settings.mqtt_enabled else 'muted' }}">{{ "Yes" if settings.mqtt_enabled else "No" }}</span></dd>
+      <dt>Gas Source</dt>
+      <dd>{{ settings.gas_price_source }}</dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2>Data</h2>
+    <dl class="diagnostic-list">
+      <dt>Location Points</dt>
+      <dd>{{ location_count }}</dd>
+      <dt>Sites</dt>
+      <dd>{{ site_count }}</dd>
+      <dt>Trips</dt>
+      <dd>{{ trip_count }}</dd>
+      <dt>Gas Snapshots</dt>
+      <dd>{{ gas_snapshot_count }}</dd>
+      <dt>Reports</dt>
+      <dd>{{ report_count }}</dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <h2>Latest Records</h2>
+    <dl class="diagnostic-list">
+      <dt>Location</dt>
+      <dd>{% if latest_location %}{{ latest_location.captured_at }} at {{ latest_location.latitude }}, {{ latest_location.longitude }}{% else %}None{% endif %}</dd>
+      <dt>Gas Snapshot</dt>
+      <dd>{% if latest_snapshot %}{{ latest_snapshot.observed_on }} ${{ "%.3f"|format(latest_snapshot.price_per_gallon) }}{% else %}None{% endif %}</dd>
+      <dt>Monthly Gas</dt>
+      <dd>{% if latest_monthly_gas %}{{ latest_monthly_gas.year }}-{{ "%02d"|format(latest_monthly_gas.month) }} ${{ "%.3f"|format(latest_monthly_gas.average_price_per_gallon) }}{% else %}None{% endif %}</dd>
+      <dt>Report</dt>
+      <dd>{% if latest_report %}{{ latest_report.pdf_path }}{% else %}None{% endif %}</dd>
+    </dl>
+  </div>
+</section>
+
+<section class="panel log-panel">
+  <h2>App Log</h2>
+  <pre>{% for line in app_log_lines %}{{ line }}
+{% else %}No app log entries found.
+{% endfor %}</pre>
+</section>
+
+<section class="panel log-panel">
+  <h2>Gas Price Query Log</h2>
+  <pre>{% for line in gas_log_lines %}{{ line }}
+{% else %}No gas price log entries found.
+{% endfor %}</pre>
+</section>
+{% endblock %}

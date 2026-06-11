@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -8,12 +9,20 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
-from mileage_logger.models import MonthlyGasPrice, MonthlyReport, OwnTracksLocation, Site, Trip
+from mileage_logger.models import (
+    GasPriceSnapshot,
+    MonthlyGasPrice,
+    MonthlyReport,
+    OwnTracksLocation,
+    Site,
+    Trip,
+)
 from mileage_logger.services.gas_prices import (
     GasPriceUnavailable,
-    fetch_and_save_current_snapshot,
-    upsert_manual_monthly_price,
+    get_or_create_monthly_price,
+    refresh_current_monthly_price,
 )
 from mileage_logger.services.mileage import generate_trips
 from mileage_logger.services.pdf import generate_monthly_pdf
@@ -28,9 +37,41 @@ def _current_year_month() -> tuple[int, int]:
     return today.year, today.month
 
 
+def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGasPrice | None, str]:
+    try:
+        return get_or_create_monthly_price(db, year, month), ""
+    except GasPriceUnavailable as exc:
+        return None, str(exc)
+    except Exception as exc:
+        return None, f"Could not load gas price: {exc}"
+
+
+def _tail_file(path: Path, max_lines: int = 200) -> list[str]:
+    if not path.exists():
+        return []
+    with path.open("rb") as file:
+        file.seek(0, 2)
+        size = file.tell()
+        file.seek(max(size - 80_000, 0))
+        text = file.read().decode("utf-8", errors="replace")
+    return text.splitlines()[-max_lines:]
+
+
+def _masked_database_url(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.password:
+        return url
+    username = parts.username or ""
+    hostname = parts.hostname or ""
+    port = f":{parts.port}" if parts.port else ""
+    netloc = f"{username}:***@{hostname}{port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     year, month = _current_year_month()
+    monthly_gas, monthly_gas_error = _monthly_gas_context(db, year, month)
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
     site_count = db.scalar(select(func.count(Site.id))) or 0
     trip_count = db.scalar(select(func.count(Trip.id))) or 0
@@ -56,6 +97,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "trip_count": trip_count,
             "recent_trips": recent_trips,
             "latest_report": latest_report,
+            "monthly_gas": monthly_gas,
+            "monthly_gas_error": monthly_gas_error,
         },
     )
 
@@ -89,12 +132,7 @@ def trips(
         .order_by(Trip.trip_date.asc(), Trip.started_at.asc())
     )
     all_trips = list(db.scalars(stmt))
-    monthly_gas = db.scalar(
-        select(MonthlyGasPrice)
-        .where(MonthlyGasPrice.year == year)
-        .where(MonthlyGasPrice.month == month)
-        .limit(1)
-    )
+    monthly_gas, monthly_gas_error = _monthly_gas_context(db, year, month)
     return templates.TemplateResponse(
         request,
         "trips.html",
@@ -103,6 +141,7 @@ def trips(
             "year": year,
             "month": month,
             "monthly_gas": monthly_gas,
+            "monthly_gas_error": monthly_gas_error,
         },
     )
 
@@ -147,33 +186,55 @@ def create_site_form(
     return RedirectResponse(url="/sites", status_code=303)
 
 
-@router.post("/gas-prices/snapshot")
-def snapshot_gas_price_form(db: Session = Depends(get_db)) -> RedirectResponse:
-    try:
-        fetch_and_save_current_snapshot(db)
-    except GasPriceUnavailable:
-        pass
-    return RedirectResponse(url="/trips", status_code=303)
-
-
-@router.post("/gas-prices/monthly")
-def manual_gas_price_form(
-    year: int = Form(...),
-    month: int = Form(...),
-    average_price_per_gallon: Decimal = Form(...),
-    buffer_per_gallon: Decimal = Form(Decimal("0.50")),
+@router.post("/gas-prices/refresh")
+def refresh_gas_price_form(
+    next_url: str = Form(default="/"),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    upsert_manual_monthly_price(
-        db,
-        year=year,
-        month=month,
-        state="MI",
-        average_price_per_gallon=average_price_per_gallon,
-        buffer_per_gallon=buffer_per_gallon,
-        source_detail="web form",
+    try:
+        refresh_current_monthly_price(db)
+    except GasPriceUnavailable:
+        pass
+    return RedirectResponse(url=next_url if next_url.startswith("/") else "/", status_code=303)
+
+
+@router.get("/diagnostics", response_class=HTMLResponse)
+def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    settings = get_settings()
+    log_dir = Path(settings.log_dir)
+    latest_location = db.scalar(
+        select(OwnTracksLocation).order_by(OwnTracksLocation.captured_at.desc()).limit(1)
     )
-    return RedirectResponse(url=f"/trips?year={year}&month={month}", status_code=303)
+    latest_snapshot = db.scalar(
+        select(GasPriceSnapshot).order_by(GasPriceSnapshot.observed_on.desc()).limit(1)
+    )
+    latest_monthly_gas = db.scalar(
+        select(MonthlyGasPrice)
+        .order_by(MonthlyGasPrice.year.desc(), MonthlyGasPrice.month.desc())
+        .limit(1)
+    )
+    latest_report = db.scalar(
+        select(MonthlyReport).order_by(MonthlyReport.created_at.desc()).limit(1)
+    )
+    return templates.TemplateResponse(
+        request,
+        "diagnostics.html",
+        {
+            "settings": settings,
+            "database_url": _masked_database_url(settings.database_url),
+            "location_count": db.scalar(select(func.count(OwnTracksLocation.id))) or 0,
+            "site_count": db.scalar(select(func.count(Site.id))) or 0,
+            "trip_count": db.scalar(select(func.count(Trip.id))) or 0,
+            "gas_snapshot_count": db.scalar(select(func.count(GasPriceSnapshot.id))) or 0,
+            "report_count": db.scalar(select(func.count(MonthlyReport.id))) or 0,
+            "latest_location": latest_location,
+            "latest_snapshot": latest_snapshot,
+            "latest_monthly_gas": latest_monthly_gas,
+            "latest_report": latest_report,
+            "app_log_lines": _tail_file(log_dir / "app.log"),
+            "gas_log_lines": _tail_file(log_dir / "gas-snapshot.log"),
+        },
+    )
 
 
 @router.post("/reports/{year}/{month}")

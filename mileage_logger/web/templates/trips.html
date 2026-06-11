@@ -11,19 +11,19 @@
 </section>
 
 <section class="panel">
-  <h2>Gas Price</h2>
+  <h2>Michigan Monthly Avg Gas Price</h2>
   {% if monthly_gas %}
   <p class="summary-line">
-    Average ${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }} + buffer
-    ${{ "%.2f"|format(monthly_gas.buffer_per_gallon) }} = ${{ "%.3f"|format(monthly_gas.effective_rate) }}
+    ${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }} per gallon for {{ year }}-{{ "%02d"|format(month) }}.
   </p>
+  <p>Source: {{ monthly_gas.source_detail }}.</p>
+  {% else %}
+  <p class="summary-line warning">Gas price unavailable.</p>
+  <p>{{ monthly_gas_error or "The next gas snapshot will try again automatically." }}</p>
   {% endif %}
-  <form action="/gas-prices/monthly" method="post" class="form-row">
-    <input type="hidden" name="year" value="{{ year }}">
-    <input type="hidden" name="month" value="{{ month }}">
-    <label>Monthly Avg <input type="number" name="average_price_per_gallon" min="0" step="0.001" required></label>
-    <label>Buffer <input type="number" name="buffer_per_gallon" min="0" step="0.01" value="0.50"></label>
-    <button type="submit">Save Price</button>
+  <form action="/gas-prices/refresh" method="post">
+    <input type="hidden" name="next_url" value="/trips?year={{ year }}&month={{ month }}">
+    <button type="submit">Refresh Online Price</button>
   </form>
 </section>
 
