@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     owntracks_default_site_radius_m: int = 150
     owntracks_stop_minutes: int = 10
     owntracks_unknown_stop_radius_m: int = 150
+    google_places_api_key: str = ""
+    google_places_radius_m: int = 100
+    google_places_auto_create_sites: bool = True
 
     mqtt_enabled: bool = False
     mqtt_host: str = "localhost"

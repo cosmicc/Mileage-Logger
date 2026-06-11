@@ -155,6 +155,8 @@ The app generates trips between qualifying stops:
   qualifying stop.
 - Unknown stops generate trips with a blank origin or destination site, so you can review them and
   either exclude them or add a site later.
+- If `GOOGLE_PLACES_API_KEY` is set, unknown qualifying stops are checked against Google Places and
+  a matching business can be created as an app site automatically.
 
 Useful Docker environment options:
 
@@ -163,7 +165,13 @@ OWNTRACKS_AUTO_CREATE_SITES=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+GOOGLE_PLACES_API_KEY=
+GOOGLE_PLACES_RADIUS_M=100
+GOOGLE_PLACES_AUTO_CREATE_SITES=true
 ```
+
+Google Places enrichment is optional. Create a Google Maps Platform API key with Places API access
+and set `GOOGLE_PLACES_API_KEY` if you want unknown client stops named automatically.
 
 ## Workflow
 

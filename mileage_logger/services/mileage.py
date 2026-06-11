@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.models import OwnTracksLocation, Site, Trip
+from mileage_logger.services.places import create_site_from_google_place
 
 METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
@@ -217,6 +218,17 @@ def _trip_notes(origin: StopVisit, destination: StopVisit, minimum_minutes: int)
     return " ".join(notes)
 
 
+def _enrich_unknown_stops(db: Session, stops: list[StopVisit]) -> None:
+    for stop in stops:
+        if stop.site is not None:
+            continue
+        stop.site = create_site_from_google_place(
+            db,
+            stop.started_location.latitude,
+            stop.started_location.longitude,
+        )
+
+
 def date_bounds(day: date) -> tuple[datetime, datetime]:
     start = datetime.combine(day, time.min, tzinfo=UTC)
     end = start + timedelta(days=1)
@@ -254,6 +266,7 @@ def generate_trips(db: Session, start_date: date, end_date: date) -> list[Trip]:
         minimum_stop_duration=minimum_stop_duration,
         unknown_stop_radius_m=settings.owntracks_unknown_stop_radius_m,
     )
+    _enrich_unknown_stops(db, stops)
 
     generated: list[Trip] = []
     for origin, destination in zip(stops, stops[1:], strict=False):

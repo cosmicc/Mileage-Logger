@@ -83,6 +83,9 @@ OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_AUTO_CREATE_SITES=true
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+GOOGLE_PLACES_API_KEY=
+GOOGLE_PLACES_RADIUS_M=100
+GOOGLE_PLACES_AUTO_CREATE_SITES=true
 REPORT_OUTPUT_DIR=/data/reports
 LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
@@ -242,6 +245,8 @@ Default behavior:
 - The work period lasts until the phone drives away from that stop.
 - The trip is the travel from the previous qualifying stop to the next qualifying stop.
 - Unknown stops remain editable/reviewable; add a site later and regenerate trips if needed.
+- If Google Places is configured, unknown qualifying stops can be named automatically from nearby
+  businesses and saved as app sites.
 
 Configuration:
 
@@ -250,11 +255,19 @@ OWNTRACKS_AUTO_CREATE_SITES=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+GOOGLE_PLACES_API_KEY=
+GOOGLE_PLACES_RADIUS_M=100
+GOOGLE_PLACES_AUTO_CREATE_SITES=true
 ```
 
 When `OWNTRACKS_AUTO_CREATE_SITES=true`, published OwnTracks waypoints create or update app sites.
 If a location arrives with an `inregions` waypoint name but no matching site exists yet, the app
 creates an approximate site at the reported location using `OWNTRACKS_DEFAULT_SITE_RADIUS_M`.
+
+When `GOOGLE_PLACES_API_KEY` is set, the app uses Google Places Nearby Search during trip
+generation for qualifying unknown stops. It searches within `GOOGLE_PLACES_RADIUS_M`, ranks nearby
+places by distance, and creates a site from the best business result. Leave the key blank to skip
+Google lookups and keep unknown stops as `Unknown`.
 
 ## Test Ingestion
 
