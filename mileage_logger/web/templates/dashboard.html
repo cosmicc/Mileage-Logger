@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>Review OwnTracks intake, generate work-site trips, and produce monthly PDFs.</p>
+  </div>
+</section>
+
+<section class="stats-grid">
+  <div class="stat">
+    <span>Location Points</span>
+    <strong>{{ location_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Work Sites</span>
+    <strong>{{ site_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Trips</span>
+    <strong>{{ trip_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Latest Report</span>
+    <strong>{% if latest_report %}${{ "%.2f"|format(latest_report.reimbursement_total) }}{% else %}None{% endif %}</strong>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Generate Trips</h2>
+  <form action="/generate-trips" method="post" class="form-row">
+    <label>Start <input type="date" name="start_date" required></label>
+    <label>End <input type="date" name="end_date" required></label>
+    <button type="submit">Generate</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Recent Trips</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>From</th>
+        <th>To</th>
+        <th>Miles</th>
+        <th>Included</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for trip in recent_trips %}
+      <tr>
+        <td>{{ trip.trip_date }}</td>
+        <td>{{ trip.origin_site.name if trip.origin_site else "Unknown" }}</td>
+        <td>{{ trip.destination_site.name if trip.destination_site else "Unknown" }}</td>
+        <td>{{ "%.2f"|format(trip.miles) }}</td>
+        <td><span class="pill {{ 'good' if trip.include_in_report else 'muted' }}">{{ "Yes" if trip.include_in_report else "No" }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No trips generated yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

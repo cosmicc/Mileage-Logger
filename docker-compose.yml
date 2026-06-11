@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: mileage_logger
+      POSTGRES_USER: mileage
+      POSTGRES_PASSWORD: mileage
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mileage -d mileage_logger"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn mileage_logger.app:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  postgres_data:

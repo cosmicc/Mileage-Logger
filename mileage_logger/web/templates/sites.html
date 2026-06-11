@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Sites</h1>
+    <p>Define work-site geofences used to detect reimbursable trips.</p>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Add Site</h2>
+  <form action="/sites" method="post" class="form-row">
+    <label>Name <input type="text" name="name" required></label>
+    <label>Latitude <input type="number" name="latitude" step="0.0000001" required></label>
+    <label>Longitude <input type="number" name="longitude" step="0.0000001" required></label>
+    <label>Radius M <input type="number" name="radius_m" min="1" value="150"></label>
+    <button type="submit">Add</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Configured Sites</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+        <th>Radius</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for site in sites %}
+      <tr>
+        <td>{{ site.name }}</td>
+        <td>{{ site.latitude }}</td>
+        <td>{{ site.longitude }}</td>
+        <td>{{ site.radius_m }} m</td>
+        <td><span class="pill {{ 'good' if site.active else 'muted' }}">{{ "Active" if site.active else "Inactive" }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No sites configured yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
