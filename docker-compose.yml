@@ -1,36 +1,69 @@
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: mileage_logger
-      POSTGRES_USER: mileage
-      POSTGRES_PASSWORD: mileage
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-mileage_logger}
+      POSTGRES_USER: ${POSTGRES_USER:-mileage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mileage}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mileage -d mileage_logger"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 3s
       retries: 10
 
   app:
     build: .
+    restart: unless-stopped
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger
-    ports:
-      - "8000:8000"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mileage}:${POSTGRES_PASSWORD:-mileage}@postgres:5432/${POSTGRES_DB:-mileage_logger}
+      REPORT_OUTPUT_DIR: /data/reports
     volumes:
-      - ./reports:/app/reports
+      - reports_data:/data/reports
     depends_on:
       postgres:
         condition: service_healthy
-    command: >
-      sh -c "alembic upgrade head &&
-             uvicorn mileage_logger.app:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nginx:
+    build:
+      context: .
+      dockerfile: deploy/nginx/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    depends_on:
+      app:
+        condition: service_healthy
+
+  gas-snapshot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-mileage}:${POSTGRES_PASSWORD:-mileage}@postgres:5432/${POSTGRES_DB:-mileage_logger}
+      REPORT_OUTPUT_DIR: /data/reports
+      RUN_MIGRATIONS: "false"
+    volumes:
+      - reports_data:/data/reports
+    depends_on:
+      app:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/gas-snapshot-loop"]
 
 volumes:
   postgres_data:
+  reports_data:

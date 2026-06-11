@@ -46,6 +46,56 @@ uvicorn mileage_logger.app:app --reload
 
 Open `http://localhost:8000`.
 
+## Docker Deployment
+
+Docker Compose is the preferred deployment path. It runs the complete stack:
+
+- PostgreSQL database.
+- FastAPI mileage app.
+- Nginx reverse proxy on port `80`.
+- Daily gas price snapshot worker.
+- Persistent Docker volumes for database data and generated PDF reports.
+
+Create a production `.env` with generated passwords:
+
+```bash
+./scripts/init_docker_env.sh
+```
+
+Review `.env`, then start the stack:
+
+```bash
+docker compose up -d --build
+```
+
+Useful commands:
+
+```bash
+docker compose ps
+docker compose logs -f app
+docker compose logs -f nginx
+docker compose exec app mileage-logger report 2026 6
+docker compose down
+```
+
+OwnTracks HTTP mode should point at:
+
+```text
+http://your-server/api/owntracks
+```
+
+Use the `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` values from `.env` for
+OwnTracks HTTP Basic Auth. If you put credentials directly in the URL, use:
+
+```text
+http://owntracks:password@your-server/api/owntracks
+```
+
+For internet-facing use, put TLS in front of this stack or extend the Nginx container
+with certificates so OwnTracks sends location data over HTTPS.
+
+See [INSTALL.md](INSTALL.md) for the full Docker installation and configuration guide.
+
 ## OwnTracks HTTP Setup
 
 Set OwnTracks HTTP mode to:
@@ -90,4 +140,7 @@ ruff check .
 pytest
 alembic revision --autogenerate -m "message"
 alembic upgrade head
+bash -n scripts/*.sh
+cp .env.docker.example .env
+docker compose config
 ```
