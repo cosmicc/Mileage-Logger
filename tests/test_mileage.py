@@ -5,7 +5,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import Base, OwnTracksLocation, Site, Trip
-from mileage_logger.services.mileage import generate_trips, haversine_miles
+from mileage_logger.services.mileage import (
+    generate_trips,
+    haversine_miles,
+    purge_processed_owntracks_locations,
+)
+from mileage_logger.services.trip_processor import run_automatic_trip_processing
 
 
 def _session() -> Session:
@@ -183,3 +188,94 @@ def test_generate_trips_uses_google_enriched_unknown_stop(monkeypatch) -> None:
     assert trips[0].destination_site is not None
     assert trips[0].destination_site.name == "Google Client"
     assert "unknown stationary stop" not in trips[0].notes
+
+
+def test_generate_trips_does_not_delete_existing_auto_trips_without_source_locations() -> None:
+    db = _session()
+    day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
+    trip = Trip(
+        trip_date=day.date(),
+        started_at=day,
+        ended_at=day + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("5.00"),
+        source="auto",
+    )
+    db.add(trip)
+    db.commit()
+
+    generated = generate_trips(db, day.date(), day.date())
+
+    assert generated == []
+    assert db.scalar(select(Trip).where(Trip.id == trip.id)) is not None
+
+
+def test_purge_processed_owntracks_locations_only_deletes_completed_days() -> None:
+    db = _session()
+    completed_day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
+    current_day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            _location(completed_day, "42.3314", "-83.0458"),
+            _location(completed_day + timedelta(minutes=30), "42.3440", "-83.0600"),
+            _location(current_day, "42.3500", "-83.0700"),
+        ]
+    )
+    db.commit()
+
+    purged = purge_processed_owntracks_locations(
+        db,
+        completed_day.date(),
+        current_day.date(),
+        now=current_day,
+    )
+
+    remaining_locations = list(db.scalars(select(OwnTracksLocation)))
+    assert purged == 2
+    assert [location.captured_at for location in remaining_locations] == [
+        current_day.replace(tzinfo=None)
+    ]
+
+
+def test_automatic_trip_processing_finalizes_and_purges_completed_days() -> None:
+    db = _session()
+    completed_day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
+    current_day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client A",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Client B",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(completed_day, "42.3314", "-83.0458"),
+            _location(completed_day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(completed_day + timedelta(minutes=18), "42.3370", "-83.0520"),
+            _location(completed_day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(completed_day + timedelta(minutes=38), "42.3441", "-83.0601"),
+            _location(current_day, "42.3500", "-83.0700"),
+        ]
+    )
+    db.commit()
+
+    result = run_automatic_trip_processing(db, now=current_day)
+
+    trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    remaining_locations = list(db.scalars(select(OwnTracksLocation)))
+    assert result.generated == 1
+    assert result.purged_owntracks == 5
+    assert len(trips) == 1
+    assert trips[0].trip_date == completed_day.date()
+    assert [location.captured_at for location in remaining_locations] == [
+        current_day.replace(tzinfo=None)
+    ]

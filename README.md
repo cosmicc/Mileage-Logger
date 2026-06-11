@@ -155,10 +155,19 @@ The app generates trips between qualifying stops:
   `OWNTRACKS_UNKNOWN_STOP_RADIUS_M`, default `150` meters.
 - A trip starts when you leave the previous qualifying stop and ends when you arrive at the next
   qualifying stop.
-- Unknown stops generate trips with a blank origin or destination site, so you can review them and
-  either exclude them or add a site later.
+- Unknown stops generate trips with a blank origin or destination site. If source rows still exist,
+  later site updates can be reflected by the automatic processor.
 - If `GOOGLE_PLACES_API_KEY` is set, unknown qualifying stops are checked against Google Places and
   a matching business can be created as an app site automatically.
+
+Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
+stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's day.
+When the app sees a qualifying trip, it writes the generated row to `trips`.
+
+A background processor also runs while the web app is up. It recalculates the current day on a short
+interval and finalizes completed days. Once a day is complete, the processor calculates that day's
+trips one last time and purges the processed `owntracks_locations` rows for that completed day.
+Current-day rows are kept so live tracking data is not deleted before the day is finished.
 
 Useful Docker environment options:
 
@@ -167,6 +176,8 @@ OWNTRACKS_AUTO_CREATE_SITES=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+AUTOMATIC_TRIP_PROCESSING_ENABLED=true
+AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 GOOGLE_PLACES_API_KEY=
 GOOGLE_PLACES_RADIUS_M=100
 GOOGLE_PLACES_AUTO_CREATE_SITES=true
@@ -179,7 +190,7 @@ and set `GOOGLE_PLACES_API_KEY` if you want unknown client stops named automatic
 
 1. Create work sites in the `Sites` page with latitude, longitude, and geofence radius.
 2. Send OwnTracks data through HTTP or MQTT.
-3. Generate trips for a date range from the dashboard.
+3. Let the app automatically create trips from incoming OwnTracks data.
 4. Review `Trips`, switch to the needed month, edit miles/notes, and exclude personal drives.
 5. Add or fetch a monthly gas price for that report month.
 6. Download the monthly PDF report from the `Trips` page.

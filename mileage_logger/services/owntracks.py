@@ -1,6 +1,7 @@
 import json
+import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -8,6 +9,9 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.models import OwnTracksLocation, Site
+from mileage_logger.services.trip_processor import run_automatic_trip_processing
+
+logger = logging.getLogger(__name__)
 
 
 class OwnTracksError(ValueError):
@@ -152,6 +156,27 @@ def _site_radius_from_payload(payload: dict) -> int:
         return settings.owntracks_default_site_radius_m
 
 
+def _payload_date(payload: dict) -> date:
+    try:
+        timestamp = int(payload.get("tst") or datetime.now(UTC).timestamp())
+        return datetime.fromtimestamp(timestamp, tz=UTC).date()
+    except (TypeError, ValueError, OSError):
+        return datetime.now(UTC).date()
+
+
+def _run_trip_processing(db: Session, payload: dict) -> None:
+    touched_date = _payload_date(payload)
+    finalize_completed_days = touched_date >= datetime.now(UTC).date()
+    try:
+        run_automatic_trip_processing(
+            db,
+            touched_date=touched_date,
+            finalize_completed_days=finalize_completed_days,
+        )
+    except Exception:
+        logger.exception("Automatic trip processing failed after OwnTracks payload")
+
+
 def sync_site_from_owntracks_payload(
     db: Session,
     payload: dict,
@@ -236,8 +261,10 @@ def process_owntracks_payload(
         db.commit()
         if site is not None:
             db.refresh(site)
+        _run_trip_processing(db, payload)
         return OwnTracksProcessResult(location=None, site=site)
 
     message = _location_message_from_payload(payload, topic=topic, user=user, device=device)
     location = store_owntracks_location(db, message)
+    _run_trip_processing(db, payload)
     return OwnTracksProcessResult(location=location, site=None)

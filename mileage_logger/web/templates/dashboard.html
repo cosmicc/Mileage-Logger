@@ -3,7 +3,7 @@
 <section class="page-header">
   <div>
     <h1>Dashboard</h1>
-    <p>Review OwnTracks intake, generate work-site trips, and produce monthly PDFs.</p>
+    <p>Review automatic OwnTracks intake, work-site trips, and monthly PDFs.</p>
   </div>
 </section>
 
@@ -51,12 +51,9 @@
 </section>
 
 <section class="panel">
-  <h2>Generate Trips</h2>
-  <form action="/generate-trips" method="post" class="form-row">
-    <label>Start <input type="date" name="start_date" required></label>
-    <label>End <input type="date" name="end_date" required></label>
-    <button type="submit">Generate</button>
-  </form>
+  <h2>Trip Processing</h2>
+  <p class="summary-line">Trips are generated automatically from incoming OwnTracks data.</p>
+  <p>Completed-day OwnTracks source rows are purged automatically after final trip calculation.</p>
 </section>
 
 <section class="panel">

@@ -83,6 +83,8 @@ OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_AUTO_CREATE_SITES=true
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+AUTOMATIC_TRIP_PROCESSING_ENABLED=true
+AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 GOOGLE_PLACES_API_KEY=
 GOOGLE_PLACES_RADIUS_M=100
 GOOGLE_PLACES_AUTO_CREATE_SITES=true
@@ -245,9 +247,19 @@ Default behavior:
 - An unknown place also qualifies if the phone stays within 150 meters for at least 10 minutes.
 - The work period lasts until the phone drives away from that stop.
 - The trip is the travel from the previous qualifying stop to the next qualifying stop.
-- Unknown stops remain editable/reviewable; add a site later and regenerate trips if needed.
+- Unknown stops remain editable/reviewable. If source rows still exist, later site updates can be
+  reflected by the automatic processor.
 - If Google Places is configured, unknown qualifying stops can be named automatically from nearby
   businesses and saved as app sites.
+
+Trip generation is automatic. Every incoming OwnTracks location or transition payload is stored in
+`owntracks_locations` and immediately triggers trip recalculation for that payload's day. Generated
+trip rows are stored in `trips`.
+
+The web app also starts a background processor. It recalculates the current day on a short interval
+and finalizes completed days. Once a day is complete, it calculates that day's trips one last time
+and purges the processed OwnTracks source rows for that completed day. Today's OwnTracks rows remain
+in place until the day is complete.
 
 Configuration:
 
@@ -256,6 +268,8 @@ OWNTRACKS_AUTO_CREATE_SITES=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+AUTOMATIC_TRIP_PROCESSING_ENABLED=true
+AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 GOOGLE_PLACES_API_KEY=
 GOOGLE_PLACES_RADIUS_M=100
 GOOGLE_PLACES_AUTO_CREATE_SITES=true
@@ -300,7 +314,7 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 2. Go to `Sites`.
 3. Add each work site with latitude, longitude, and geofence radius.
 4. Let OwnTracks collect location points.
-5. Generate trips from the dashboard.
+5. Review automatically generated trips from the `Trips` page.
 6. Open `Trips`, choose the report month, review trips, and uncheck personal drives.
 7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.

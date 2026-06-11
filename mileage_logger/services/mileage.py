@@ -235,9 +235,16 @@ def date_bounds(day: date) -> tuple[datetime, datetime]:
     return start, end
 
 
-def _locations_for_range(db: Session, start_date: date, end_date: date) -> list[OwnTracksLocation]:
+def _date_range_bounds(start_date: date, end_date: date) -> tuple[datetime, datetime]:
+    if end_date < start_date:
+        raise ValueError("end_date must be on or after start_date")
     start_dt = datetime.combine(start_date, time.min, tzinfo=UTC)
     end_dt = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
+    return start_dt, end_dt
+
+
+def _locations_for_range(db: Session, start_date: date, end_date: date) -> list[OwnTracksLocation]:
+    start_dt, end_dt = _date_range_bounds(start_date, end_date)
     stmt = (
         select(OwnTracksLocation)
         .where(OwnTracksLocation.captured_at >= start_dt)
@@ -251,6 +258,8 @@ def generate_trips(db: Session, start_date: date, end_date: date) -> list[Trip]:
     settings = get_settings()
     sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
     locations = _locations_for_range(db, start_date, end_date)
+    if not locations:
+        return []
 
     db.execute(
         delete(Trip)
@@ -303,6 +312,30 @@ def generate_trips(db: Session, start_date: date, end_date: date) -> list[Trip]:
     for trip in generated:
         db.refresh(trip)
     return generated
+
+
+def purge_processed_owntracks_locations(
+    db: Session,
+    start_date: date,
+    end_date: date,
+    *,
+    now: datetime | None = None,
+) -> int:
+    start_dt, range_end_dt = _date_range_bounds(start_date, end_date)
+    current_dt = now or datetime.now(UTC)
+    today_start_dt = datetime.combine(current_dt.date(), time.min, tzinfo=UTC)
+    purge_before = min(range_end_dt, today_start_dt)
+    if purge_before <= start_dt:
+        return 0
+
+    result = db.execute(
+        delete(OwnTracksLocation)
+        .where(OwnTracksLocation.captured_at >= start_dt)
+        .where(OwnTracksLocation.captured_at < purge_before)
+    )
+    db.commit()
+    rowcount = result.rowcount or 0
+    return rowcount if rowcount > 0 else 0
 
 
 def included_monthly_miles(db: Session, year: int, month: int) -> Decimal:

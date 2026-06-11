@@ -13,10 +13,12 @@ from mileage_logger.database import engine
 from mileage_logger.logging_config import configure_logging
 from mileage_logger.models import Base
 from mileage_logger.services.mqtt import MqttOwnTracksWorker
+from mileage_logger.services.trip_processor import AutomaticTripProcessor
 from mileage_logger.web.routes import router as web_router
 
 settings = get_settings()
 mqtt_worker = MqttOwnTracksWorker()
+trip_processor = AutomaticTripProcessor()
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 logger = logging.getLogger(__name__)
 
@@ -27,11 +29,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Mileage Logger app, log_path=%s", log_path)
     if settings.create_tables_on_startup:
         Base.metadata.create_all(bind=engine)
+    trip_processor.start()
     mqtt_worker.start()
     try:
         yield
     finally:
         logger.info("Stopping Mileage Logger app")
+        trip_processor.stop()
         mqtt_worker.stop()
 
 

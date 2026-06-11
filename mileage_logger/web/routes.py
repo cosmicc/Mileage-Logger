@@ -20,12 +20,12 @@ from mileage_logger.models import (
     Site,
     Trip,
 )
+from mileage_logger.services.diagnostics import recent_owntracks_entries
 from mileage_logger.services.gas_prices import (
     GasPriceUnavailable,
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
-from mileage_logger.services.mileage import generate_trips
 from mileage_logger.services.pdf import generate_monthly_pdf
 
 router = APIRouter()
@@ -114,16 +114,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "vehicle_mpg": settings.vehicle_mpg,
         },
     )
-
-
-@router.post("/generate-trips")
-def generate_trips_form(
-    start_date: date = Form(...),
-    end_date: date = Form(...),
-    db: Session = Depends(get_db),
-) -> RedirectResponse:
-    generate_trips(db, start_date, end_date)
-    return RedirectResponse(url="/trips", status_code=303)
 
 
 @router.get("/trips", response_class=HTMLResponse)
@@ -261,13 +251,7 @@ def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse
     latest_report = db.scalar(
         select(MonthlyReport).order_by(MonthlyReport.created_at.desc()).limit(1)
     )
-    recent_locations = list(
-        db.scalars(
-            select(OwnTracksLocation)
-            .order_by(OwnTracksLocation.received_at.desc(), OwnTracksLocation.id.desc())
-            .limit(20)
-        )
-    )
+    recent_locations = recent_owntracks_entries(db)
     return templates.TemplateResponse(
         request,
         "diagnostics.html",

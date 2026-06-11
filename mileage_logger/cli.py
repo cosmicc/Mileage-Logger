@@ -1,11 +1,9 @@
 import argparse
 import logging
-from datetime import date
 
 from mileage_logger.database import SessionLocal
 from mileage_logger.logging_config import configure_logging
 from mileage_logger.services.gas_prices import GasPriceUnavailable, refresh_current_monthly_price
-from mileage_logger.services.mileage import generate_trips
 from mileage_logger.services.pdf import generate_monthly_pdf
 
 logger = logging.getLogger(__name__)
@@ -16,10 +14,6 @@ def main() -> None:
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     subcommands.add_parser("gas-snapshot", help="Fetch and store the current Michigan gas price")
-
-    trips_parser = subcommands.add_parser("generate-trips", help="Generate trips for a date range")
-    trips_parser.add_argument("--start", required=True, help="Start date YYYY-MM-DD")
-    trips_parser.add_argument("--end", required=True, help="End date YYYY-MM-DD")
 
     report_parser = subcommands.add_parser("report", help="Generate a monthly PDF report")
     report_parser.add_argument("year", type=int)
@@ -49,11 +43,6 @@ def main() -> None:
                 f"Saved {monthly.state} monthly average "
                 f"{monthly.average_price_per_gallon} for {monthly.year}-{monthly.month:02d}"
             )
-        elif args.command == "generate-trips":
-            start = date.fromisoformat(args.start)
-            end = date.fromisoformat(args.end)
-            trips = generate_trips(db, start, end)
-            print(f"Generated {len(trips)} trips")
         elif args.command == "report":
             report = generate_monthly_pdf(db, args.year, args.month)
             print(f"Generated {report.pdf_path}")

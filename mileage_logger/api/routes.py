@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -15,7 +14,6 @@ from mileage_logger.services.gas_prices import (
     fetch_and_save_current_snapshot,
     upsert_manual_monthly_price,
 )
-from mileage_logger.services.mileage import generate_trips
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     UnsupportedOwnTracksType,
@@ -84,18 +82,6 @@ def create_site(site_in: SiteCreate, db: Session = Depends(get_db)) -> Site:
 @router.get("/sites", response_model=list[SiteRead])
 def list_sites(db: Session = Depends(get_db)) -> list[Site]:
     return list(db.scalars(select(Site).order_by(Site.name.asc())))
-
-
-@router.post("/trips/generate")
-def generate_trips_endpoint(
-    start_date: date,
-    end_date: date,
-    db: Session = Depends(get_db),
-) -> dict[str, int]:
-    if end_date < start_date:
-        raise HTTPException(status_code=400, detail="end_date must be on or after start_date")
-    trips = generate_trips(db, start_date, end_date)
-    return {"generated": len(trips)}
 
 
 @router.patch("/trips/{trip_id}")

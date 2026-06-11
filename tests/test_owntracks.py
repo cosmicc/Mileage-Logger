@@ -1,10 +1,11 @@
 import json
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from mileage_logger.models import Base, Site
+from mileage_logger.models import Base, OwnTracksLocation, Site, Trip
 from mileage_logger.services.owntracks import parse_owntracks_location, process_owntracks_payload
 
 
@@ -72,3 +73,50 @@ def test_process_owntracks_location_with_region_creates_approximate_site() -> No
     assert result.location is not None
     assert site is not None
     assert site.radius_m == 150
+    assert db.scalar(select(OwnTracksLocation.id)) is not None
+
+
+def test_process_owntracks_payload_automatically_creates_trip() -> None:
+    db = _session()
+    day = datetime(2030, 1, 1, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client A",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Client B",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+        ]
+    )
+    db.commit()
+
+    for captured_at, latitude, longitude in [
+        (day, 42.3314, -83.0458),
+        (day + timedelta(minutes=12), 42.3315, -83.0459),
+        (day + timedelta(minutes=18), 42.3370, -83.0520),
+        (day + timedelta(minutes=25), 42.3440, -83.0600),
+        (day + timedelta(minutes=38), 42.3441, -83.0601),
+    ]:
+        process_owntracks_payload(
+            db,
+            json.dumps(
+                {
+                    "_type": "location",
+                    "lat": latitude,
+                    "lon": longitude,
+                    "tst": int(captured_at.timestamp()),
+                }
+            ).encode("utf-8"),
+        )
+
+    trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    assert len(trips) == 1
+    assert trips[0].trip_date == day.date()
+    assert trips[0].miles > Decimal("0.00")
