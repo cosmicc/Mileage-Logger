@@ -287,9 +287,12 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 3. Add each work site with latitude, longitude, and geofence radius.
 4. Let OwnTracks collect location points.
 5. Generate trips from the dashboard.
-6. Review trips and uncheck personal drives.
-7. Add or fetch the monthly gas price.
-8. Generate the monthly PDF.
+6. Open `Trips`, choose the report month, review trips, and uncheck personal drives.
+7. Add or fetch the monthly gas price for that month.
+8. Click `Download PDF Report` to generate and download the PDF.
+
+Older months can be selected from the `Trips` page. The PDF can be generated for any month that has
+included trips and a saved monthly gas price or daily gas snapshots for that month.
 
 PDF reports are stored in the Docker volume `reports_data` at `/data/reports` inside the app
 container.

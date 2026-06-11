@@ -1,10 +1,12 @@
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import LETTER
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import LETTER, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
@@ -13,6 +15,18 @@ from mileage_logger.config import get_settings
 from mileage_logger.models import MonthlyReport, Trip
 from mileage_logger.services.gas_prices import get_or_create_monthly_price
 from mileage_logger.services.mileage import included_monthly_miles
+
+
+@dataclass(frozen=True)
+class TripReportRow:
+    trip_date: date
+    from_location: str
+    to_location: str
+    started_at: datetime
+    ended_at: datetime
+    start_miles: Decimal
+    stop_miles: Decimal
+    trip_miles: Decimal
 
 
 def calculate_reimbursement(total_miles: Decimal, effective_rate: Decimal) -> Decimal:
@@ -38,65 +52,101 @@ def included_trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
     return list(db.scalars(stmt))
 
 
+def _format_coordinates(latitude: Decimal, longitude: Decimal) -> str:
+    return f"{latitude:.5f}, {longitude:.5f}"
+
+
+def _origin_location(trip: Trip) -> str:
+    if trip.origin_site is not None:
+        return trip.origin_site.name
+    return f"Unknown ({_format_coordinates(trip.start_latitude, trip.start_longitude)})"
+
+
+def _destination_location(trip: Trip) -> str:
+    if trip.destination_site is not None:
+        return trip.destination_site.name
+    return f"Unknown ({_format_coordinates(trip.end_latitude, trip.end_longitude)})"
+
+
+def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
+    rows: list[TripReportRow] = []
+    running_miles = Decimal("0.00")
+    for trip in trips:
+        trip_miles = Decimal(trip.miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        start_miles = running_miles
+        stop_miles = (running_miles + trip_miles).quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+        rows.append(
+            TripReportRow(
+                trip_date=trip.trip_date,
+                from_location=_origin_location(trip),
+                to_location=_destination_location(trip),
+                started_at=trip.started_at,
+                ended_at=trip.ended_at,
+                start_miles=start_miles,
+                stop_miles=stop_miles,
+                trip_miles=trip_miles,
+            )
+        )
+        running_miles = stop_miles
+    return rows
+
+
 def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     settings = get_settings()
     gas_price = get_or_create_monthly_price(db, year, month)
     trips = included_trips_for_month(db, year, month)
     total_miles = included_monthly_miles(db, year, month)
     reimbursement_total = calculate_reimbursement(total_miles, gas_price.effective_rate)
+    report_rows = trip_report_rows(trips)
 
     output_dir = Path(settings.report_output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     pdf_path = output_dir / f"mileage-{year}-{month:02d}.pdf"
 
     styles = getSampleStyleSheet()
-    doc = SimpleDocTemplate(str(pdf_path), pagesize=LETTER)
+    table_cell = ParagraphStyle(
+        "TableCell",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=7,
+        leading=8.5,
+    )
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=landscape(LETTER),
+        leftMargin=0.45 * inch,
+        rightMargin=0.45 * inch,
+        topMargin=0.45 * inch,
+        bottomMargin=0.45 * inch,
+    )
     story = [
         Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
-        Paragraph("Work-site mileage reimbursement report", styles["Normal"]),
+        Paragraph("Included work-site trips for reimbursement", styles["Normal"]),
         Spacer(1, 16),
     ]
 
-    summary_data = [
-        ["Total included miles", f"{total_miles:.2f}"],
-        ["Michigan average gas price", f"${gas_price.average_price_per_gallon:.3f}"],
-        ["Buffer", f"${gas_price.buffer_per_gallon:.2f}"],
-        ["Reimbursement rate", f"${gas_price.effective_rate:.3f}"],
-        ["Total reimbursement", f"${reimbursement_total:.2f}"],
-    ]
-    summary = Table(summary_data, hAlign="LEFT", colWidths=[180, 180])
-    summary.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f2f4f7")),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d0d5dd")),
-                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ]
-        )
-    )
-    story.append(summary)
-    story.append(Spacer(1, 20))
-
-    trip_rows = [["Date", "From", "To", "Start", "End", "Miles", "Notes"]]
-    for trip in trips:
+    trip_rows = [["Date", "From", "To", "Depart", "Arrive", "Start Mi", "Stop Mi", "Trip Mi"]]
+    for row in report_rows:
         trip_rows.append(
             [
-                trip.trip_date.isoformat(),
-                trip.origin_site.name if trip.origin_site else "Unknown",
-                trip.destination_site.name if trip.destination_site else "Unknown",
-                trip.started_at.strftime("%H:%M"),
-                trip.ended_at.strftime("%H:%M"),
-                f"{trip.miles:.2f}",
-                trip.notes or "",
+                row.trip_date.isoformat(),
+                Paragraph(row.from_location, table_cell),
+                Paragraph(row.to_location, table_cell),
+                row.started_at.strftime("%H:%M"),
+                row.ended_at.strftime("%H:%M"),
+                f"{row.start_miles:.2f}",
+                f"{row.stop_miles:.2f}",
+                f"{row.trip_miles:.2f}",
             ]
         )
 
     if len(trip_rows) == 1:
-        trip_rows.append(["", "No included trips", "", "", "", "0.00", ""])
+        trip_rows.append(["", "No included trips", "", "", "", "0.00", "0.00", "0.00"])
 
-    table = Table(trip_rows, repeatRows=1, colWidths=[64, 82, 82, 50, 50, 48, 130])
+    table = Table(trip_rows, repeatRows=1, colWidths=[62, 180, 180, 48, 48, 64, 64, 60])
     table.setStyle(
         TableStyle(
             [
@@ -105,10 +155,36 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
                 ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d0d5dd")),
                 ("FONTSIZE", (0, 0), (-1, -1), 8),
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )
     story.append(table)
+    story.append(Spacer(1, 18))
+
+    summary_data = [
+        ["Michigan monthly average gas price", f"${gas_price.average_price_per_gallon:.3f}"],
+        ["Buffer", f"${gas_price.buffer_per_gallon:.2f}"],
+        ["Reimbursement rate", f"${gas_price.effective_rate:.3f}"],
+        ["Total trip miles for month", f"{total_miles:.2f}"],
+        ["Total reimbursement", f"${reimbursement_total:.2f}"],
+    ]
+    summary = Table(summary_data, hAlign="RIGHT", colWidths=[220, 120])
+    summary.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f2f4f7")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d0d5dd")),
+                ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
+    story.append(summary)
     doc.build(story)
 
     stmt = (

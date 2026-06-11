@@ -1,10 +1,11 @@
+from calendar import month_name
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -35,6 +36,16 @@ templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"
 def _current_year_month() -> tuple[int, int]:
     today = datetime.now(UTC).date()
     return today.year, today.month
+
+
+def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
+    month_index = (year * 12) + month - 1 + offset
+    return month_index // 12, (month_index % 12) + 1
+
+
+def _validate_month(month: int) -> None:
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="month must be 1 through 12")
 
 
 def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGasPrice | None, str]:
@@ -122,6 +133,9 @@ def trips(
 ) -> HTMLResponse:
     if year is None or month is None:
         year, month = _current_year_month()
+    _validate_month(month)
+    previous_year, previous_month = _shift_month(year, month, -1)
+    next_year, next_month = _shift_month(year, month, 1)
     start = date(year, month, 1)
     end = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
     stmt = (
@@ -142,6 +156,11 @@ def trips(
             "month": month,
             "monthly_gas": monthly_gas,
             "monthly_gas_error": monthly_gas_error,
+            "month_options": [(value, month_name[value]) for value in range(1, 13)],
+            "previous_year": previous_year,
+            "previous_month": previous_month,
+            "next_year": next_year,
+            "next_month": next_month,
         },
     )
 
@@ -268,6 +287,14 @@ def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse
 
 
 @router.post("/reports/{year}/{month}")
-def report_form(year: int, month: int, db: Session = Depends(get_db)) -> RedirectResponse:
-    generate_monthly_pdf(db, year, month)
-    return RedirectResponse(url=f"/trips?year={year}&month={month}", status_code=303)
+def report_form(year: int, month: int, db: Session = Depends(get_db)) -> FileResponse:
+    _validate_month(month)
+    try:
+        report = generate_monthly_pdf(db, year, month)
+    except GasPriceUnavailable as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return FileResponse(
+        report.pdf_path,
+        media_type="application/pdf",
+        filename=f"mileage-{year}-{month:02d}.pdf",
+    )

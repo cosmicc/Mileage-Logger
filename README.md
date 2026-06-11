@@ -170,9 +170,9 @@ OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
 1. Create work sites in the `Sites` page with latitude, longitude, and geofence radius.
 2. Send OwnTracks data through HTTP or MQTT.
 3. Generate trips for a date range from the dashboard.
-4. Review `Trips`, edit miles/notes, and exclude personal drives.
-5. Add or fetch a monthly gas price.
-6. Generate the monthly PDF.
+4. Review `Trips`, switch to the needed month, edit miles/notes, and exclude personal drives.
+5. Add or fetch a monthly gas price for that report month.
+6. Download the monthly PDF report from the `Trips` page.
 
 ## Project Commands
 
