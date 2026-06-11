@@ -4,11 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Mileage Logger</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v=20260611-dark">
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/">Mileage Logger</a>
+      <a class="brand" href="/">
+        <span class="brand-mark">ML</span>
+        <span>Mileage Logger</span>
+      </a>
       <nav>
         <a href="/trips">Trips</a>
         <a href="/sites">Sites</a>
