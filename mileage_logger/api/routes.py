@@ -19,8 +19,7 @@ from mileage_logger.services.mileage import generate_trips
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     UnsupportedOwnTracksType,
-    parse_owntracks_location,
-    store_owntracks_location,
+    process_owntracks_payload,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
 
@@ -39,7 +38,8 @@ async def owntracks_http(request: Request, db: Session = Depends(get_db)) -> JSO
     verify_owntracks_auth(request)
     body = await request.body()
     try:
-        message = parse_owntracks_location(
+        process_owntracks_payload(
+            db,
             body,
             topic=request.query_params.get("topic"),
             user=request.headers.get("x-limit-u") or request.query_params.get("u"),
@@ -49,8 +49,6 @@ async def owntracks_http(request: Request, db: Session = Depends(get_db)) -> JSO
         return JSONResponse(content=[])
     except UnsupportedOwnTracksType:
         return JSONResponse(content=[])
-
-    store_owntracks_location(db, message)
     return JSONResponse(content=[])
 
 

@@ -17,13 +17,17 @@ class Settings(BaseSettings):
     owntracks_api_token: str = ""
     owntracks_username: str = ""
     owntracks_password: str = ""
+    owntracks_auto_create_sites: bool = True
+    owntracks_default_site_radius_m: int = 150
+    owntracks_stop_minutes: int = 10
+    owntracks_unknown_stop_radius_m: int = 150
 
     mqtt_enabled: bool = False
     mqtt_host: str = "localhost"
     mqtt_port: int = 1883
     mqtt_username: str = ""
     mqtt_password: str = ""
-    mqtt_topic: str = "owntracks/+/+"
+    mqtt_topic: str = "owntracks/#"
 
     gas_price_state: str = "MI"
     gas_price_buffer: Decimal = Decimal("0.50")

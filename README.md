@@ -9,9 +9,11 @@ monthly reimbursement PDF logs.
 - FastAPI web app with server-rendered review screens.
 - PostgreSQL models and Alembic migration.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
-- Optional MQTT subscriber for `owntracks/+/+` topics.
+- Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
+  are available.
 - Work-site geofence model used to turn location points into daily trips.
 - Manual include/exclude controls for personal drives.
+- Stop-based trip detection: a client stop must last at least 10 minutes before it creates a trip.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -122,6 +124,10 @@ If `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are set, use OwnTracks HTTP Bas
 
 The `/api/pub` alias is also available for Recorder-style setups.
 
+OwnTracks waypoints can be used as client sites. When `OWNTRACKS_AUTO_CREATE_SITES=true`, published
+OwnTracks waypoint payloads create or update matching app sites. Location payloads with `inregions`
+can also create an approximate site if the waypoint was not published first.
+
 ## MQTT Setup
 
 Set these in `.env`:
@@ -132,10 +138,32 @@ MQTT_HOST=your-broker
 MQTT_PORT=1883
 MQTT_USERNAME=optional
 MQTT_PASSWORD=optional
-MQTT_TOPIC=owntracks/+/+
+MQTT_TOPIC=owntracks/#
 ```
 
-Then run the web app normally. The MQTT worker starts with the app.
+Then run the web app normally. The MQTT worker starts with the app. Use `owntracks/#` if you want
+MQTT ingestion to receive waypoint and transition events, not just location updates.
+
+## Trip Detection
+
+The app generates trips between qualifying stops:
+
+- A known site stop qualifies after `OWNTRACKS_STOP_MINUTES`, default `10`.
+- An unknown stationary stop qualifies after the same duration when points stay within
+  `OWNTRACKS_UNKNOWN_STOP_RADIUS_M`, default `150` meters.
+- A trip starts when you leave the previous qualifying stop and ends when you arrive at the next
+  qualifying stop.
+- Unknown stops generate trips with a blank origin or destination site, so you can review them and
+  either exclude them or add a site later.
+
+Useful Docker environment options:
+
+```env
+OWNTRACKS_AUTO_CREATE_SITES=true
+OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
+OWNTRACKS_STOP_MINUTES=10
+OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+```
 
 ## Workflow
 

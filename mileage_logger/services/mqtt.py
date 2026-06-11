@@ -8,8 +8,7 @@ from mileage_logger.database import SessionLocal
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     UnsupportedOwnTracksType,
-    parse_owntracks_location,
-    store_owntracks_location,
+    process_owntracks_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,13 +51,10 @@ class MqttOwnTracksWorker:
             logger.error("MQTT connection failed: %s", reason_code)
 
     def _on_message(self, _client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
-        try:
-            message = parse_owntracks_location(msg.payload, topic=msg.topic)
-        except (EmptyOwnTracksPayload, UnsupportedOwnTracksType):
-            return
-        except Exception:
-            logger.exception("Could not parse MQTT OwnTracks message on %s", msg.topic)
-            return
-
         with SessionLocal() as db:
-            store_owntracks_location(db, message)
+            try:
+                process_owntracks_payload(db, msg.payload, topic=msg.topic)
+            except (EmptyOwnTracksPayload, UnsupportedOwnTracksType):
+                return
+            except Exception:
+                logger.exception("Could not process MQTT OwnTracks message on %s", msg.topic)

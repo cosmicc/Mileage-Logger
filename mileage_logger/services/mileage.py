@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from math import asin, cos, radians, sin, sqrt
@@ -10,6 +11,25 @@ from mileage_logger.models import OwnTracksLocation, Site, Trip
 
 METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
+
+
+@dataclass
+class StopVisit:
+    site: Site | None
+    started_location: OwnTracksLocation
+    ended_location: OwnTracksLocation
+
+    @property
+    def started_at(self) -> datetime:
+        return self.started_location.captured_at
+
+    @property
+    def ended_at(self) -> datetime:
+        return self.ended_location.captured_at
+
+    @property
+    def duration(self) -> timedelta:
+        return self.ended_at - self.started_at
 
 
 def haversine_miles(
@@ -52,6 +72,151 @@ def nearest_site(location: OwnTracksLocation, sites: list[Site]) -> Site | None:
     return min(matches, key=lambda item: item[0])[1]
 
 
+def _region_names(location: OwnTracksLocation) -> list[str]:
+    payload = location.raw_payload or {}
+    names: list[str] = []
+    description = payload.get("desc")
+    if description:
+        names.append(str(description))
+    regions = payload.get("inregions")
+    if isinstance(regions, list):
+        names.extend(str(region) for region in regions if str(region).strip())
+    return [name.strip() for name in names if name.strip()]
+
+
+def site_for_location(
+    location: OwnTracksLocation,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+) -> Site | None:
+    for region_name in _region_names(location):
+        site = sites_by_name.get(region_name.casefold())
+        if site is not None and site.active:
+            return site
+    return nearest_site(location, sites)
+
+
+def _distance_between_locations_meters(
+    first: OwnTracksLocation,
+    second: OwnTracksLocation,
+) -> Decimal:
+    return (
+        haversine_miles(
+            first.latitude,
+            first.longitude,
+            second.latitude,
+            second.longitude,
+        )
+        * METERS_PER_MILE
+    )
+
+
+def _same_stop(
+    candidate_site: Site | None,
+    candidate_anchor: OwnTracksLocation,
+    current_site: Site | None,
+    location: OwnTracksLocation,
+    unknown_stop_radius_m: int,
+) -> bool:
+    if candidate_site is not None and current_site is not None:
+        return candidate_site.id == current_site.id
+    if candidate_site is None and current_site is None:
+        return _distance_between_locations_meters(
+            candidate_anchor,
+            location,
+        ) <= Decimal(unknown_stop_radius_m)
+    return False
+
+
+def _qualifying_stops(
+    locations: list[OwnTracksLocation],
+    sites: list[Site],
+    *,
+    minimum_stop_duration: timedelta,
+    unknown_stop_radius_m: int,
+) -> list[StopVisit]:
+    if not locations:
+        return []
+
+    sites_by_name = {site.name.casefold(): site for site in sites}
+    visits: list[StopVisit] = []
+    candidate_site = site_for_location(locations[0], sites, sites_by_name)
+    candidate_start = locations[0]
+    candidate_end = locations[0]
+
+    def close_candidate() -> None:
+        if candidate_end.captured_at - candidate_start.captured_at >= minimum_stop_duration:
+            visits.append(
+                StopVisit(
+                    site=candidate_site,
+                    started_location=candidate_start,
+                    ended_location=candidate_end,
+                )
+            )
+
+    for location in locations[1:]:
+        current_site = site_for_location(location, sites, sites_by_name)
+        if location.captured_at.date() != candidate_start.captured_at.date():
+            close_candidate()
+            candidate_site = current_site
+            candidate_start = location
+            candidate_end = location
+            continue
+
+        if _same_stop(
+            candidate_site,
+            candidate_start,
+            current_site,
+            location,
+            unknown_stop_radius_m,
+        ):
+            candidate_end = location
+            continue
+
+        close_candidate()
+        candidate_site = current_site
+        candidate_start = location
+        candidate_end = location
+
+    close_candidate()
+    return visits
+
+
+def _path_miles_between(
+    locations: list[OwnTracksLocation],
+    start_location: OwnTracksLocation,
+    end_location: OwnTracksLocation,
+) -> Decimal:
+    route_locations = [
+        location
+        for location in locations
+        if start_location.captured_at <= location.captured_at <= end_location.captured_at
+    ]
+    if not route_locations or route_locations[0].id != start_location.id:
+        route_locations.insert(0, start_location)
+    if route_locations[-1].id != end_location.id:
+        route_locations.append(end_location)
+
+    total = Decimal("0.00")
+    for previous, current in zip(route_locations, route_locations[1:], strict=False):
+        total += haversine_miles(
+            previous.latitude,
+            previous.longitude,
+            current.latitude,
+            current.longitude,
+        )
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _trip_notes(origin: StopVisit, destination: StopVisit, minimum_minutes: int) -> str:
+    notes: list[str] = [f"Auto-generated from stops of at least {minimum_minutes} minutes."]
+    if origin.site is None:
+        notes.append("Origin was an unknown stationary stop.")
+    if destination.site is None:
+        notes.append("Destination was an unknown stationary stop.")
+    return " ".join(notes)
+
+
 def date_bounds(day: date) -> tuple[datetime, datetime]:
     start = datetime.combine(day, time.min, tzinfo=UTC)
     end = start + timedelta(days=1)
@@ -82,74 +247,44 @@ def generate_trips(db: Session, start_date: date, end_date: date) -> list[Trip]:
         .where(Trip.trip_date <= end_date)
     )
 
+    minimum_stop_duration = timedelta(minutes=settings.owntracks_stop_minutes)
+    stops = _qualifying_stops(
+        locations,
+        sites,
+        minimum_stop_duration=minimum_stop_duration,
+        unknown_stop_radius_m=settings.owntracks_unknown_stop_radius_m,
+    )
+
     generated: list[Trip] = []
-    origin_site: Site | None = None
-    previous_site: Site | None = None
-    start_location: OwnTracksLocation | None = None
-    previous_location: OwnTracksLocation | None = None
-    accumulated_miles = Decimal("0.00")
-
-    for location in locations:
-        current_site = nearest_site(location, sites)
-        if previous_location is None:
-            previous_location = location
-            previous_site = current_site
+    for origin, destination in zip(stops, stops[1:], strict=False):
+        if origin.ended_at.date() != destination.started_at.date():
             continue
 
-        if location.captured_at.date() != previous_location.captured_at.date():
-            origin_site = None
-            start_location = None
-            accumulated_miles = Decimal("0.00")
-            previous_location = location
-            previous_site = current_site
-            continue
-
-        segment_miles = haversine_miles(
-            previous_location.latitude,
-            previous_location.longitude,
-            location.latitude,
-            location.longitude,
+        miles = _path_miles_between(
+            locations,
+            origin.ended_location,
+            destination.started_location,
         )
+        if miles < settings.min_trip_miles:
+            continue
 
-        if origin_site is not None:
-            accumulated_miles += segment_miles
-        elif previous_site is not None and (
-            current_site is None or current_site.id != previous_site.id
-        ):
-            origin_site = previous_site
-            start_location = previous_location
-            accumulated_miles = segment_miles
-
-        if (
-            origin_site is not None
-            and current_site is not None
-            and current_site.id != origin_site.id
-            and start_location is not None
-            and accumulated_miles >= settings.min_trip_miles
-        ):
-            trip = Trip(
-                trip_date=location.captured_at.date(),
-                origin_site_id=origin_site.id,
-                destination_site_id=current_site.id,
-                started_at=start_location.captured_at,
-                ended_at=location.captured_at,
-                start_latitude=start_location.latitude,
-                start_longitude=start_location.longitude,
-                end_latitude=location.latitude,
-                end_longitude=location.longitude,
-                miles=accumulated_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                include_in_report=True,
-                source="auto",
-                notes="",
-            )
-            db.add(trip)
-            generated.append(trip)
-            origin_site = None
-            start_location = None
-            accumulated_miles = Decimal("0.00")
-
-        previous_location = location
-        previous_site = current_site or previous_site
+        trip = Trip(
+            trip_date=origin.ended_at.date(),
+            origin_site_id=origin.site.id if origin.site is not None else None,
+            destination_site_id=destination.site.id if destination.site is not None else None,
+            started_at=origin.ended_at,
+            ended_at=destination.started_at,
+            start_latitude=origin.ended_location.latitude,
+            start_longitude=origin.ended_location.longitude,
+            end_latitude=destination.started_location.latitude,
+            end_longitude=destination.started_location.longitude,
+            miles=miles,
+            include_in_report=True,
+            source="auto",
+            notes=_trip_notes(origin, destination, settings.owntracks_stop_minutes),
+        )
+        db.add(trip)
+        generated.append(trip)
 
     db.commit()
     for trip in generated:

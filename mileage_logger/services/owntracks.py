@@ -3,9 +3,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mileage_logger.models import OwnTracksLocation
+from mileage_logger.config import get_settings
+from mileage_logger.models import OwnTracksLocation, Site
 
 
 class OwnTracksError(ValueError):
@@ -39,6 +41,12 @@ class OwnTracksLocationMessage:
     battery_percent: int | None
 
 
+@dataclass(frozen=True)
+class OwnTracksProcessResult:
+    location: OwnTracksLocation | None
+    site: Site | None
+
+
 def identity_from_topic(topic: str | None) -> TopicIdentity:
     if not topic:
         return TopicIdentity(topic=None, user=None, device=None)
@@ -57,13 +65,7 @@ def _optional_int(value: object) -> int | None:
         raise OwnTracksError(f"Expected integer-compatible value, got {value!r}") from exc
 
 
-def parse_owntracks_location(
-    body: bytes,
-    *,
-    topic: str | None = None,
-    user: str | None = None,
-    device: str | None = None,
-) -> OwnTracksLocationMessage:
+def _decode_payload(body: bytes) -> dict:
     if not body:
         raise EmptyOwnTracksPayload("OwnTracks sent an empty payload")
 
@@ -74,9 +76,18 @@ def parse_owntracks_location(
 
     if not isinstance(payload, dict):
         raise OwnTracksError("OwnTracks payload must be a JSON object")
+    return payload
 
+
+def _location_message_from_payload(
+    payload: dict,
+    *,
+    topic: str | None = None,
+    user: str | None = None,
+    device: str | None = None,
+) -> OwnTracksLocationMessage:
     payload_type = payload.get("_type")
-    if payload_type != "location":
+    if payload_type not in {"location", "transition"}:
         raise UnsupportedOwnTracksType(f"Ignoring OwnTracks payload type {payload_type!r}")
 
     if "lat" not in payload or "lon" not in payload or "tst" not in payload:
@@ -104,7 +115,92 @@ def parse_owntracks_location(
     )
 
 
+def parse_owntracks_location(
+    body: bytes,
+    *,
+    topic: str | None = None,
+    user: str | None = None,
+    device: str | None = None,
+) -> OwnTracksLocationMessage:
+    return _location_message_from_payload(
+        _decode_payload(body),
+        topic=topic,
+        user=user,
+        device=device,
+    )
+
+
+def _first_region_name(payload: dict) -> str | None:
+    description = payload.get("desc")
+    if description:
+        return str(description).strip() or None
+
+    regions = payload.get("inregions")
+    if isinstance(regions, list):
+        for region in regions:
+            name = str(region).strip()
+            if name:
+                return name
+    return None
+
+
+def _site_radius_from_payload(payload: dict) -> int:
+    settings = get_settings()
+    try:
+        return int(payload.get("rad") or settings.owntracks_default_site_radius_m)
+    except (TypeError, ValueError):
+        return settings.owntracks_default_site_radius_m
+
+
+def sync_site_from_owntracks_payload(
+    db: Session,
+    payload: dict,
+    *,
+    latitude: Decimal | None = None,
+    longitude: Decimal | None = None,
+) -> Site | None:
+    settings = get_settings()
+    if not settings.owntracks_auto_create_sites:
+        return None
+
+    name = _first_region_name(payload)
+    if name is None:
+        return None
+
+    payload_latitude = payload.get("lat")
+    payload_longitude = payload.get("lon")
+    site_latitude = Decimal(str(payload_latitude)) if payload_latitude is not None else latitude
+    site_longitude = Decimal(str(payload_longitude)) if payload_longitude is not None else longitude
+    if site_latitude is None or site_longitude is None:
+        return None
+
+    site = db.scalar(select(Site).where(Site.name == name))
+    if site is None:
+        site = Site(
+            name=name,
+            latitude=site_latitude,
+            longitude=site_longitude,
+            radius_m=_site_radius_from_payload(payload),
+            active=True,
+        )
+        db.add(site)
+        return site
+
+    if payload.get("_type") == "waypoint":
+        site.latitude = site_latitude
+        site.longitude = site_longitude
+        site.radius_m = _site_radius_from_payload(payload)
+        site.active = True
+    return site
+
+
 def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> OwnTracksLocation:
+    sync_site_from_owntracks_payload(
+        db,
+        message.payload,
+        latitude=message.latitude,
+        longitude=message.longitude,
+    )
     location = OwnTracksLocation(
         user=message.identity.user,
         device=message.identity.device,
@@ -122,3 +218,26 @@ def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> 
     db.commit()
     db.refresh(location)
     return location
+
+
+def process_owntracks_payload(
+    db: Session,
+    body: bytes,
+    *,
+    topic: str | None = None,
+    user: str | None = None,
+    device: str | None = None,
+) -> OwnTracksProcessResult:
+    payload = _decode_payload(body)
+    payload_type = payload.get("_type")
+
+    if payload_type == "waypoint":
+        site = sync_site_from_owntracks_payload(db, payload)
+        db.commit()
+        if site is not None:
+            db.refresh(site)
+        return OwnTracksProcessResult(location=None, site=site)
+
+    message = _location_message_from_payload(payload, topic=topic, user=user, device=device)
+    location = store_owntracks_location(db, message)
+    return OwnTracksProcessResult(location=location, site=None)

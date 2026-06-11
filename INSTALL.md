@@ -80,6 +80,9 @@ HTTP_PORT=80
 WEB_ALLOWED_CIDRS=
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
+OWNTRACKS_AUTO_CREATE_SITES=true
+OWNTRACKS_STOP_MINUTES=10
+OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
 REPORT_OUTPUT_DIR=/data/reports
 LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
@@ -215,6 +218,11 @@ http://your-server/api/owntracks
 7. Disable Android battery optimization for OwnTracks.
 8. Tap the manual publish button once to send a test location.
 
+For client sites, add OwnTracks regions/waypoints on the phone. If you use MQTT, publish waypoints
+and keep `MQTT_TOPIC=owntracks/#` so the app receives waypoint and transition events. If you use
+HTTP, OwnTracks sends its payloads to the configured endpoint and the app will process supported
+location, waypoint, and transition payloads.
+
 You can also use the Recorder-compatible endpoint:
 
 ```text
@@ -222,6 +230,31 @@ http://your-server/api/pub
 ```
 
 The app supports both `/api/owntracks` and `/api/pub`.
+
+## Stop And Trip Detection
+
+Trips are generated from qualifying stops rather than every brief pass through a geofence.
+
+Default behavior:
+
+- A known OwnTracks waypoint/app site must be occupied for at least 10 minutes.
+- An unknown place also qualifies if the phone stays within 150 meters for at least 10 minutes.
+- The work period lasts until the phone drives away from that stop.
+- The trip is the travel from the previous qualifying stop to the next qualifying stop.
+- Unknown stops remain editable/reviewable; add a site later and regenerate trips if needed.
+
+Configuration:
+
+```env
+OWNTRACKS_AUTO_CREATE_SITES=true
+OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
+OWNTRACKS_STOP_MINUTES=10
+OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+```
+
+When `OWNTRACKS_AUTO_CREATE_SITES=true`, published OwnTracks waypoints create or update app sites.
+If a location arrives with an `inregions` waypoint name but no matching site exists yet, the app
+creates an approximate site at the reported location using `OWNTRACKS_DEFAULT_SITE_RADIUS_M`.
 
 ## Test Ingestion
 
@@ -300,7 +333,7 @@ MQTT_HOST=your-broker
 MQTT_PORT=1883
 MQTT_USERNAME=your-user
 MQTT_PASSWORD=your-password
-MQTT_TOPIC=owntracks/+/+
+MQTT_TOPIC=owntracks/#
 ```
 
 Restart the app after changing MQTT settings:
