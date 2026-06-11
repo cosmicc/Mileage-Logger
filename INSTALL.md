@@ -266,6 +266,9 @@ If a stop was not a real destination, use the trip's `False Stop` action on the 
 deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
 to the next trip so the intermediate stop is removed.
 
+If a trip is personal, use its `Personal` action. The app excludes that trip from reports and saves
+the route so future matching trips are automatically marked personal too.
+
 Set `OWNTRACKS_STOP_MINUTES` in Docker or `.env` to change the stop wait threshold. If unset, it
 defaults to `10`.
 
@@ -323,7 +326,7 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 3. Add each work site with latitude, longitude, and geofence radius.
 4. Let OwnTracks collect location points.
 5. Review automatically generated trips from the `Trips` page.
-6. Open `Trips`, choose the report month, review trips, and uncheck personal drives.
+6. Open `Trips`, choose the report month, review trips, and mark personal routes.
 7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.
 

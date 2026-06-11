@@ -28,6 +28,7 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import (
     FalseStopMergeError,
+    mark_trip_personal,
     merge_false_stop_into_next_trip,
     update_trip_location_names,
 )
@@ -178,6 +179,21 @@ def update_trip_form(
         raise HTTPException(status_code=404, detail="Trip not found")
     update_trip_location_names(trip, origin_name, destination_name)
     db.commit()
+    return RedirectResponse(
+        url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
+        status_code=303,
+    )
+
+
+@router.post("/trips/{trip_id}/personal")
+def personal_trip_form(
+    trip_id: int,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    try:
+        trip = mark_trip_personal(db, trip_id)
+    except FalseStopMergeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
         status_code=303,

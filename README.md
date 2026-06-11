@@ -12,7 +12,7 @@ monthly reimbursement PDF logs.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
 - Work-site geofence model used to turn location points into daily trips.
-- Manual include/exclude controls for personal drives.
+- Personal trip marking that automatically excludes future matching routes.
 - Stop-based trip detection: a client stop must last at least 10 minutes before it creates a trip.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
@@ -174,6 +174,9 @@ If a stop was not a real destination, use the trip's `False Stop` action on the 
 deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
 to the next trip so the intermediate stop is removed.
 
+If a trip is personal, use its `Personal` action. The app excludes that trip from reports and saves
+the route so future matching trips are automatically marked personal too.
+
 In Docker, change the stop wait threshold with `OWNTRACKS_STOP_MINUTES`. If unset, it defaults to
 `10`.
 
@@ -199,7 +202,8 @@ and set `GOOGLE_PLACES_API_KEY` if you want unknown client stops named automatic
 1. Create work sites in the `Sites` page with latitude, longitude, and geofence radius.
 2. Send OwnTracks data through HTTP or MQTT.
 3. Let the app automatically create trips from incoming OwnTracks data.
-4. Review `Trips`, switch to the needed month, and edit the start/end location names if needed.
+4. Review `Trips`, switch to the needed month, edit start/end location names if needed, and mark
+   personal routes.
 5. Add or fetch a monthly gas price for that report month.
 6. Download the monthly PDF report from the `Trips` page.
 

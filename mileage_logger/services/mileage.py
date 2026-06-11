@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from mileage_logger.config import get_settings
 from mileage_logger.models import (
     OwnTracksLocation,
+    PersonalTripPattern,
     Site,
     Trip,
     UNKNOWN_LOCATION_NAME,
@@ -21,6 +22,7 @@ EARTH_RADIUS_M = Decimal("6371008.8")
 AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
 FALSE_STOP_MERGED_SOURCE = "false_stop_merged"
+PERSONAL_TRIP_SOURCE = "personal"
 
 
 class FalseStopMergeError(ValueError):
@@ -291,6 +293,67 @@ def _stop_location_name(stop: StopVisit) -> str:
     return UNKNOWN_LOCATION_NAME
 
 
+def _personal_trip_patterns(db: Session) -> list[PersonalTripPattern]:
+    return list(db.scalars(select(PersonalTripPattern).order_by(PersonalTripPattern.id.asc())))
+
+
+def _endpoint_matches_personal_pattern(
+    *,
+    pattern_site_id: int | None,
+    trip_site_id: int | None,
+    pattern_latitude: Decimal,
+    pattern_longitude: Decimal,
+    trip_latitude: Decimal,
+    trip_longitude: Decimal,
+    radius_m: int,
+) -> bool:
+    if pattern_site_id is not None:
+        return trip_site_id == pattern_site_id
+    distance_m = haversine_miles(
+        pattern_latitude,
+        pattern_longitude,
+        trip_latitude,
+        trip_longitude,
+    ) * METERS_PER_MILE
+    return distance_m <= Decimal(radius_m)
+
+
+def _trip_matches_personal_pattern(
+    trip: Trip,
+    pattern: PersonalTripPattern,
+    *,
+    radius_m: int,
+) -> bool:
+    return _endpoint_matches_personal_pattern(
+        pattern_site_id=pattern.origin_site_id,
+        trip_site_id=trip.origin_site_id,
+        pattern_latitude=pattern.origin_latitude,
+        pattern_longitude=pattern.origin_longitude,
+        trip_latitude=trip.start_latitude,
+        trip_longitude=trip.start_longitude,
+        radius_m=radius_m,
+    ) and _endpoint_matches_personal_pattern(
+        pattern_site_id=pattern.destination_site_id,
+        trip_site_id=trip.destination_site_id,
+        pattern_latitude=pattern.destination_latitude,
+        pattern_longitude=pattern.destination_longitude,
+        trip_latitude=trip.end_latitude,
+        trip_longitude=trip.end_longitude,
+        radius_m=radius_m,
+    )
+
+
+def _apply_personal_trip_patterns(
+    trip: Trip,
+    patterns: list[PersonalTripPattern],
+    *,
+    radius_m: int,
+) -> None:
+    if any(_trip_matches_personal_pattern(trip, pattern, radius_m=radius_m) for pattern in patterns):
+        trip.include_in_report = False
+        trip.notes = _append_note(trip.notes, "Auto-marked personal by matching route.")
+
+
 def _enrich_unknown_stops(db: Session, stops: list[StopVisit]) -> None:
     for stop in stops:
         if stop.site is not None:
@@ -364,6 +427,7 @@ def generate_trips(
         final_observed_until=_final_observed_until(end_date, as_of=as_of),
     )
     _enrich_unknown_stops(db, stops)
+    personal_patterns = _personal_trip_patterns(db)
 
     generated: list[Trip] = []
     for origin, destination in zip(stops, stops[1:], strict=False):
@@ -403,6 +467,11 @@ def generate_trips(
             source=AUTO_TRIP_SOURCE,
             notes=_trip_notes(origin, destination, settings.owntracks_stop_minutes),
         )
+        _apply_personal_trip_patterns(
+            trip,
+            personal_patterns,
+            radius_m=settings.owntracks_unknown_stop_radius_m,
+        )
         db.add(trip)
         generated.append(trip)
 
@@ -425,7 +494,73 @@ def update_trip_location_names(trip: Trip, origin_name: str, destination_name: s
 
 def _append_note(existing_notes: str | None, note: str) -> str:
     existing = (existing_notes or "").strip()
+    if existing == note or existing.endswith(f" {note}"):
+        return existing
     return f"{existing} {note}".strip() if existing else note
+
+
+def _personal_pattern_for_trip(trip: Trip) -> PersonalTripPattern:
+    return PersonalTripPattern(
+        origin_site_id=trip.origin_site_id,
+        destination_site_id=trip.destination_site_id,
+        origin_name=trip.origin_display_name,
+        destination_name=trip.destination_display_name,
+        origin_latitude=trip.start_latitude,
+        origin_longitude=trip.start_longitude,
+        destination_latitude=trip.end_latitude,
+        destination_longitude=trip.end_longitude,
+    )
+
+
+def _get_or_create_personal_pattern(db: Session, trip: Trip, *, radius_m: int) -> PersonalTripPattern:
+    for pattern in _personal_trip_patterns(db):
+        if _trip_matches_personal_pattern(trip, pattern, radius_m=radius_m):
+            return pattern
+    pattern = _personal_pattern_for_trip(trip)
+    db.add(pattern)
+    db.flush()
+    return pattern
+
+
+def mark_trip_personal(db: Session, trip_id: int) -> Trip:
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        raise FalseStopMergeError("Trip not found")
+
+    settings = get_settings()
+    pattern = _get_or_create_personal_pattern(
+        db,
+        trip,
+        radius_m=settings.owntracks_unknown_stop_radius_m,
+    )
+    trip.include_in_report = False
+    trip.source = PERSONAL_TRIP_SOURCE
+    trip.notes = _append_note(trip.notes, "Marked personal.")
+
+    future_trips = list(
+        db.scalars(
+            select(Trip)
+            .where(Trip.id != trip.id)
+            .where(Trip.started_at > trip.started_at)
+            .order_by(Trip.started_at.asc(), Trip.id.asc())
+        )
+    )
+    for future_trip in future_trips:
+        if not _trip_matches_personal_pattern(
+            future_trip,
+            pattern,
+            radius_m=settings.owntracks_unknown_stop_radius_m,
+        ):
+            continue
+        future_trip.include_in_report = False
+        future_trip.notes = _append_note(
+            future_trip.notes,
+            "Auto-marked personal by matching route.",
+        )
+
+    db.commit()
+    db.refresh(trip)
+    return trip
 
 
 def merge_false_stop_into_next_trip(db: Session, trip_id: int) -> Trip:

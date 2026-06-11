@@ -347,6 +347,26 @@ button:hover {
   filter: brightness(1.06);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.45);
+  opacity: 0.58;
+}
+
+button.small-button {
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.1;
+}
+
+button.small-button.secondary {
+  border-color: var(--line);
+  background: #15130f;
+  color: var(--text-soft);
+}
+
 .button-link {
   display: inline-flex;
   align-items: center;
@@ -408,6 +428,22 @@ tbody tr:last-child td {
 
 td input[type="text"] {
   width: min(280px, 34vw);
+}
+
+.trip-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.trip-actions button {
+  width: auto;
+  white-space: nowrap;
+}
+
+.trip-actions form {
+  margin: 0;
 }
 
 .pill {

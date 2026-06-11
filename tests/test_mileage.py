@@ -4,12 +4,14 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from mileage_logger.models import Base, OwnTracksLocation, Site, Trip
+from mileage_logger.models import Base, OwnTracksLocation, PersonalTripPattern, Site, Trip
 from mileage_logger.services.mileage import (
     FALSE_STOP_MERGED_SOURCE,
+    PERSONAL_TRIP_SOURCE,
     generate_trips,
     haversine_miles,
     mark_trip_manually_reviewed,
+    mark_trip_personal,
     merge_false_stop_into_next_trip,
     purge_processed_owntracks_locations,
     update_trip_location_names,
@@ -621,3 +623,49 @@ def test_edited_trip_location_names_are_preserved_when_trips_regenerate() -> Non
     assert remaining_trips == [trip]
     assert remaining_trips[0].origin_display_name == "Edited Start"
     assert remaining_trips[0].destination_display_name == "Edited End"
+
+
+def test_mark_trip_personal_excludes_future_matching_generated_trips() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    next_day = day + timedelta(days=1)
+    db.add_all(
+        [
+            Site(
+                name="Home",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Store",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=38), "42.3441", "-83.0601"),
+            _location(next_day, "42.3314", "-83.0458"),
+            _location(next_day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(next_day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(next_day + timedelta(minutes=38), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+    personal_trip = generate_trips(db, day.date(), day.date())[0]
+
+    marked_trip = mark_trip_personal(db, personal_trip.id)
+    future_trips = generate_trips(db, next_day.date(), next_day.date())
+
+    patterns = list(db.scalars(select(PersonalTripPattern)))
+    assert marked_trip.include_in_report is False
+    assert marked_trip.source == PERSONAL_TRIP_SOURCE
+    assert len(patterns) == 1
+    assert patterns[0].origin_name == "Home"
+    assert patterns[0].destination_name == "Store"
+    assert len(future_trips) == 1
+    assert future_trips[0].include_in_report is False
+    assert future_trips[0].source == "auto"
+    assert "Auto-marked personal by matching route." in future_trips[0].notes

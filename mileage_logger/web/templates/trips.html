@@ -72,10 +72,15 @@
         <td>{{ trip.started_at.strftime("%H:%M") }} - {{ trip.ended_at.strftime("%H:%M") }}</td>
         <td>{{ "%.2f"|format(trip.miles) }}</td>
         <td>
-          <button form="{{ form_id }}" type="submit">Save</button>
-          <form action="/trips/{{ trip.id }}/false-stop" method="post">
-            <button type="submit">False Stop</button>
-          </form>
+          <div class="trip-actions">
+            <button class="small-button" form="{{ form_id }}" type="submit">Save</button>
+            <form action="/trips/{{ trip.id }}/personal" method="post">
+              <button class="small-button secondary" type="submit">Personal</button>
+            </form>
+            <form action="/trips/{{ trip.id }}/false-stop" method="post">
+              <button class="small-button secondary" type="submit">False Stop</button>
+            </form>
+          </div>
         </td>
       </tr>
       {% else %}

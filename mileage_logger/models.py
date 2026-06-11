@@ -56,6 +56,21 @@ class Site(Base):
     )
 
 
+class PersonalTripPattern(Base):
+    __tablename__ = "personal_trip_patterns"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    origin_site_id: Mapped[int | None] = mapped_column(ForeignKey("sites.id"), nullable=True)
+    destination_site_id: Mapped[int | None] = mapped_column(ForeignKey("sites.id"), nullable=True)
+    origin_name: Mapped[str] = mapped_column(String(160))
+    destination_name: Mapped[str] = mapped_column(String(160))
+    origin_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    origin_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    destination_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    destination_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class Trip(Base):
     __tablename__ = "trips"
 
