@@ -181,7 +181,7 @@ p {
   position: absolute;
   inset: 0 0 auto;
   height: 3px;
-  background: linear-gradient(90deg, var(--accent), var(--warning));
+  background: linear-gradient(90deg, #93c5fd, var(--accent), var(--accent-dark));
   content: "";
 }
 
