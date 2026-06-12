@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -19,7 +19,7 @@ from mileage_logger.models import (
     Site,
     Trip,
 )
-from mileage_logger.services.diagnostics import recent_owntracks_entries
+from mileage_logger.services.diagnostics import paginated_owntracks_entries
 from mileage_logger.services.gas_prices import (
     GasPriceUnavailable,
     get_or_create_monthly_price,
@@ -261,7 +261,11 @@ def refresh_gas_price_form(
 
 
 @router.get("/diagnostics", response_class=HTMLResponse)
-def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+def diagnostics(
+    request: Request,
+    owntracks_page: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
     settings = get_settings()
     log_dir = Path(settings.log_dir)
     latest_location = db.scalar(
@@ -275,17 +279,14 @@ def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse
         .order_by(MonthlyGasPrice.year.desc(), MonthlyGasPrice.month.desc())
         .limit(1)
     )
-    latest_report = db.scalar(
-        select(MonthlyReport).order_by(MonthlyReport.created_at.desc()).limit(1)
-    )
-    recent_locations = recent_owntracks_entries(db)
+    owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
         {
             "settings": settings,
             "database_url": _masked_database_url(settings.database_url),
-            "location_count": db.scalar(select(func.count(OwnTracksLocation.id))) or 0,
+            "location_count": owntracks_entries_page.total,
             "site_count": db.scalar(select(func.count(Site.id))) or 0,
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,
             "gas_snapshot_count": db.scalar(select(func.count(GasPriceSnapshot.id))) or 0,
@@ -293,8 +294,8 @@ def diagnostics(request: Request, db: Session = Depends(get_db)) -> HTMLResponse
             "latest_location": latest_location,
             "latest_snapshot": latest_snapshot,
             "latest_monthly_gas": latest_monthly_gas,
-            "latest_report": latest_report,
-            "recent_locations": recent_locations,
+            "recent_locations": owntracks_entries_page.entries,
+            "owntracks_entries_page": owntracks_entries_page,
             "app_log_lines": _tail_file(log_dir / "app.log"),
             "gas_log_lines": _tail_file(log_dir / "gas-snapshot.log"),
         },

@@ -5,7 +5,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import Base, OwnTracksLocation
-from mileage_logger.services.diagnostics import recent_owntracks_entries
+from mileage_logger.services.diagnostics import (
+    paginated_owntracks_entries,
+    recent_owntracks_entries,
+)
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider
 
 
@@ -56,6 +59,35 @@ def test_recent_owntracks_entries_include_travel_entries() -> None:
         "location",
         "transition",
     ]
+
+
+def test_paginated_owntracks_entries_loads_requested_page() -> None:
+    db = _session()
+    start = datetime(2026, 6, 11, 8, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            _location(
+                start + timedelta(minutes=index),
+                start + timedelta(minutes=index),
+                {"_type": "location", "index": index},
+            )
+            for index in range(45)
+        ]
+    )
+    db.commit()
+
+    page = paginated_owntracks_entries(db, page=2, page_size=20)
+
+    assert page.total == 45
+    assert page.page == 2
+    assert page.total_pages == 3
+    assert page.first_item == 21
+    assert page.last_item == 40
+    assert page.has_previous is True
+    assert page.has_next is True
+    assert len(page.entries) == 20
+    assert page.entries[0].raw_payload["index"] == 24
+    assert page.entries[-1].raw_payload["index"] == 5
 
 
 def test_aaa_gas_provider_uses_local_observed_date(monkeypatch) -> None:

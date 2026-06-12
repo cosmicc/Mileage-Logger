@@ -15,8 +15,6 @@
       <dd>{{ settings.app_env }}</dd>
       <dt>Database</dt>
       <dd>{{ database_url }}</dd>
-      <dt>Report Directory</dt>
-      <dd>{{ settings.report_output_dir }}</dd>
       <dt>Log Directory</dt>
       <dd>{{ settings.log_dir }}</dd>
       <dt>MQTT Enabled</dt>
@@ -53,14 +51,37 @@
       <dd>{% if latest_snapshot %}{{ latest_snapshot.observed_on }} ${{ "%.3f"|format(latest_snapshot.price_per_gallon) }}{% else %}None{% endif %}</dd>
       <dt>Monthly Gas</dt>
       <dd>{% if latest_monthly_gas %}{{ latest_monthly_gas.year }}-{{ "%02d"|format(latest_monthly_gas.month) }} ${{ "%.3f"|format(latest_monthly_gas.average_price_per_gallon) }}{% else %}None{% endif %}</dd>
-      <dt>Report</dt>
-      <dd>{% if latest_report %}{{ latest_report.pdf_path }}{% else %}None{% endif %}</dd>
     </dl>
   </div>
 </section>
 
-<section class="panel">
-  <h2>Recent OwnTracks Entries</h2>
+<section id="owntracks-entries" class="panel">
+  <div class="panel-toolbar">
+    <div>
+      <h2>Recent OwnTracks Entries</h2>
+      <p class="panel-meta">
+        Showing {{ owntracks_entries_page.first_item }}-{{ owntracks_entries_page.last_item }}
+        of {{ owntracks_entries_page.total }}
+      </p>
+    </div>
+    <div class="pagination-controls" aria-label="Recent OwnTracks entries pages">
+      {% if owntracks_entries_page.has_previous %}
+      <a class="button-link secondary" href="/diagnostics?owntracks_page=1#owntracks-entries">First</a>
+      <a class="button-link secondary" href="/diagnostics?owntracks_page={{ owntracks_entries_page.page - 1 }}#owntracks-entries">Previous</a>
+      {% else %}
+      <span class="pagination-disabled">First</span>
+      <span class="pagination-disabled">Previous</span>
+      {% endif %}
+      <span class="pagination-status">Page {{ owntracks_entries_page.page }} of {{ owntracks_entries_page.total_pages }}</span>
+      {% if owntracks_entries_page.has_next %}
+      <a class="button-link secondary" href="/diagnostics?owntracks_page={{ owntracks_entries_page.page + 1 }}#owntracks-entries">Next</a>
+      <a class="button-link secondary" href="/diagnostics?owntracks_page={{ owntracks_entries_page.total_pages }}#owntracks-entries">Last</a>
+      {% else %}
+      <span class="pagination-disabled">Next</span>
+      <span class="pagination-disabled">Last</span>
+      {% endif %}
+    </div>
+  </div>
   <table>
     <thead>
       <tr>
