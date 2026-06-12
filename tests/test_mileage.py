@@ -90,6 +90,125 @@ def test_generate_trips_between_stops_that_last_at_least_ten_minutes() -> None:
     assert trips[0].ended_at == (day + timedelta(minutes=25)).replace(tzinfo=None)
 
 
+def test_generate_trips_ignores_single_enter_event_without_dwell_reports() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client_a = Site(
+        name="Client A",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=120,
+    )
+    client_b = Site(
+        name="Client B",
+        latitude=Decimal("42.3440"),
+        longitude=Decimal("-83.0600"),
+        radius_m=120,
+    )
+    db.add_all(
+        [
+            client_a,
+            client_b,
+            _location(
+                day,
+                "42.3314",
+                "-83.0458",
+                {"_type": "transition", "event": "enter", "desc": "Client A"},
+            ),
+            _location(day + timedelta(minutes=12), "42.3370", "-83.0520"),
+            _location(day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=38), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+
+    assert (
+        generate_trips(
+            db,
+            day.date(),
+            day.date(),
+            as_of=day + timedelta(minutes=45),
+        )
+        == []
+    )
+
+
+def test_generate_trips_tolerates_brief_waypoint_boundary_noise() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client_a = Site(
+        name="Client A",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=120,
+    )
+    client_b = Site(
+        name="Client B",
+        latitude=Decimal("42.3440"),
+        longitude=Decimal("-83.0600"),
+        radius_m=120,
+    )
+    db.add_all(
+        [
+            client_a,
+            client_b,
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=13), "42.3326", "-83.0458"),
+            _location(day + timedelta(minutes=14), "42.3327", "-83.0458"),
+            _location(day + timedelta(minutes=16), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3370", "-83.0520"),
+            _location(day + timedelta(minutes=35), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=48), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+
+    assert len(trips) == 1
+    assert trips[0].origin_site_id == client_a.id
+    assert trips[0].destination_site_id == client_b.id
+    assert trips[0].started_at == (day + timedelta(minutes=16)).replace(tzinfo=None)
+
+
+def test_generate_trips_confirms_waypoint_exit_when_driving_away_under_500m() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client_a = Site(
+        name="Client A",
+        latitude=Decimal("42.3314"),
+        longitude=Decimal("-83.0458"),
+        radius_m=80,
+    )
+    client_b = Site(
+        name="Client B",
+        latitude=Decimal("42.3349"),
+        longitude=Decimal("-83.0458"),
+        radius_m=80,
+    )
+    db.add_all(
+        [
+            client_a,
+            client_b,
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0458"),
+            _location(day + timedelta(minutes=18), "42.3334", "-83.0458"),
+            _location(day + timedelta(minutes=19), "42.3340", "-83.0458"),
+            _location(day + timedelta(minutes=25), "42.3349", "-83.0458"),
+            _location(day + timedelta(minutes=38), "42.3350", "-83.0458"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+
+    assert len(trips) == 1
+    assert trips[0].origin_site_id == client_a.id
+    assert trips[0].destination_site_id == client_b.id
+    assert trips[0].miles < Decimal("0.50")
+
+
 def test_generate_trips_includes_return_to_single_point_final_waypoint() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
@@ -210,7 +329,7 @@ def test_generate_trips_ignores_short_client_stops() -> None:
     )
 
 
-def test_generate_trips_to_unknown_stationary_stop() -> None:
+def test_generate_trips_ignores_unknown_stationary_stop() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     client_a = Site(
@@ -230,13 +349,8 @@ def test_generate_trips_to_unknown_stationary_stop() -> None:
     )
     db.commit()
 
-    trips = generate_trips(db, day.date(), day.date())
-
-    assert len(trips) == 1
-    assert trips[0].origin_site_id == client_a.id
-    assert trips[0].destination_site_id is None
-    assert "unknown stationary stop" in trips[0].notes
-    assert db.scalar(select(Trip).where(Trip.id == trips[0].id)) is not None
+    assert generate_trips(db, day.date(), day.date()) == []
+    assert db.scalar(select(Trip.id)) is None
 
 
 def test_generate_trips_does_not_treat_single_unknown_final_point_as_stop() -> None:
@@ -289,12 +403,7 @@ def test_generate_trips_does_not_create_waypoint_from_unknown_stop() -> None:
     )
     db.commit()
 
-    trips = generate_trips(db, day.date(), day.date())
-
-    assert len(trips) == 1
-    assert trips[0].origin_site_id == client_a.id
-    assert trips[0].destination_site is None
-    assert "unknown stationary stop" in trips[0].notes
+    assert generate_trips(db, day.date(), day.date()) == []
     assert len(list(db.scalars(select(Site)))) == 1
 
 

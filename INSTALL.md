@@ -82,7 +82,6 @@ OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_STOP_MINUTES=10
-OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 REPORT_OUTPUT_DIR=/data/reports
@@ -241,10 +240,10 @@ Trips are generated from qualifying stops rather than every brief pass through a
 Default behavior:
 
 - A known OwnTracks waypoint must be occupied for at least 10 minutes.
-- An unknown place also qualifies if the phone stays within 150 meters for at least 10 minutes.
-- The work period lasts until the phone drives away from that stop.
+- Unknown places are ignored; valid automatic trip endpoints must be saved OwnTracks waypoints.
+- Brief boundary misses are tolerated. The work period lasts until the phone drives away from that
+  waypoint or is at least 500 meters away.
 - The trip is the travel from the previous qualifying stop to the next qualifying stop.
-- Unknown stops are labelled `Unknown` when they are not saved OwnTracks waypoints.
 
 Trip generation is automatic. Every incoming OwnTracks location or transition payload is stored in
 `owntracks_locations` and immediately triggers trip recalculation for that payload's
@@ -273,7 +272,6 @@ Configuration:
 OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
-OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60

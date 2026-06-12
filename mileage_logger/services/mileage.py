@@ -27,6 +27,10 @@ AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
 FALSE_STOP_MERGED_SOURCE = "false_stop_merged"
 PERSONAL_TRIP_SOURCE = "personal"
+WAYPOINT_EXIT_DISTANCE_M = Decimal("500")
+WAYPOINT_DRIVING_AWAY_MARGIN_M = Decimal("50")
+WAYPOINT_DRIVING_AWAY_MIN_DELTA_M = Decimal("25")
+WAYPOINT_DRIVING_AWAY_MIN_OUTSIDE_REPORTS = 2
 
 
 class FalseStopMergeError(ValueError):
@@ -95,6 +99,8 @@ def nearest_site(location: OwnTracksLocation, sites: list[Site]) -> Site | None:
 
 def _region_names(location: OwnTracksLocation) -> list[str]:
     payload = location.raw_payload or {}
+    if payload.get("_type") == "transition" and str(payload.get("event", "")).lower() == "leave":
+        return []
     names: list[str] = []
     description = payload.get("desc")
     if description:
@@ -117,36 +123,24 @@ def site_for_location(
     return nearest_site(location, sites)
 
 
-def _distance_between_locations_meters(
-    first: OwnTracksLocation,
-    second: OwnTracksLocation,
-) -> Decimal:
-    return (
-        haversine_miles(
-            first.latitude,
-            first.longitude,
-            second.latitude,
-            second.longitude,
-        )
-        * METERS_PER_MILE
-    )
-
-
-def _same_stop(
-    candidate_site: Site | None,
-    candidate_anchor: OwnTracksLocation,
-    current_site: Site | None,
+def _is_confirmed_waypoint_exit(
+    site: Site,
     location: OwnTracksLocation,
-    unknown_stop_radius_m: int,
-) -> bool:
-    if candidate_site is not None and current_site is not None:
-        return candidate_site.id == current_site.id
-    if candidate_site is None and current_site is None:
-        return _distance_between_locations_meters(
-            candidate_anchor,
-            location,
-        ) <= Decimal(unknown_stop_radius_m)
-    return False
+    *,
+    outside_reports: int,
+    previous_outside_distance_m: Decimal | None,
+) -> tuple[bool, Decimal]:
+    distance_m = distance_meters(site, location)
+    if distance_m >= WAYPOINT_EXIT_DISTANCE_M:
+        return True, distance_m
+    if previous_outside_distance_m is None:
+        return False, distance_m
+    moving_away = (
+        outside_reports >= WAYPOINT_DRIVING_AWAY_MIN_OUTSIDE_REPORTS
+        and distance_m > Decimal(site.radius_m) + WAYPOINT_DRIVING_AWAY_MARGIN_M
+        and distance_m - previous_outside_distance_m >= WAYPOINT_DRIVING_AWAY_MIN_DELTA_M
+    )
+    return moving_away, distance_m
 
 
 def _align_datetime(reference: datetime, value: datetime) -> datetime:
@@ -167,7 +161,6 @@ def _qualifying_stops(
     sites: list[Site],
     *,
     minimum_stop_duration: timedelta,
-    unknown_stop_radius_m: int,
     final_observed_until: datetime | None = None,
 ) -> list[StopVisit]:
     if not locations:
@@ -175,16 +168,41 @@ def _qualifying_stops(
 
     sites_by_name = {site.name.casefold(): site for site in sites}
     visits: list[StopVisit] = []
-    candidate_site = site_for_location(locations[0], sites, sites_by_name)
-    candidate_start = locations[0]
-    candidate_end = locations[0]
+    candidate_site: Site | None = None
+    candidate_start: OwnTracksLocation | None = None
+    candidate_end: OwnTracksLocation | None = None
+    outside_reports = 0
+    previous_outside_distance_m: Decimal | None = None
 
-    def close_candidate(observed_until: datetime | None = None) -> None:
-        stop_observed_until = (
-            observed_until
-            if candidate_site is not None and observed_until is not None
-            else candidate_end.captured_at
-        )
+    def start_candidate(site: Site | None, location: OwnTracksLocation) -> None:
+        nonlocal candidate_site, candidate_start, candidate_end
+        nonlocal outside_reports, previous_outside_distance_m
+        candidate_site = site
+        candidate_start = location
+        candidate_end = location
+        outside_reports = 0
+        previous_outside_distance_m = None
+
+    def clear_candidate() -> None:
+        nonlocal candidate_site, candidate_start, candidate_end
+        nonlocal outside_reports, previous_outside_distance_m
+        candidate_site = None
+        candidate_start = None
+        candidate_end = None
+        outside_reports = 0
+        previous_outside_distance_m = None
+
+    def close_candidate(
+        observed_until: datetime | None = None,
+        *,
+        extend_open_visit: bool = False,
+    ) -> None:
+        if candidate_site is None or candidate_start is None or candidate_end is None:
+            return
+        if extend_open_visit and observed_until is not None:
+            stop_observed_until = observed_until
+        else:
+            stop_observed_until = candidate_end.captured_at
         stop_observed_until = _align_datetime(candidate_start.captured_at, stop_observed_until)
         if stop_observed_until < candidate_end.captured_at:
             stop_observed_until = candidate_end.captured_at
@@ -198,33 +216,47 @@ def _qualifying_stops(
                 )
             )
 
-    for location in locations[1:]:
+    for location in locations:
         current_site = site_for_location(location, sites, sites_by_name)
+        if candidate_site is None or candidate_start is None or candidate_end is None:
+            if current_site is not None:
+                start_candidate(current_site, location)
+            continue
+
         if datetime_to_local_date(location.captured_at) != datetime_to_local_date(
             candidate_start.captured_at
         ):
-            close_candidate(_day_end_for_location(candidate_start))
-            candidate_site = current_site
-            candidate_start = location
-            candidate_end = location
+            close_candidate(_day_end_for_location(candidate_start), extend_open_visit=True)
+            if current_site is not None:
+                start_candidate(current_site, location)
+            else:
+                clear_candidate()
             continue
 
-        if _same_stop(
-            candidate_site,
-            candidate_start,
-            current_site,
-            location,
-            unknown_stop_radius_m,
-        ):
+        if current_site is not None and candidate_site.id == current_site.id:
             candidate_end = location
+            outside_reports = 0
+            previous_outside_distance_m = None
+            continue
+
+        outside_reports += 1
+        exit_confirmed, current_distance_m = _is_confirmed_waypoint_exit(
+            candidate_site,
+            location,
+            outside_reports=outside_reports,
+            previous_outside_distance_m=previous_outside_distance_m,
+        )
+        previous_outside_distance_m = current_distance_m
+        if not exit_confirmed:
             continue
 
         close_candidate(location.captured_at)
-        candidate_site = current_site
-        candidate_start = location
-        candidate_end = location
+        if current_site is not None:
+            start_candidate(current_site, location)
+        else:
+            clear_candidate()
 
-    close_candidate(final_observed_until)
+    close_candidate(final_observed_until, extend_open_visit=True)
     return visits
 
 
@@ -283,13 +315,8 @@ def _overlaps_preserved_trip(
     )
 
 
-def _trip_notes(origin: StopVisit, destination: StopVisit, minimum_minutes: int) -> str:
-    notes: list[str] = [f"Auto-generated from stops of at least {minimum_minutes} minutes."]
-    if origin.site is None:
-        notes.append("Origin was an unknown stationary stop.")
-    if destination.site is None:
-        notes.append("Destination was an unknown stationary stop.")
-    return " ".join(notes)
+def _trip_notes(minimum_minutes: int) -> str:
+    return f"Auto-generated from OwnTracks waypoint visits of at least {minimum_minutes} minutes."
 
 
 def _stop_location_name(stop: StopVisit) -> str:
@@ -419,13 +446,14 @@ def generate_trips(
         locations,
         sites,
         minimum_stop_duration=minimum_stop_duration,
-        unknown_stop_radius_m=settings.owntracks_unknown_stop_radius_m,
         final_observed_until=_final_observed_until(end_date, as_of=as_of),
     )
     personal_patterns = _personal_trip_patterns(db)
 
     generated: list[Trip] = []
     for origin, destination in zip(stops, stops[1:], strict=False):
+        if origin.site is None or destination.site is None:
+            continue
         trip_date = datetime_to_local_date(origin.ended_at)
         started_at = origin.ended_at
         ended_at = destination.started_at
@@ -447,8 +475,8 @@ def generate_trips(
 
         trip = Trip(
             trip_date=trip_date,
-            origin_site_id=origin.site.id if origin.site is not None else None,
-            destination_site_id=destination.site.id if destination.site is not None else None,
+            origin_site_id=origin.site.id,
+            destination_site_id=destination.site.id,
             started_at=started_at,
             ended_at=ended_at,
             start_latitude=origin.ended_location.latitude,
@@ -460,7 +488,7 @@ def generate_trips(
             miles=miles,
             include_in_report=True,
             source=AUTO_TRIP_SOURCE,
-            notes=_trip_notes(origin, destination, settings.owntracks_stop_minutes),
+            notes=_trip_notes(settings.owntracks_stop_minutes),
         )
         _apply_personal_trip_patterns(
             trip,

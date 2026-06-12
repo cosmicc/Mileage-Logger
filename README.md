@@ -151,11 +151,12 @@ MQTT ingestion to receive waypoint and transition events, not just location upda
 The app generates trips between qualifying stops:
 
 - A known OwnTracks waypoint stop qualifies after `OWNTRACKS_STOP_MINUTES`, default `10`.
-- An unknown stationary stop qualifies after the same duration when points stay within
-  `OWNTRACKS_UNKNOWN_STOP_RADIUS_M`, default `150` meters.
+- Unknown stationary places are ignored; valid automatic trip endpoints must be saved OwnTracks
+  waypoints.
+- Brief boundary misses are tolerated. A waypoint visit is only treated as ended after the dwell
+  threshold and after the phone is moving away from the waypoint or is at least 500 meters away.
 - A trip starts when you leave the previous qualifying stop and ends when you arrive at the next
   qualifying stop.
-- Unknown stops generate trips labelled `Unknown` when they are not saved OwnTracks waypoints.
 
 Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
 stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
@@ -184,7 +185,6 @@ Useful Docker environment options:
 OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
-OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
