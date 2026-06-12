@@ -84,6 +84,7 @@ OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_STOP_MINUTES=10
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
+OWNTRACKS_PURGE_ENABLED=true
 REPORT_OUTPUT_DIR=/data/reports
 LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
@@ -253,15 +254,17 @@ snapshot dates use `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
 
 The web app also starts a background processor. It recalculates the current local day on a short
 interval and finalizes completed local days. Once a day is complete, it calculates that day's trips
-one last time and purges the processed OwnTracks source rows for that completed day. Today's
-OwnTracks rows remain in place until the day is complete.
+one last time. When `OWNTRACKS_PURGE_ENABLED=true`, it then purges the processed OwnTracks source
+rows for that completed day. Set `OWNTRACKS_PURGE_ENABLED=false` while testing to keep old
+OwnTracks rows. Today's OwnTracks rows remain in place until the day is complete.
 
 If a stop was not a real destination, use the trip's `False Stop` action on the Trips page. The app
 deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
 to the next trip so the intermediate stop is removed.
 
-If a trip is personal, use its `Personal` action. The app excludes that trip from reports and saves
-the route so future matching trips are automatically marked personal too.
+Use the `Personal` action on the Trips page to toggle a trip between included work mileage and
+excluded personal mileage. Marking a route personal saves it so future matching trips are
+automatically marked personal too.
 
 Set `OWNTRACKS_STOP_MINUTES` in Docker or `.env` to change the stop wait threshold. If unset, it
 defaults to `10`.
@@ -275,6 +278,7 @@ OWNTRACKS_STOP_MINUTES=10
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
+OWNTRACKS_PURGE_ENABLED=true
 ```
 
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
@@ -312,7 +316,7 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 3. Go to `Waypoints` to review saved waypoints or export an OwnTracks waypoint backup.
 4. Let OwnTracks collect location points.
 5. Review automatically generated trips from the `Trips` page.
-6. Open `Trips`, choose the report month, review trips, and mark personal routes.
+6. Open `Trips`, choose the report month, review trips, and toggle personal routes.
 7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.
 

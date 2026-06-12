@@ -1,5 +1,6 @@
 from calendar import month_name
 from datetime import date
+from math import ceil
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -27,8 +28,8 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import (
     FalseStopMergeError,
-    mark_trip_personal,
     merge_false_stop_into_next_trip,
+    toggle_trip_personal,
     update_trip_location_names,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
@@ -47,6 +48,7 @@ def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
 
 
 templates.env.filters["local_datetime"] = _format_local_datetime
+WAYPOINT_PAGE_SIZE = 20
 
 
 def _current_year_month() -> tuple[int, int]:
@@ -62,6 +64,21 @@ def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
 def _validate_month(month: int) -> None:
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="month must be 1 through 12")
+
+
+def _pagination_context(total: int, page: int, page_size: int) -> dict[str, int | bool]:
+    total_pages = max(1, ceil(total / page_size))
+    current_page = min(max(page, 1), total_pages)
+    return {
+        "page": current_page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "first_item": ((current_page - 1) * page_size) + 1 if total else 0,
+        "last_item": min(current_page * page_size, total),
+        "has_previous": current_page > 1,
+        "has_next": current_page < total_pages,
+    }
 
 
 def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGasPrice | None, str]:
@@ -199,7 +216,7 @@ def personal_trip_form(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     try:
-        trip = mark_trip_personal(db, trip_id)
+        trip = toggle_trip_personal(db, trip_id)
     except FalseStopMergeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RedirectResponse(
@@ -229,12 +246,25 @@ def sites_redirect() -> RedirectResponse:
 
 
 @router.get("/waypoints", response_class=HTMLResponse)
-def waypoints(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    all_waypoints = list(db.scalars(select(Site).order_by(Site.name.asc())))
+def waypoints(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    waypoint_count = db.scalar(select(func.count(Site.id))) or 0
+    pagination = _pagination_context(waypoint_count, page, WAYPOINT_PAGE_SIZE)
+    all_waypoints = list(
+        db.scalars(
+            select(Site)
+            .order_by(Site.name.asc())
+            .offset((pagination["page"] - 1) * pagination["page_size"])
+            .limit(pagination["page_size"])
+        )
+    )
     return templates.TemplateResponse(
         request,
         "waypoints.html",
-        {"waypoints": all_waypoints},
+        {"waypoints": all_waypoints, "waypoint_pagination": pagination},
     )
 
 

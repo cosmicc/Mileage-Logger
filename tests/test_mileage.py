@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from mileage_logger.models import Base, OwnTracksLocation, PersonalTripPattern, Site, Trip
 from mileage_logger.services.mileage import (
     FALSE_STOP_MERGED_SOURCE,
+    MANUAL_TRIP_SOURCE,
     PERSONAL_TRIP_SOURCE,
     generate_trips,
     haversine_miles,
@@ -14,6 +15,7 @@ from mileage_logger.services.mileage import (
     mark_trip_personal,
     merge_false_stop_into_next_trip,
     purge_processed_owntracks_locations,
+    toggle_trip_personal,
     update_trip_location_names,
 )
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
@@ -532,6 +534,46 @@ def test_automatic_trip_processing_finalizes_and_purges_completed_days() -> None
     ]
 
 
+def test_automatic_trip_processing_can_skip_completed_day_purge() -> None:
+    db = _session()
+    completed_day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
+    current_day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Client A",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Client B",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(completed_day, "42.3314", "-83.0458"),
+            _location(completed_day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(completed_day + timedelta(minutes=18), "42.3370", "-83.0520"),
+            _location(completed_day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(completed_day + timedelta(minutes=38), "42.3441", "-83.0601"),
+            _location(current_day, "42.3500", "-83.0700"),
+        ]
+    )
+    db.commit()
+
+    result = run_automatic_trip_processing(
+        db,
+        now=current_day,
+        purge_owntracks=False,
+    )
+
+    remaining_locations = list(db.scalars(select(OwnTracksLocation)))
+    assert result.generated == 1
+    assert result.purged_owntracks == 0
+    assert len(remaining_locations) == 6
+
+
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:
     db = _session()
     previous_day = datetime(2026, 6, 11, 23, 0, tzinfo=UTC)
@@ -834,3 +876,39 @@ def test_mark_trip_personal_excludes_future_matching_generated_trips() -> None:
     assert future_trips[0].include_in_report is False
     assert future_trips[0].source == "auto"
     assert "Auto-marked personal by matching route." in future_trips[0].notes
+
+
+def test_toggle_trip_personal_can_restore_included_work_trip() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    db.add_all(
+        [
+            Site(
+                name="Home",
+                latitude=Decimal("42.3314"),
+                longitude=Decimal("-83.0458"),
+                radius_m=120,
+            ),
+            Site(
+                name="Store",
+                latitude=Decimal("42.3440"),
+                longitude=Decimal("-83.0600"),
+                radius_m=120,
+            ),
+            _location(day, "42.3314", "-83.0458"),
+            _location(day + timedelta(minutes=12), "42.3315", "-83.0459"),
+            _location(day + timedelta(minutes=25), "42.3440", "-83.0600"),
+            _location(day + timedelta(minutes=38), "42.3441", "-83.0601"),
+        ]
+    )
+    db.commit()
+    trip = generate_trips(db, day.date(), day.date())[0]
+
+    personal_trip = toggle_trip_personal(db, trip.id)
+    assert personal_trip.include_in_report is False
+
+    work_trip = toggle_trip_personal(db, trip.id)
+
+    assert work_trip.include_in_report is True
+    assert work_trip.source == MANUAL_TRIP_SOURCE
+    assert "Marked work." in work_trip.notes

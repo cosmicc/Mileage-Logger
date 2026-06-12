@@ -57,7 +57,9 @@
           <div class="trip-actions">
             <button class="small-button" form="{{ form_id }}" type="submit">Save</button>
             <form action="/trips/{{ trip.id }}/personal" method="post">
-              <button class="small-button secondary" type="submit">Personal</button>
+              <button class="small-button secondary" type="submit">
+                {{ "Mark Personal" if trip.include_in_report else "Mark Work" }}
+              </button>
             </form>
             <form action="/trips/{{ trip.id }}/false-stop" method="post">
               <button class="small-button secondary" type="submit">False Stop</button>

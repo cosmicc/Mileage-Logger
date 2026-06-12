@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     owntracks_sync_waypoints: bool = True
     owntracks_default_site_radius_m: int = 150
     owntracks_stop_minutes: int = 10
+    owntracks_purge_enabled: bool = True
     owntracks_unknown_stop_radius_m: int = 150
     automatic_trip_processing_enabled: bool = True
     automatic_trip_processing_interval_seconds: int = Field(default=60, ge=5)

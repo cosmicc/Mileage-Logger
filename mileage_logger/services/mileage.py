@@ -588,6 +588,29 @@ def mark_trip_personal(db: Session, trip_id: int) -> Trip:
     return trip
 
 
+def mark_trip_work(db: Session, trip_id: int) -> Trip:
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        raise FalseStopMergeError("Trip not found")
+
+    trip.include_in_report = True
+    if trip.source in {AUTO_TRIP_SOURCE, PERSONAL_TRIP_SOURCE}:
+        trip.source = MANUAL_TRIP_SOURCE
+    trip.notes = _append_note(trip.notes, "Marked work.")
+    db.commit()
+    db.refresh(trip)
+    return trip
+
+
+def toggle_trip_personal(db: Session, trip_id: int) -> Trip:
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        raise FalseStopMergeError("Trip not found")
+    if trip.include_in_report:
+        return mark_trip_personal(db, trip_id)
+    return mark_trip_work(db, trip_id)
+
+
 def merge_false_stop_into_next_trip(db: Session, trip_id: int) -> Trip:
     false_stop_trip = db.get(Trip, trip_id)
     if false_stop_trip is None:

@@ -82,8 +82,11 @@ def run_automatic_trip_processing(
     touched_date: date | None = None,
     now: datetime | None = None,
     finalize_completed_days: bool = True,
+    purge_owntracks: bool | None = None,
 ) -> TripProcessingResult:
+    settings = get_settings()
     current_dt = now or datetime.now(UTC)
+    purge_enabled = settings.owntracks_purge_enabled if purge_owntracks is None else purge_owntracks
     today = datetime_to_local_date(current_dt)
     generated = 0
     purged = 0
@@ -107,7 +110,8 @@ def run_automatic_trip_processing(
                 day = oldest_date
                 while day < today:
                     generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
-                    purged += purge_processed_owntracks_locations(db, day, day, now=current_dt)
+                    if purge_enabled:
+                        purged += purge_processed_owntracks_locations(db, day, day, now=current_dt)
                     day += timedelta(days=1)
 
     return TripProcessingResult(
