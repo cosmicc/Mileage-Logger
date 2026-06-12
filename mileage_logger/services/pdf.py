@@ -121,7 +121,7 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     )
     story = [
         Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
-        Paragraph("Included work-site trips for reimbursement", styles["Normal"]),
+        Paragraph("Included waypoint trips for reimbursement", styles["Normal"]),
         Spacer(1, 16),
     ]
 

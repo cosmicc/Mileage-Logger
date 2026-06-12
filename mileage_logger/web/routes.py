@@ -1,11 +1,10 @@
 from calendar import month_name
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -33,6 +32,7 @@ from mileage_logger.services.mileage import (
     update_trip_location_names,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
+from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent
@@ -89,7 +89,7 @@ def _masked_database_url(url: str) -> str:
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     settings = get_settings()
     year, month = _current_year_month()
-    monthly_gas, monthly_gas_error = _monthly_gas_context(db, year, month)
+    monthly_gas, _ = _monthly_gas_context(db, year, month)
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
     site_count = db.scalar(select(func.count(Site.id))) or 0
     trip_count = db.scalar(select(func.count(Trip.id))) or 0
@@ -116,9 +116,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "recent_trips": recent_trips,
             "latest_report": latest_report,
             "monthly_gas": monthly_gas,
-            "monthly_gas_error": monthly_gas_error,
             "vehicle_mpg": settings.vehicle_mpg,
-            "owntracks_stop_minutes": settings.owntracks_stop_minutes,
         },
     )
 
@@ -145,7 +143,6 @@ def trips(
         .order_by(Trip.trip_date.asc(), Trip.started_at.asc())
     )
     all_trips = list(db.scalars(stmt))
-    monthly_gas, monthly_gas_error = _monthly_gas_context(db, year, month)
     settings = get_settings()
     return templates.TemplateResponse(
         request,
@@ -154,14 +151,11 @@ def trips(
             "trips": all_trips,
             "year": year,
             "month": month,
-            "monthly_gas": monthly_gas,
-            "monthly_gas_error": monthly_gas_error,
             "month_options": [(value, month_name[value]) for value in range(1, 13)],
             "previous_year": previous_year,
             "previous_month": previous_month,
             "next_year": next_year,
             "next_month": next_month,
-            "vehicle_mpg": settings.vehicle_mpg,
             "owntracks_stop_minutes": settings.owntracks_stop_minutes,
         },
     )
@@ -215,45 +209,29 @@ def false_stop_trip_form(
     )
 
 
-@router.get("/sites", response_class=HTMLResponse)
-def sites(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
-    all_sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
-    return templates.TemplateResponse(request, "sites.html", {"sites": all_sites})
+@router.get("/sites")
+def sites_redirect() -> RedirectResponse:
+    return RedirectResponse(url="/waypoints", status_code=308)
 
 
-@router.post("/sites")
-def create_site_form(
-    name: str = Form(...),
-    latitude: Decimal = Form(...),
-    longitude: Decimal = Form(...),
-    radius_m: int = Form(150),
-    db: Session = Depends(get_db),
-) -> RedirectResponse:
-    db.add(Site(name=name, latitude=latitude, longitude=longitude, radius_m=radius_m))
-    db.commit()
-    return RedirectResponse(url="/sites", status_code=303)
+@router.get("/waypoints", response_class=HTMLResponse)
+def waypoints(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    all_waypoints = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    return templates.TemplateResponse(
+        request,
+        "waypoints.html",
+        {"waypoints": all_waypoints},
+    )
 
 
-@router.post("/sites/{site_id}")
-def update_site_form(
-    site_id: int,
-    name: str = Form(...),
-    latitude: Decimal = Form(...),
-    longitude: Decimal = Form(...),
-    radius_m: int = Form(...),
-    active: str | None = Form(default=None),
-    db: Session = Depends(get_db),
-) -> RedirectResponse:
-    site = db.get(Site, site_id)
-    if site is None:
-        raise HTTPException(status_code=404, detail="Site not found")
-    site.name = name
-    site.latitude = latitude
-    site.longitude = longitude
-    site.radius_m = radius_m
-    site.active = active == "on"
-    db.commit()
-    return RedirectResponse(url="/sites", status_code=303)
+@router.get("/waypoints/export")
+def export_waypoints(db: Session = Depends(get_db)) -> Response:
+    all_waypoints = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    return Response(
+        content=owntracks_waypoints_json(all_waypoints),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="owntracks-waypoints.json"'},
+    )
 
 
 @router.post("/gas-prices/refresh")

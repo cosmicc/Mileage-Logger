@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from math import asin, cos, radians, sin, sqrt
 
@@ -8,14 +8,18 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.models import (
+    UNKNOWN_LOCATION_NAME,
     OwnTracksLocation,
     PersonalTripPattern,
     Site,
     Trip,
-    UNKNOWN_LOCATION_NAME,
     normalize_location_name,
 )
-from mileage_logger.services.places import create_site_from_google_place
+from mileage_logger.services.timezone import (
+    datetime_to_local_date,
+    local_day_bounds,
+    local_day_end_for_datetime,
+)
 
 METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
@@ -79,10 +83,9 @@ def distance_meters(site: Site, location: OwnTracksLocation) -> Decimal:
 
 
 def nearest_site(location: OwnTracksLocation, sites: list[Site]) -> Site | None:
-    active_sites = [site for site in sites if site.active]
     matches = [
         (distance_meters(site, location), site)
-        for site in active_sites
+        for site in sites
         if distance_meters(site, location) <= Decimal(site.radius_m)
     ]
     if not matches:
@@ -109,7 +112,7 @@ def site_for_location(
 ) -> Site | None:
     for region_name in _region_names(location):
         site = sites_by_name.get(region_name.casefold())
-        if site is not None and site.active:
+        if site is not None:
             return site
     return nearest_site(location, sites)
 
@@ -155,7 +158,7 @@ def _align_datetime(reference: datetime, value: datetime) -> datetime:
 
 
 def _day_end_for_location(location: OwnTracksLocation) -> datetime:
-    day_end = datetime.combine(location.captured_at.date() + timedelta(days=1), time.min, tzinfo=UTC)
+    day_end = local_day_end_for_datetime(location.captured_at)
     return _align_datetime(location.captured_at, day_end)
 
 
@@ -197,7 +200,9 @@ def _qualifying_stops(
 
     for location in locations[1:]:
         current_site = site_for_location(location, sites, sites_by_name)
-        if location.captured_at.date() != candidate_start.captured_at.date():
+        if datetime_to_local_date(location.captured_at) != datetime_to_local_date(
+            candidate_start.captured_at
+        ):
             close_candidate(_day_end_for_location(candidate_start))
             candidate_site = current_site
             candidate_start = location
@@ -349,33 +354,23 @@ def _apply_personal_trip_patterns(
     *,
     radius_m: int,
 ) -> None:
-    if any(_trip_matches_personal_pattern(trip, pattern, radius_m=radius_m) for pattern in patterns):
+    matches_personal_pattern = any(
+        _trip_matches_personal_pattern(trip, pattern, radius_m=radius_m) for pattern in patterns
+    )
+    if matches_personal_pattern:
         trip.include_in_report = False
         trip.notes = _append_note(trip.notes, "Auto-marked personal by matching route.")
 
 
-def _enrich_unknown_stops(db: Session, stops: list[StopVisit]) -> None:
-    for stop in stops:
-        if stop.site is not None:
-            continue
-        stop.site = create_site_from_google_place(
-            db,
-            stop.started_location.latitude,
-            stop.started_location.longitude,
-        )
-
-
 def date_bounds(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min, tzinfo=UTC)
-    end = start + timedelta(days=1)
-    return start, end
+    return local_day_bounds(day)
 
 
 def _date_range_bounds(start_date: date, end_date: date) -> tuple[datetime, datetime]:
     if end_date < start_date:
         raise ValueError("end_date must be on or after start_date")
-    start_dt = datetime.combine(start_date, time.min, tzinfo=UTC)
-    end_dt = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
+    start_dt, _ = local_day_bounds(start_date)
+    _, end_dt = local_day_bounds(end_date)
     return start_dt, end_dt
 
 
@@ -392,9 +387,10 @@ def _locations_for_range(db: Session, start_date: date, end_date: date) -> list[
 
 def _final_observed_until(end_date: date, as_of: datetime | None = None) -> datetime:
     current_dt = as_of or datetime.now(UTC)
-    if end_date >= current_dt.date():
+    if end_date >= datetime_to_local_date(current_dt):
         return current_dt
-    return datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
+    _, end_dt = local_day_bounds(end_date)
+    return end_dt
 
 
 def generate_trips(
@@ -411,11 +407,11 @@ def generate_trips(
         return []
 
     preserved_trips = _preserved_trips_for_range(db, start_date, end_date)
+    source_dates = sorted({datetime_to_local_date(location.captured_at) for location in locations})
     db.execute(
         delete(Trip)
         .where(Trip.source == AUTO_TRIP_SOURCE)
-        .where(Trip.trip_date >= start_date)
-        .where(Trip.trip_date <= end_date)
+        .where(Trip.trip_date.in_(source_dates))
     )
 
     minimum_stop_duration = timedelta(minutes=settings.owntracks_stop_minutes)
@@ -426,12 +422,11 @@ def generate_trips(
         unknown_stop_radius_m=settings.owntracks_unknown_stop_radius_m,
         final_observed_until=_final_observed_until(end_date, as_of=as_of),
     )
-    _enrich_unknown_stops(db, stops)
     personal_patterns = _personal_trip_patterns(db)
 
     generated: list[Trip] = []
     for origin, destination in zip(stops, stops[1:], strict=False):
-        trip_date = origin.ended_at.date()
+        trip_date = datetime_to_local_date(origin.ended_at)
         started_at = origin.ended_at
         ended_at = destination.started_at
         if _overlaps_preserved_trip(
@@ -512,7 +507,9 @@ def _personal_pattern_for_trip(trip: Trip) -> PersonalTripPattern:
     )
 
 
-def _get_or_create_personal_pattern(db: Session, trip: Trip, *, radius_m: int) -> PersonalTripPattern:
+def _get_or_create_personal_pattern(
+    db: Session, trip: Trip, *, radius_m: int
+) -> PersonalTripPattern:
     for pattern in _personal_trip_patterns(db):
         if _trip_matches_personal_pattern(trip, pattern, radius_m=radius_m):
             return pattern
@@ -614,7 +611,7 @@ def purge_processed_owntracks_locations(
 ) -> int:
     start_dt, range_end_dt = _date_range_bounds(start_date, end_date)
     current_dt = now or datetime.now(UTC)
-    today_start_dt = datetime.combine(current_dt.date(), time.min, tzinfo=UTC)
+    today_start_dt, _ = local_day_bounds(datetime_to_local_date(current_dt))
     purge_before = min(range_end_dt, today_start_dt)
     if purge_before <= start_dt:
         return 0

@@ -11,21 +11,19 @@ class Settings(BaseSettings):
     app_name: str = "Mileage Logger"
     app_env: str = "local"
     secret_key: str = "change-me"
+    local_timezone: str = "America/Detroit"
     database_url: str = "postgresql+psycopg://mileage:mileage@localhost:5432/mileage_logger"
     create_tables_on_startup: bool = False
 
     owntracks_api_token: str = ""
     owntracks_username: str = ""
     owntracks_password: str = ""
-    owntracks_auto_create_sites: bool = True
+    owntracks_sync_waypoints: bool = True
     owntracks_default_site_radius_m: int = 150
     owntracks_stop_minutes: int = 10
     owntracks_unknown_stop_radius_m: int = 150
     automatic_trip_processing_enabled: bool = True
     automatic_trip_processing_interval_seconds: int = Field(default=60, ge=5)
-    google_places_api_key: str = ""
-    google_places_radius_m: int = 100
-    google_places_auto_create_sites: bool = True
 
     mqtt_enabled: bool = False
     mqtt_host: str = "localhost"

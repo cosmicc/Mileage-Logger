@@ -80,14 +80,11 @@ HTTP_PORT=80
 WEB_ALLOWED_CIDRS=
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
-OWNTRACKS_AUTO_CREATE_SITES=true
+OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-GOOGLE_PLACES_API_KEY=
-GOOGLE_PLACES_RADIUS_M=100
-GOOGLE_PLACES_AUTO_CREATE_SITES=true
 REPORT_OUTPUT_DIR=/data/reports
 LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
@@ -111,7 +108,7 @@ WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
 With this set:
 
 - `/api/` remains reachable from any IP so OwnTracks can keep sending data.
-- `/`, `/trips`, `/sites`, `/diagnostics`, `/static/`, and other web UI paths require a matching
+- `/`, `/trips`, `/waypoints`, `/diagnostics`, `/static/`, and other web UI paths require a matching
   client IP.
 
 Leave `WEB_ALLOWED_CIDRS` blank to keep the current behavior and allow all clients to access the
@@ -224,7 +221,7 @@ http://your-server/api/owntracks
 7. Disable Android battery optimization for OwnTracks.
 8. Tap the manual publish button once to send a test location.
 
-For client sites, add OwnTracks regions/waypoints on the phone. If you use MQTT, publish waypoints
+For work waypoints, add OwnTracks regions/waypoints on the phone. If you use MQTT, publish waypoints
 and keep `MQTT_TOPIC=owntracks/#` so the app receives waypoint and transition events. If you use
 HTTP, OwnTracks sends its payloads to the configured endpoint and the app will process supported
 location, waypoint, and transition payloads.
@@ -243,24 +240,20 @@ Trips are generated from qualifying stops rather than every brief pass through a
 
 Default behavior:
 
-- A known OwnTracks waypoint/app site must be occupied for at least 10 minutes.
+- A known OwnTracks waypoint must be occupied for at least 10 minutes.
 - An unknown place also qualifies if the phone stays within 150 meters for at least 10 minutes.
 - The work period lasts until the phone drives away from that stop.
 - The trip is the travel from the previous qualifying stop to the next qualifying stop.
-- Unknown stops are labelled `Unknown` when they are not waypoints and cannot be matched through
-  Google Places. If source rows still exist, later site updates can be reflected by the automatic
-  processor.
-- If Google Places is configured, unknown qualifying stops can be named automatically from nearby
-  businesses and saved as app sites.
+- Unknown stops are labelled `Unknown` when they are not saved OwnTracks waypoints.
 
 Trip generation is automatic. Every incoming OwnTracks location or transition payload is stored in
-`owntracks_locations` and immediately triggers trip recalculation for that payload's day. Generated
-trip rows are stored in `trips`.
+`owntracks_locations` and immediately triggers trip recalculation for that payload's
+`LOCAL_TIMEZONE` day. Generated trip rows are stored in `trips`.
 
-The web app also starts a background processor. It recalculates the current day on a short interval
-and finalizes completed days. Once a day is complete, it calculates that day's trips one last time
-and purges the processed OwnTracks source rows for that completed day. Today's OwnTracks rows remain
-in place until the day is complete.
+The web app also starts a background processor. It recalculates the current local day on a short
+interval and finalizes completed local days. Once a day is complete, it calculates that day's trips
+one last time and purges the processed OwnTracks source rows for that completed day. Today's
+OwnTracks rows remain in place until the day is complete.
 
 If a stop was not a real destination, use the trip's `False Stop` action on the Trips page. The app
 deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
@@ -275,25 +268,18 @@ defaults to `10`.
 Configuration:
 
 ```env
-OWNTRACKS_AUTO_CREATE_SITES=true
+OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-GOOGLE_PLACES_API_KEY=
-GOOGLE_PLACES_RADIUS_M=100
-GOOGLE_PLACES_AUTO_CREATE_SITES=true
 ```
 
-When `OWNTRACKS_AUTO_CREATE_SITES=true`, published OwnTracks waypoints create or update app sites.
-If a location arrives with an `inregions` waypoint name but no matching site exists yet, the app
-creates an approximate site at the reported location using `OWNTRACKS_DEFAULT_SITE_RADIUS_M`.
-
-When `GOOGLE_PLACES_API_KEY` is set, the app uses Google Places Nearby Search during trip
-generation for qualifying unknown stops. It searches within `GOOGLE_PLACES_RADIUS_M`, ranks nearby
-places by distance, and creates a site from the best business result. Leave the key blank to skip
-Google lookups and keep unknown stops as `Unknown`.
+When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
+waypoints. Location `inregions` values are only used to match already-saved waypoints; they do not
+create new waypoints.
 
 ## Test Ingestion
 
@@ -319,11 +305,11 @@ View the newest stored point:
 curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 ```
 
-## Configure Sites And Reports
+## Configure Waypoints And Reports
 
 1. Open `http://your-server/`.
-2. Go to `Sites`.
-3. Add each work site with latitude, longitude, and geofence radius.
+2. Add work waypoints in OwnTracks and publish them to the server.
+3. Go to `Waypoints` to review saved waypoints or export an OwnTracks waypoint backup.
 4. Let OwnTracks collect location points.
 5. Review automatically generated trips from the `Trips` page.
 6. Open `Trips`, choose the report month, review trips, and mark personal routes.

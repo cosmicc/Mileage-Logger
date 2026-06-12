@@ -1,12 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mileage_logger.api.deps import verify_owntracks_auth
 from mileage_logger.database import get_db
 from mileage_logger.models import OwnTracksLocation, Site, Trip
-from mileage_logger.schemas import MonthlyGasPriceCreate, SiteCreate, SiteRead, TripUpdate
+from mileage_logger.schemas import MonthlyGasPriceCreate, TripUpdate, WaypointRead
 from mileage_logger.services.gas_prices import (
     GasPriceUnavailable,
     fetch_and_save_current_snapshot,
@@ -19,6 +19,7 @@ from mileage_logger.services.owntracks import (
     process_owntracks_payload,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
+from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
 
@@ -69,18 +70,20 @@ def locations(
     ]
 
 
-@router.post("/sites", response_model=SiteRead, status_code=status.HTTP_201_CREATED)
-def create_site(site_in: SiteCreate, db: Session = Depends(get_db)) -> Site:
-    site = Site(**site_in.model_dump())
-    db.add(site)
-    db.commit()
-    db.refresh(site)
-    return site
-
-
-@router.get("/sites", response_model=list[SiteRead])
-def list_sites(db: Session = Depends(get_db)) -> list[Site]:
+@router.get("/sites", response_model=list[WaypointRead])
+@router.get("/waypoints", response_model=list[WaypointRead])
+def list_waypoints(db: Session = Depends(get_db)) -> list[Site]:
     return list(db.scalars(select(Site).order_by(Site.name.asc())))
+
+
+@router.get("/waypoints/export")
+def export_waypoints(db: Session = Depends(get_db)) -> Response:
+    all_waypoints = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    return Response(
+        content=owntracks_waypoints_json(all_waypoints),
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="owntracks-waypoints.json"'},
+    )
 
 
 @router.patch("/trips/{trip_id}")

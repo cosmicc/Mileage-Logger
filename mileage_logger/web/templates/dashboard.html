@@ -3,7 +3,7 @@
 <section class="page-header">
   <div>
     <h1>Dashboard</h1>
-    <p>Review automatic OwnTracks intake, work-site trips, and monthly PDFs.</p>
+    <p>Review automatic OwnTracks intake, waypoint trips, and monthly PDFs.</p>
   </div>
 </section>
 
@@ -13,7 +13,7 @@
     <strong>{{ location_count }}</strong>
   </div>
   <div class="stat">
-    <span>Work Sites</span>
+    <span>Waypoints</span>
     <strong>{{ site_count }}</strong>
   </div>
   <div class="stat">
@@ -28,32 +28,6 @@
     <span>Vehicle MPG</span>
     <strong>{{ "%.1f"|format(vehicle_mpg) }}</strong>
   </div>
-</section>
-
-<section class="panel split-panel">
-  <div>
-    <h2>Current Gas Price</h2>
-    {% if monthly_gas %}
-    <p class="summary-line">
-      Michigan monthly average is ${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }} per gallon.
-    </p>
-    <p>Source: {{ monthly_gas.source_detail }}.</p>
-    {% else %}
-    <p class="summary-line warning">Gas price unavailable.</p>
-    <p>{{ monthly_gas_error or "The next gas snapshot will try again automatically." }}</p>
-    {% endif %}
-    <p>Vehicle MPG: {{ "%.1f"|format(vehicle_mpg) }}.</p>
-  </div>
-  <form action="/gas-prices/refresh" method="post">
-    <input type="hidden" name="next_url" value="/">
-    <button type="submit">Refresh Online Price</button>
-  </form>
-</section>
-
-<section class="panel">
-  <h2>Trip Processing</h2>
-  <p class="summary-line">Trips are generated automatically from incoming OwnTracks data.</p>
-  <p>Stop threshold: {{ owntracks_stop_minutes }} minutes. Completed-day OwnTracks source rows are purged automatically after final trip calculation.</p>
 </section>
 
 <section class="panel">

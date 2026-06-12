@@ -28,24 +28,6 @@
 </section>
 
 <section class="panel">
-  <h2>Reimbursement Settings</h2>
-  {% if monthly_gas %}
-  <p class="summary-line">
-    Michigan monthly average is ${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }} per gallon for {{ year }}-{{ "%02d"|format(month) }}.
-  </p>
-  <p>Source: {{ monthly_gas.source_detail }}.</p>
-  {% else %}
-  <p class="summary-line warning">Gas price unavailable.</p>
-  <p>{{ monthly_gas_error or "The next gas snapshot will try again automatically." }}</p>
-  {% endif %}
-  <p>Vehicle MPG: {{ "%.1f"|format(vehicle_mpg) }}.</p>
-  <form action="/gas-prices/refresh" method="post">
-    <input type="hidden" name="next_url" value="/trips?year={{ year }}&month={{ month }}">
-    <button type="submit">Refresh Online Price</button>
-  </form>
-</section>
-
-<section class="panel">
   <h2>Monthly Trips</h2>
   <p class="summary-line">Stop threshold: {{ owntracks_stop_minutes }} minutes.</p>
   <table>

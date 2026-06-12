@@ -14,6 +14,7 @@ from mileage_logger.services.mileage import (
     generate_trips,
     purge_processed_owntracks_locations,
 )
+from mileage_logger.services.timezone import datetime_to_local_date
 
 logger = logging.getLogger(__name__)
 _PROCESSING_LOCK = Lock()
@@ -43,7 +44,7 @@ def _oldest_owntracks_date(db: Session) -> date | None:
         .order_by(OwnTracksLocation.captured_at.asc())
         .limit(1)
     )
-    return captured_at.date() if captured_at is not None else None
+    return datetime_to_local_date(captured_at) if captured_at is not None else None
 
 
 def _generate_for_date(
@@ -83,7 +84,7 @@ def run_automatic_trip_processing(
     finalize_completed_days: bool = True,
 ) -> TripProcessingResult:
     current_dt = now or datetime.now(UTC)
-    today = current_dt.date()
+    today = datetime_to_local_date(current_dt)
     generated = 0
     purged = 0
     processed_dates: list[date] = []

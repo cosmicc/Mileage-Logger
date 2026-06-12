@@ -4,18 +4,15 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SiteCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=160)
-    latitude: Decimal
-    longitude: Decimal
-    radius_m: int = Field(default=150, ge=1)
-
-
-class SiteRead(SiteCreate):
+class WaypointRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    active: bool
+    name: str = Field(min_length=1, max_length=160)
+    owntracks_region_id: str | None
+    latitude: Decimal
+    longitude: Decimal
+    radius_m: int = Field(default=150, ge=1)
 
 
 class LocationRead(BaseModel):

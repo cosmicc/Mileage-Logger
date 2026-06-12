@@ -55,9 +55,10 @@ def test_process_owntracks_waypoint_creates_site() -> None:
     assert site is not None
     assert site.radius_m == 75
     assert site.latitude == Decimal("42.3314")
+    assert site.owntracks_region_id == "abc123"
 
 
-def test_process_owntracks_location_with_region_creates_approximate_site() -> None:
+def test_process_owntracks_location_with_region_does_not_create_waypoint() -> None:
     db = _session()
     payload = {
         "_type": "location",
@@ -71,8 +72,7 @@ def test_process_owntracks_location_with_region_creates_approximate_site() -> No
     site = db.scalar(select(Site).where(Site.name == "Client Office"))
 
     assert result.location is not None
-    assert site is not None
-    assert site.radius_m == 150
+    assert site is None
     assert db.scalar(select(OwnTracksLocation.id)) is not None
 
 

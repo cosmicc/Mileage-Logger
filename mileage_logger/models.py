@@ -42,6 +42,7 @@ class Site(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(160), unique=True)
+    owntracks_region_id: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     radius_m: Mapped[int] = mapped_column(Integer, default=150)

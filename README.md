@@ -1,7 +1,7 @@
 # Mileage Logger
 
 Mileage Logger receives OwnTracks location events from an Android phone over HTTP or MQTT,
-stores them in PostgreSQL, lets you review and edit generated work-site trips, and produces
+stores them in PostgreSQL, lets you review and edit generated waypoint trips, and produces
 monthly reimbursement PDF logs.
 
 ## Current Scope
@@ -11,7 +11,7 @@ monthly reimbursement PDF logs.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
-- Work-site geofence model used to turn location points into daily trips.
+- OwnTracks waypoint geofence model used to turn location points into daily trips.
 - Personal trip marking that automatically excludes future matching routes.
 - Stop-based trip detection: a client stop must last at least 10 minutes before it creates a trip.
 - Monthly gas price cache with a provider layer.
@@ -108,7 +108,7 @@ WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
 ```
 
 When this is blank, the web UI is open to all clients. When set, `/api/` stays reachable from any
-IP, but pages such as `/`, `/trips`, `/sites`, `/diagnostics`, and `/static/` require a matching
+IP, but pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/static/` require a matching
 client IP.
 
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
@@ -126,9 +126,9 @@ If `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are set, use OwnTracks HTTP Bas
 
 The `/api/pub` alias is also available for Recorder-style setups.
 
-OwnTracks waypoints can be used as client sites. When `OWNTRACKS_AUTO_CREATE_SITES=true`, published
-OwnTracks waypoint payloads create or update matching app sites. Location payloads with `inregions`
-can also create an approximate site if the waypoint was not published first.
+OwnTracks waypoints are saved as read-only work waypoints. When `OWNTRACKS_SYNC_WAYPOINTS=true`,
+published OwnTracks waypoint payloads create or update matching app waypoints. The web app can
+export the saved list as OwnTracks waypoint JSON for backup/import.
 
 ## MQTT Setup
 
@@ -150,25 +150,21 @@ MQTT ingestion to receive waypoint and transition events, not just location upda
 
 The app generates trips between qualifying stops:
 
-- A known site stop qualifies after `OWNTRACKS_STOP_MINUTES`, default `10`.
+- A known OwnTracks waypoint stop qualifies after `OWNTRACKS_STOP_MINUTES`, default `10`.
 - An unknown stationary stop qualifies after the same duration when points stay within
   `OWNTRACKS_UNKNOWN_STOP_RADIUS_M`, default `150` meters.
 - A trip starts when you leave the previous qualifying stop and ends when you arrive at the next
   qualifying stop.
-- Unknown stops generate trips labelled `Unknown` when they are not waypoints and cannot be
-  matched through Google Places. If source rows still exist, later site updates can be reflected by
-  the automatic processor.
-- If `GOOGLE_PLACES_API_KEY` is set, unknown qualifying stops are checked against Google Places and
-  a matching business can be created as an app site automatically.
+- Unknown stops generate trips labelled `Unknown` when they are not saved OwnTracks waypoints.
 
 Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
-stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's day.
-When the app sees a qualifying trip, it writes the generated row to `trips`.
+stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
+`LOCAL_TIMEZONE` day. When the app sees a qualifying trip, it writes the generated row to `trips`.
 
-A background processor also runs while the web app is up. It recalculates the current day on a short
-interval and finalizes completed days. Once a day is complete, the processor calculates that day's
-trips one last time and purges the processed `owntracks_locations` rows for that completed day.
-Current-day rows are kept so live tracking data is not deleted before the day is finished.
+A background processor also runs while the web app is up. It recalculates the current local day on a
+short interval and finalizes completed local days. Once a day is complete, the processor calculates
+that day's trips one last time and purges the processed `owntracks_locations` rows for that completed
+day. Current-day rows are kept so live tracking data is not deleted before the day is finished.
 
 If a stop was not a real destination, use the trip's `False Stop` action on the Trips page. The app
 deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
@@ -183,24 +179,19 @@ In Docker, change the stop wait threshold with `OWNTRACKS_STOP_MINUTES`. If unse
 Useful Docker environment options:
 
 ```env
-OWNTRACKS_AUTO_CREATE_SITES=true
+OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 OWNTRACKS_STOP_MINUTES=10
 OWNTRACKS_UNKNOWN_STOP_RADIUS_M=150
+LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-GOOGLE_PLACES_API_KEY=
-GOOGLE_PLACES_RADIUS_M=100
-GOOGLE_PLACES_AUTO_CREATE_SITES=true
 ```
-
-Google Places enrichment is optional. Create a Google Maps Platform API key with Places API access
-and set `GOOGLE_PLACES_API_KEY` if you want unknown client stops named automatically.
 
 ## Workflow
 
-1. Create work sites in the `Sites` page with latitude, longitude, and geofence radius.
-2. Send OwnTracks data through HTTP or MQTT.
+1. Create work waypoints in OwnTracks and publish/export them to the server.
+2. Review or export saved waypoints from the `Waypoints` page.
 3. Let the app automatically create trips from incoming OwnTracks data.
 4. Review `Trips`, switch to the needed month, edit start/end location names if needed, and mark
    personal routes.

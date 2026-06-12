@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Waypoints</h1>
+    <p>OwnTracks waypoints saved by the app for waypoint detection and backup export.</p>
+  </div>
+  <div class="header-actions">
+    <a class="button-link" href="/waypoints/export">Export OwnTracks Waypoints</a>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>OwnTracks Waypoints</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Latitude</th>
+        <th>Longitude</th>
+        <th>Radius</th>
+        <th>Region ID</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for waypoint in waypoints %}
+      <tr>
+        <td>{{ waypoint.name }}</td>
+        <td>{{ waypoint.latitude }}</td>
+        <td>{{ waypoint.longitude }}</td>
+        <td>{{ waypoint.radius_m }} m</td>
+        <td>{{ waypoint.owntracks_region_id or "-" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No OwnTracks waypoints received yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

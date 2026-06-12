@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.models import OwnTracksLocation, Site
+from mileage_logger.services.timezone import datetime_to_local_date
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,13 @@ def _first_region_name(payload: dict) -> str | None:
     return None
 
 
+def _region_id(payload: dict) -> str | None:
+    region_id = payload.get("rid")
+    if region_id is None:
+        return None
+    return str(region_id).strip() or None
+
+
 def _site_radius_from_payload(payload: dict) -> int:
     settings = get_settings()
     try:
@@ -159,14 +167,14 @@ def _site_radius_from_payload(payload: dict) -> int:
 def _payload_date(payload: dict) -> date:
     try:
         timestamp = int(payload.get("tst") or datetime.now(UTC).timestamp())
-        return datetime.fromtimestamp(timestamp, tz=UTC).date()
+        return datetime_to_local_date(datetime.fromtimestamp(timestamp, tz=UTC))
     except (TypeError, ValueError, OSError):
-        return datetime.now(UTC).date()
+        return datetime_to_local_date(datetime.now(UTC))
 
 
 def _run_trip_processing(db: Session, payload: dict) -> None:
     touched_date = _payload_date(payload)
-    finalize_completed_days = touched_date >= datetime.now(UTC).date()
+    finalize_completed_days = touched_date >= datetime_to_local_date(datetime.now(UTC))
     try:
         run_automatic_trip_processing(
             db,
@@ -185,12 +193,15 @@ def sync_site_from_owntracks_payload(
     longitude: Decimal | None = None,
 ) -> Site | None:
     settings = get_settings()
-    if not settings.owntracks_auto_create_sites:
+    if not settings.owntracks_sync_waypoints:
+        return None
+    if payload.get("_type") != "waypoint":
         return None
 
     name = _first_region_name(payload)
     if name is None:
         return None
+    region_id = _region_id(payload)
 
     payload_latitude = payload.get("lat")
     payload_longitude = payload.get("lon")
@@ -199,10 +210,15 @@ def sync_site_from_owntracks_payload(
     if site_latitude is None or site_longitude is None:
         return None
 
-    site = db.scalar(select(Site).where(Site.name == name))
+    site = None
+    if region_id is not None:
+        site = db.scalar(select(Site).where(Site.owntracks_region_id == region_id))
+    if site is None:
+        site = db.scalar(select(Site).where(Site.name == name))
     if site is None:
         site = Site(
             name=name,
+            owntracks_region_id=region_id,
             latitude=site_latitude,
             longitude=site_longitude,
             radius_m=_site_radius_from_payload(payload),
@@ -211,11 +227,12 @@ def sync_site_from_owntracks_payload(
         db.add(site)
         return site
 
-    if payload.get("_type") == "waypoint":
-        site.latitude = site_latitude
-        site.longitude = site_longitude
-        site.radius_m = _site_radius_from_payload(payload)
-        site.active = True
+    site.name = name
+    site.owntracks_region_id = region_id or site.owntracks_region_id
+    site.latitude = site_latitude
+    site.longitude = site_longitude
+    site.radius_m = _site_radius_from_payload(payload)
+    site.active = True
     return site
 
 
