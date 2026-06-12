@@ -1,5 +1,5 @@
 from calendar import month_name
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -32,6 +32,7 @@ from mileage_logger.services.mileage import (
     update_trip_location_names,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
+from mileage_logger.services.timezone import datetime_to_local, local_now, local_today
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
@@ -39,8 +40,17 @@ WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"])
 
 
+def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
+    if value is None:
+        return ""
+    return datetime_to_local(value).strftime(fmt)
+
+
+templates.env.filters["local_datetime"] = _format_local_datetime
+
+
 def _current_year_month() -> tuple[int, int]:
-    today = datetime.now(UTC).date()
+    today = local_today()
     return today.year, today.month
 
 
@@ -88,6 +98,7 @@ def _masked_database_url(url: str) -> str:
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     settings = get_settings()
+    app_now = local_now()
     year, month = _current_year_month()
     monthly_gas, _ = _monthly_gas_context(db, year, month)
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
@@ -117,6 +128,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "latest_report": latest_report,
             "monthly_gas": monthly_gas,
             "vehicle_mpg": settings.vehicle_mpg,
+            "app_local_datetime": app_now,
+            "app_timezone": settings.local_timezone,
+            "app_timezone_abbr": app_now.tzname(),
         },
     )
 

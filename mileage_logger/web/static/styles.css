@@ -202,6 +202,23 @@ p {
   line-height: 1;
 }
 
+.time-stat strong {
+  font-size: 24px;
+  line-height: 1.15;
+}
+
+.time-stat time span,
+.time-stat small {
+  display: block;
+}
+
+.time-stat small {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .panel {
   margin-top: 18px;
   padding: 20px;

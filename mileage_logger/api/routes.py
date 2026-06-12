@@ -19,6 +19,7 @@ from mileage_logger.services.owntracks import (
     process_owntracks_payload,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
+from mileage_logger.services.timezone import datetime_to_local
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
@@ -61,7 +62,7 @@ def locations(
             "id": location.id,
             "user": location.user,
             "device": location.device,
-            "captured_at": location.captured_at.isoformat(),
+            "captured_at": datetime_to_local(location.captured_at).isoformat(),
             "latitude": str(location.latitude),
             "longitude": str(location.longitude),
             "accuracy_m": location.accuracy_m,

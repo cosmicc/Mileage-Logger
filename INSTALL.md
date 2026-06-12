@@ -249,6 +249,8 @@ Default behavior:
 Trip generation is automatic. Every incoming OwnTracks location or transition payload is stored in
 `owntracks_locations` and immediately triggers trip recalculation for that payload's
 `LOCAL_TIMEZONE` day. Generated trip rows are stored in `trips`.
+The server can run on UTC; app day/month selection, dashboard time, trip time display, and gas
+snapshot dates use `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
 
 The web app also starts a background processor. It recalculates the current local day on a short
 interval and finalizes completed local days. Once a day is complete, it calculates that day's trips

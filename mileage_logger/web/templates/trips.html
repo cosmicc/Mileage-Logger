@@ -51,7 +51,7 @@
         </td>
         <td><input form="{{ form_id }}" type="text" name="origin_name" maxlength="160" required value="{{ trip.origin_display_name }}"></td>
         <td><input form="{{ form_id }}" type="text" name="destination_name" maxlength="160" required value="{{ trip.destination_display_name }}"></td>
-        <td>{{ trip.started_at.strftime("%H:%M") }} - {{ trip.ended_at.strftime("%H:%M") }}</td>
+        <td>{{ trip.started_at|local_datetime("%I:%M %p") }} - {{ trip.ended_at|local_datetime("%I:%M %p") }}</td>
         <td>{{ "%.2f"|format(trip.miles) }}</td>
         <td>
           <div class="trip-actions">

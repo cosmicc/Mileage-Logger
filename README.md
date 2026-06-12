@@ -160,6 +160,8 @@ The app generates trips between qualifying stops:
 Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
 stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
 `LOCAL_TIMEZONE` day. When the app sees a qualifying trip, it writes the generated row to `trips`.
+The server can run on UTC; app day/month selection, dashboard time, trip time display, and gas
+snapshot dates use `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
 short interval and finalizes completed local days. Once a day is complete, the processor calculates

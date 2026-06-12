@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import Base, OwnTracksLocation
 from mileage_logger.services.diagnostics import recent_owntracks_entries
+from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider
 
 
 def _session() -> Session:
@@ -55,3 +56,22 @@ def test_recent_owntracks_entries_include_travel_entries() -> None:
         "location",
         "transition",
     ]
+
+
+def test_aaa_gas_provider_uses_local_observed_date(monkeypatch) -> None:
+    class FakeResponse:
+        text = "Current Avg.</td><td>$3.250</td>"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    now = datetime(2026, 6, 11, 21, 30, tzinfo=UTC)
+    monkeypatch.setattr(
+        "mileage_logger.services.gas_prices.httpx.get",
+        lambda *_, **__: FakeResponse(),
+    )
+    monkeypatch.setattr("mileage_logger.services.gas_prices.local_today", lambda: now.date())
+
+    reading = AaaMichiganGasPriceProvider().current_regular_price("MI")
+
+    assert reading.observed_on == now.date()

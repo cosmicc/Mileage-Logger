@@ -48,7 +48,7 @@
     <h2>Latest Records</h2>
     <dl class="diagnostic-list">
       <dt>Location</dt>
-      <dd>{% if latest_location %}{{ latest_location.captured_at }} at {{ latest_location.latitude }}, {{ latest_location.longitude }}{% else %}None{% endif %}</dd>
+      <dd>{% if latest_location %}{{ latest_location.captured_at|local_datetime }} at {{ latest_location.latitude }}, {{ latest_location.longitude }}{% else %}None{% endif %}</dd>
       <dt>Gas Snapshot</dt>
       <dd>{% if latest_snapshot %}{{ latest_snapshot.observed_on }} ${{ "%.3f"|format(latest_snapshot.price_per_gallon) }}{% else %}None{% endif %}</dd>
       <dt>Monthly Gas</dt>
@@ -79,8 +79,8 @@
       {% for location in recent_locations %}
       <tr>
         <td>{{ location.id }}</td>
-        <td>{{ location.captured_at }}</td>
-        <td>{{ location.received_at }}</td>
+        <td>{{ location.captured_at|local_datetime }}</td>
+        <td>{{ location.received_at|local_datetime }}</td>
         <td>{{ location.user or "-" }} / {{ location.device or "-" }}</td>
         <td>{{ location.latitude }}, {{ location.longitude }}</td>
         <td>{{ location.accuracy_m if location.accuracy_m is not none else "-" }}</td>

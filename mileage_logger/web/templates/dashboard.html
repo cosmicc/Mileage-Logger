@@ -28,6 +28,16 @@
     <span>Vehicle MPG</span>
     <strong>{{ "%.1f"|format(vehicle_mpg) }}</strong>
   </div>
+  <div class="stat time-stat">
+    <span>App Time</span>
+    <strong>
+      <time datetime="{{ app_local_datetime.isoformat() }}">
+        <span>{{ app_local_datetime.strftime("%Y-%m-%d") }}</span>
+        <span>{{ app_local_datetime.strftime("%I:%M:%S %p") }}</span>
+      </time>
+    </strong>
+    <small>{{ app_timezone }} {{ app_timezone_abbr }}</small>
+  </div>
 </section>
 
 <section class="panel">

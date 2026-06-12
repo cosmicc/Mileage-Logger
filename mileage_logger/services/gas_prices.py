@@ -1,7 +1,7 @@
 import logging
 import re
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 import httpx
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.models import GasPriceSnapshot, MonthlyGasPrice
+from mileage_logger.services.timezone import local_today
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class AaaMichiganGasPriceProvider(GasPriceProvider):
             price_per_gallon=Decimal(match.group(1)).quantize(Decimal("0.001")),
             source=self.source_name,
             source_detail=self.url,
-            observed_on=date.today(),
+            observed_on=local_today(),
         )
 
 
@@ -90,7 +91,7 @@ class EiaSeriesProvider(GasPriceProvider):
             price_per_gallon=Decimal(str(value)).quantize(Decimal("0.001")),
             source=self.source_name,
             source_detail=f"EIA series {settings.eia_series_id}",
-            observed_on=date.today(),
+            observed_on=local_today(),
         )
 
 
@@ -243,7 +244,7 @@ def get_or_create_monthly_price(db: Session, year: int, month: int) -> MonthlyGa
     if monthly is not None:
         return monthly
 
-    today = datetime.now(UTC).date()
+    today = local_today()
     if today.year == year and today.month == month:
         fetch_and_save_current_snapshot(db)
 

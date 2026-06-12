@@ -18,6 +18,18 @@ def datetime_to_local_date(value: datetime) -> date:
     return datetime_to_utc(value).astimezone(local_timezone()).date()
 
 
+def datetime_to_local(value: datetime) -> datetime:
+    return datetime_to_utc(value).astimezone(local_timezone())
+
+
+def local_now() -> datetime:
+    return datetime.now(UTC).astimezone(local_timezone())
+
+
+def local_today() -> date:
+    return local_now().date()
+
+
 def local_day_bounds(day: date) -> tuple[datetime, datetime]:
     timezone = local_timezone()
     start = datetime.combine(day, time.min, tzinfo=timezone)
