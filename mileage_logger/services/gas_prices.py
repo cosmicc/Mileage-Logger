@@ -97,6 +97,7 @@ class EiaSeriesProvider(GasPriceProvider):
 
 def configured_provider() -> GasPriceProvider:
     source = get_settings().gas_price_source
+    logger.debug("Selecting gas price provider source=%s", source)
     if source == "eia_series":
         return EiaSeriesProvider()
     return AaaMichiganGasPriceProvider()
@@ -112,6 +113,12 @@ def save_daily_snapshot(db: Session, reading: GasPriceReading) -> GasPriceSnapsh
     )
     snapshot = db.scalar(stmt)
     if snapshot is None:
+        logger.debug(
+            "Creating gas price snapshot state=%s date=%s source=%s",
+            reading.state,
+            reading.observed_on,
+            reading.source,
+        )
         snapshot = GasPriceSnapshot(
             observed_on=reading.observed_on,
             state=reading.state,
@@ -122,6 +129,13 @@ def save_daily_snapshot(db: Session, reading: GasPriceReading) -> GasPriceSnapsh
         )
         db.add(snapshot)
     else:
+        logger.debug(
+            "Updating gas price snapshot id=%s state=%s date=%s source=%s",
+            snapshot.id,
+            snapshot.state,
+            snapshot.observed_on,
+            snapshot.source,
+        )
         snapshot.price_per_gallon = reading.price_per_gallon
         snapshot.source_detail = reading.source_detail
     db.commit()
@@ -163,6 +177,13 @@ def upsert_monthly_price(
     )
     monthly = db.scalar(stmt)
     if monthly is None:
+        logger.debug(
+            "Creating monthly gas price state=%s year=%s month=%s source=%s",
+            state,
+            year,
+            month,
+            source,
+        )
         monthly = MonthlyGasPrice(
             year=year,
             month=month,
@@ -175,6 +196,14 @@ def upsert_monthly_price(
         )
         db.add(monthly)
     else:
+        logger.debug(
+            "Updating monthly gas price id=%s state=%s year=%s month=%s source=%s",
+            monthly.id,
+            monthly.state,
+            monthly.year,
+            monthly.month,
+            source,
+        )
         monthly.average_price_per_gallon = average_price_per_gallon
         monthly.buffer_per_gallon = buffer_per_gallon
         monthly.effective_rate = effective_rate
@@ -242,6 +271,13 @@ def get_or_create_monthly_price(db: Session, year: int, month: int) -> MonthlyGa
     )
     monthly = db.scalar(stmt)
     if monthly is not None:
+        logger.debug(
+            "Using saved monthly gas price id=%s state=%s year=%s month=%s",
+            monthly.id,
+            monthly.state,
+            monthly.year,
+            monthly.month,
+        )
         return monthly
 
     today = local_today()
@@ -250,6 +286,12 @@ def get_or_create_monthly_price(db: Session, year: int, month: int) -> MonthlyGa
 
     average = monthly_price_from_snapshots(db, year, month, state)
     if average is None:
+        logger.warning(
+            "No monthly gas price available state=%s year=%s month=%s",
+            state,
+            year,
+            month,
+        )
         raise GasPriceUnavailable(
             "No monthly gas price is available. Add one manually or collect daily snapshots."
         )

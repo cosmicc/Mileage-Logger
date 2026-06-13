@@ -22,7 +22,11 @@ class MqttOwnTracksWorker:
         self._client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 
     def start(self) -> None:
-        if not self.settings.mqtt_enabled or self._thread is not None:
+        if not self.settings.mqtt_enabled:
+            logger.info("MQTT ingestion is disabled")
+            return
+        if self._thread is not None:
+            logger.debug("MQTT worker already running")
             return
         if self.settings.mqtt_username:
             self._client.username_pw_set(self.settings.mqtt_username, self.settings.mqtt_password)
@@ -30,14 +34,27 @@ class MqttOwnTracksWorker:
         self._client.on_message = self._on_message
         self._thread = Thread(target=self._run, name="owntracks-mqtt", daemon=True)
         self._thread.start()
+        logger.info(
+            "MQTT worker started host=%s port=%s topic=%s",
+            self.settings.mqtt_host,
+            self.settings.mqtt_port,
+            self.settings.mqtt_topic,
+        )
 
     def stop(self) -> None:
         self._stop.set()
         self._client.disconnect()
         if self._thread is not None:
             self._thread.join(timeout=5)
+            self._thread = None
+            logger.info("MQTT worker stopped")
 
     def _run(self) -> None:
+        logger.debug(
+            "Connecting MQTT client host=%s port=%s",
+            self.settings.mqtt_host,
+            self.settings.mqtt_port,
+        )
         self._client.connect(self.settings.mqtt_host, self.settings.mqtt_port, keepalive=60)
         self._client.loop_start()
         self._stop.wait()
@@ -51,10 +68,23 @@ class MqttOwnTracksWorker:
             logger.error("MQTT connection failed: %s", reason_code)
 
     def _on_message(self, _client: mqtt.Client, _userdata, msg: mqtt.MQTTMessage) -> None:
+        logger.debug(
+            "Received MQTT OwnTracks message topic=%s bytes=%s",
+            msg.topic,
+            len(msg.payload),
+        )
         with SessionLocal() as db:
             try:
                 process_owntracks_payload(db, msg.payload, topic=msg.topic)
-            except (EmptyOwnTracksPayload, UnsupportedOwnTracksType):
+            except EmptyOwnTracksPayload:
+                logger.debug("Ignored empty MQTT OwnTracks message topic=%s", msg.topic)
+                return
+            except UnsupportedOwnTracksType as exc:
+                logger.debug(
+                    "Ignored unsupported MQTT OwnTracks message topic=%s error=%s",
+                    msg.topic,
+                    exc,
+                )
                 return
             except Exception:
                 logger.exception("Could not process MQTT OwnTracks message on %s", msg.topic)

@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
@@ -23,6 +25,7 @@ from mileage_logger.services.timezone import datetime_to_local
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/health")
@@ -45,8 +48,10 @@ async def owntracks_http(request: Request, db: Session = Depends(get_db)) -> JSO
             device=request.headers.get("x-limit-d") or request.query_params.get("d"),
         )
     except EmptyOwnTracksPayload:
+        logger.debug("Ignored empty OwnTracks payload")
         return JSONResponse(content=[])
-    except UnsupportedOwnTracksType:
+    except UnsupportedOwnTracksType as exc:
+        logger.debug("Ignored unsupported OwnTracks payload: %s", exc)
         return JSONResponse(content=[])
     return JSONResponse(content=[])
 
@@ -110,6 +115,13 @@ def update_trip(trip_id: int, update: TripUpdate, db: Session = Depends(get_db))
         raise HTTPException(status_code=404, detail="Trip not found")
     update_trip_details(trip, update.origin_name, update.destination_name, update.miles)
     db.commit()
+    logger.info(
+        "Updated trip via API trip_id=%s origin=%s destination=%s miles=%s",
+        trip.id,
+        trip.origin_display_name,
+        trip.destination_display_name,
+        trip.miles,
+    )
     return {"status": "updated"}
 
 
@@ -118,7 +130,13 @@ def snapshot_current_gas_price(db: Session = Depends(get_db)) -> dict[str, str]:
     try:
         snapshot = fetch_and_save_current_snapshot(db)
     except GasPriceUnavailable as exc:
+        logger.warning("Current gas price snapshot unavailable: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "Saved current gas price snapshot via API date=%s price=%s",
+        snapshot.observed_on,
+        snapshot.price_per_gallon,
+    )
     return {
         "status": "saved",
         "observed_on": snapshot.observed_on.isoformat(),
@@ -132,6 +150,13 @@ def manual_monthly_gas_price(
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     monthly = upsert_manual_monthly_price(db, **payload.model_dump())
+    logger.info(
+        "Saved manual monthly gas price via API year=%s month=%s state=%s effective_rate=%s",
+        monthly.year,
+        monthly.month,
+        monthly.state,
+        monthly.effective_rate,
+    )
     return {"status": "saved", "effective_rate": str(monthly.effective_rate)}
 
 
@@ -142,7 +167,14 @@ def generate_report(year: int, month: int, db: Session = Depends(get_db)) -> Res
     try:
         report = generate_monthly_pdf(db, year, month)
     except GasPriceUnavailable as exc:
+        logger.warning("Report generation unavailable year=%s month=%s error=%s", year, month, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "Generated report via API year=%s month=%s filename=%s",
+        year,
+        month,
+        report.filename,
+    )
     return Response(
         content=report.content,
         media_type="application/pdf",

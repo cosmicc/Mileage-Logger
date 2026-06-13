@@ -602,8 +602,8 @@ td input[type="text"] {
   white-space: pre-wrap;
 }
 
-.log-panel pre {
-  max-height: 360px;
+.log-view {
+  height: 900px;
   margin: 0;
   overflow: auto;
   padding: 14px;
@@ -613,8 +613,30 @@ td input[type="text"] {
   color: #d8d0c1;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.log-line {
+  color: var(--muted);
+}
+
+.log-line-info {
+  color: #86efac;
+}
+
+.log-line-warning {
+  color: #facc15;
+}
+
+.log-line-error {
+  color: #f87171;
+}
+
+.log-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
 }
 
 ::selection {
@@ -667,6 +689,10 @@ td input[type="text"] {
 
   input {
     min-width: min(100%, 220px);
+  }
+
+  .log-view {
+    height: 72vh;
   }
 }
 

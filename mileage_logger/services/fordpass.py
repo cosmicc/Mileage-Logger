@@ -110,6 +110,10 @@ def _vehicle(settings: Settings) -> Any:
     cache_key = (settings.fordpass_username, settings.fordpass_password, settings.fordpass_vin)
     with _vehicle_lock:
         if _vehicle_cache is None or _vehicle_cache[0] != cache_key:
+            logger.info(
+                "Creating FordPass vehicle client vin_configured=%s",
+                bool(settings.fordpass_vin),
+            )
             _vehicle_cache = (
                 cache_key,
                 Vehicle(
@@ -124,16 +128,27 @@ def _vehicle(settings: Settings) -> Any:
 def current_odometer_miles(settings: Settings | None = None) -> Decimal | None:
     settings = settings or get_settings()
     if not _configured(settings):
+        logger.debug(
+            "FordPass odometer skipped enabled=%s username_configured=%s "
+            "password_configured=%s vin_configured=%s",
+            settings.fordpass_enabled,
+            bool(settings.fordpass_username),
+            bool(settings.fordpass_password),
+            bool(settings.fordpass_vin),
+        )
         return None
 
     attempts = max(settings.fordpass_retry_attempts, 1)
     for attempt in range(1, attempts + 1):
         try:
+            logger.debug("Reading FordPass odometer attempt=%s attempts=%s", attempt, attempts)
             status = _vehicle(settings).status()
-            return odometer_miles_from_status(
+            odometer = odometer_miles_from_status(
                 status,
                 default_unit=settings.fordpass_odometer_unit,
             )
+            logger.info("Read FordPass odometer miles=%s attempt=%s", odometer, attempt)
+            return odometer
         except Exception as exc:
             logger.warning(
                 "FordPass odometer read failed attempt=%s attempts=%s error=%s",

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.models import GasPriceSnapshot, OwnTracksLocation, Trip
 from mileage_logger.services.timezone import datetime_to_local, local_day_bounds
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -50,8 +53,23 @@ def reset_previous_month_data(
     )
     db.commit()
 
-    return MonthlyResetResult(
+    result = MonthlyResetResult(
         location_points=_rowcount(location_result.rowcount),
         trips=_rowcount(trip_result.rowcount),
         gas_snapshots=_rowcount(gas_snapshot_result.rowcount),
     )
+    if result.total:
+        logger.info(
+            "Monthly reset removed old records month_start=%s location_points=%s trips=%s "
+            "gas_snapshots=%s",
+            month_start_date.isoformat(),
+            result.location_points,
+            result.trips,
+            result.gas_snapshots,
+        )
+    else:
+        logger.debug(
+            "Monthly reset found no old records month_start=%s",
+            month_start_date.isoformat(),
+        )
+    return result

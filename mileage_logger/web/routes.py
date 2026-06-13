@@ -1,4 +1,7 @@
+import logging
+import re
 from calendar import month_name
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from math import ceil
@@ -6,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -28,10 +31,16 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
-from mileage_logger.services.timezone import datetime_to_local, datetime_to_utc, local_now, local_today
+from mileage_logger.services.timezone import (
+    datetime_to_local,
+    datetime_to_utc,
+    local_now,
+    local_today,
+)
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"])
 
@@ -67,6 +76,26 @@ templates.env.filters["local_datetime"] = _format_local_datetime
 templates.env.filters["odometer"] = _format_odometer
 templates.env.filters["odometer_source"] = _format_odometer_source
 WAYPOINT_PAGE_SIZE = 20
+LOG_LINE_LEVEL_RE = re.compile(r"\s(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+\[")
+LOG_LEVEL_VALUES = {
+    "debug": 10,
+    "info": 20,
+    "warning": 30,
+}
+LOG_LINE_LEVEL_VALUES = {
+    "DEBUG": 10,
+    "INFO": 20,
+    "WARNING": 30,
+    "ERROR": 40,
+    "CRITICAL": 50,
+}
+
+
+@dataclass(frozen=True)
+class LogLine:
+    text: str
+    level: str
+    css_class: str
 
 
 def _current_year_month() -> tuple[int, int]:
@@ -108,7 +137,25 @@ def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGas
         return None, f"Could not load gas price: {exc}"
 
 
-def _tail_file(path: Path, max_lines: int = 200) -> list[str]:
+def _log_line_is_visible(line: str, min_level: int) -> bool:
+    match = LOG_LINE_LEVEL_RE.search(line)
+    if match is None:
+        return False
+    return LOG_LINE_LEVEL_VALUES[match.group(1)] >= min_level
+
+
+def _log_line_entry(line: str) -> LogLine:
+    match = LOG_LINE_LEVEL_RE.search(line)
+    level = match.group(1).lower() if match else "debug"
+    css_level = "error" if level in {"error", "critical"} else level
+    return LogLine(
+        text=line,
+        level=level,
+        css_class=f"log-line-{css_level}",
+    )
+
+
+def _tail_file(path: Path, max_lines: int = 200, log_level: str = "info") -> list[LogLine]:
     if not path.exists():
         return []
     with path.open("rb") as file:
@@ -116,7 +163,11 @@ def _tail_file(path: Path, max_lines: int = 200) -> list[str]:
         size = file.tell()
         file.seek(max(size - 80_000, 0))
         text = file.read().decode("utf-8", errors="replace")
-    return list(reversed(text.splitlines()[-max_lines:]))
+    min_level = LOG_LEVEL_VALUES[log_level]
+    visible_lines = [
+        line for line in text.splitlines() if _log_line_is_visible(line, min_level)
+    ]
+    return [_log_line_entry(line) for line in reversed(visible_lines[-max_lines:])]
 
 
 def _waypoint_ordering():
@@ -276,6 +327,13 @@ def update_trip_form(
         raise HTTPException(status_code=404, detail="Trip not found")
     update_trip_details(trip, origin_name, destination_name, miles)
     db.commit()
+    logger.info(
+        "Updated trip via web form trip_id=%s origin=%s destination=%s miles=%s",
+        trip.id,
+        trip.origin_display_name,
+        trip.destination_display_name,
+        trip.miles,
+    )
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
         status_code=303,
@@ -330,8 +388,11 @@ def refresh_gas_price_form(
 ) -> RedirectResponse:
     try:
         refresh_current_monthly_price(db)
-    except GasPriceUnavailable:
+    except GasPriceUnavailable as exc:
+        logger.warning("Gas price refresh unavailable from web form: %s", exc)
         pass
+    else:
+        logger.info("Refreshed current monthly gas price from web form")
     return RedirectResponse(url=next_url if next_url.startswith("/") else "/", status_code=303)
 
 
@@ -372,10 +433,20 @@ def diagnostics(
             "latest_odometer": latest_odometer,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
-            "app_log_lines": _tail_file(log_dir / "app.log"),
-            "trip_log_lines": _tail_file(log_dir / "trip-calculation.log"),
-            "gas_log_lines": _tail_file(log_dir / "gas-snapshot.log"),
+            "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
         },
+    )
+
+
+@router.get("/diagnostics/logs/app")
+def download_app_log() -> FileResponse:
+    log_path = Path(get_settings().log_dir) / "app.log"
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="App log not found")
+    return FileResponse(
+        log_path,
+        media_type="text/plain",
+        filename="app.log",
     )
 
 
@@ -385,7 +456,14 @@ def report_form(year: int, month: int, db: Session = Depends(get_db)) -> Respons
     try:
         report = generate_monthly_pdf(db, year, month)
     except GasPriceUnavailable as exc:
+        logger.warning("Report generation unavailable year=%s month=%s error=%s", year, month, exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "Generated report from web form year=%s month=%s filename=%s",
+        year,
+        month,
+        report.filename,
+    )
     return Response(
         content=report.content,
         media_type="application/pdf",

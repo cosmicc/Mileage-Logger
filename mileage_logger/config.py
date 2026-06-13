@@ -1,8 +1,11 @@
 from decimal import Decimal
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+LogLevel = Literal["debug", "info", "warning"]
 
 
 class Settings(BaseSettings):
@@ -46,7 +49,16 @@ class Settings(BaseSettings):
     fordpass_retry_delay_seconds: float = Field(default=2.0, ge=0)
 
     log_dir: str = "logs"
+    log_level: LogLevel = "info"
     min_trip_miles: Decimal = Field(default=Decimal("0.10"), ge=Decimal("0"))
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def normalize_log_level(cls, value: object) -> str:
+        normalized = str(value or "info").strip().casefold()
+        if normalized not in {"debug", "info", "warning"}:
+            raise ValueError("LOG_LEVEL must be debug, info, or warning")
+        return normalized
 
 
 @lru_cache

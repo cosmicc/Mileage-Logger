@@ -241,9 +241,24 @@ def _odometer_for_transition(transition: WaypointTransition) -> Decimal | None:
     odometer = current_odometer_miles()
     if odometer is None:
         _set_payload_odometer_attempted(transition.location)
+        log = trip_logger.warning if get_settings().fordpass_enabled else trip_logger.debug
+        log(
+            "Odometer unavailable site=%s event=%s captured_at=%s fordpass_enabled=%s",
+            transition.site.name,
+            transition.event,
+            transition.location.captured_at.isoformat(),
+            get_settings().fordpass_enabled,
+        )
         return None
 
     _set_payload_odometer_miles(transition.location, odometer)
+    trip_logger.debug(
+        "Captured odometer site=%s event=%s odometer=%s captured_at=%s",
+        transition.site.name,
+        transition.event,
+        odometer,
+        transition.location.captured_at.isoformat(),
+    )
     return odometer
 
 
@@ -422,7 +437,7 @@ def _add_trip(
     odometer_anchor_miles: Decimal | None,
 ) -> Trip | None:
     if _is_home_to_home(origin, destination):
-        trip_logger.info(
+        trip_logger.debug(
             "trip skipped reason=home_to_home origin=%s destination=%s started_at=%s ended_at=%s",
             origin.name,
             destination.name,
@@ -477,7 +492,7 @@ def _add_trip(
         notes = _append_note(notes, "Used waypoint distance because odometer data was unavailable.")
 
     if _should_skip_for_minimum_miles(origin, destination, calculation.miles):
-        trip_logger.info(
+        trip_logger.debug(
             "trip skipped reason=below_minimum origin=%s destination=%s miles=%s",
             origin.name,
             destination.name,
@@ -571,7 +586,7 @@ def generate_trips(
     sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
     locations = _locations_for_range(db, start_date, end_date)
     if not locations:
-        trip_logger.info(
+        trip_logger.debug(
             "trip generation skipped reason=no_locations start_date=%s end_date=%s",
             start_date.isoformat(),
             end_date.isoformat(),
@@ -580,7 +595,7 @@ def generate_trips(
 
     transitions = _waypoint_transitions(locations, sites)
     if not transitions:
-        trip_logger.info(
+        trip_logger.debug(
             "trip generation skipped reason=no_waypoint_transitions start_date=%s end_date=%s",
             start_date.isoformat(),
             end_date.isoformat(),
@@ -592,11 +607,18 @@ def generate_trips(
         {datetime_to_local_date(event.location.captured_at) for event in transitions}
     )
     existing_auto_trips = _existing_auto_trips_for_dates(db, source_dates)
-    db.execute(
+    delete_result = db.execute(
         delete(Trip)
         .where(Trip.source == AUTO_TRIP_SOURCE)
         .where(Trip.trip_date.in_(source_dates))
     )
+    deleted = delete_result.rowcount or 0
+    if deleted:
+        trip_logger.info(
+            "Deleted existing auto trips before regeneration count=%s dates=%s",
+            deleted,
+            ",".join(day.isoformat() for day in source_dates),
+        )
 
     home_site = _home_site(sites)
     pending_leave: WaypointTransition | None = None

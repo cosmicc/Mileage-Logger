@@ -210,6 +210,7 @@ FORDPASS_ENABLED=false
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
+Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.
 
 ## Workflow
 

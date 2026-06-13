@@ -7,6 +7,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
 from mileage_logger.app import app
+from mileage_logger.config import Settings
 from mileage_logger.database import get_db
 from mileage_logger.models import Base, OwnTracksLocation, Site
 from mileage_logger.services.diagnostics import (
@@ -154,6 +155,50 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
         assert "Waypoint 06" in response.text
         assert "Waypoint 26" not in response.text
         assert "Waypoint 20" not in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_shows_single_colored_app_log_and_download(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    log_path = tmp_path / "app.log"
+    log_text = "\n".join(
+        [
+            "2026-06-13 09:00:00 EDT DEBUG [app] details",
+            "2026-06-13 09:01:00 EDT INFO [app] started",
+            "2026-06-13 09:02:00 EDT WARNING [app] slow",
+            "2026-06-13 09:03:00 EDT ERROR [app] failed",
+        ]
+    )
+    log_path.write_text(log_text, encoding="utf-8")
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            log_dir=str(tmp_path),
+            log_level="debug",
+        ),
+    )
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/diagnostics")
+        download_response = client.get("/diagnostics/logs/app")
+
+        assert response.status_code == 200
+        assert "App Log" in response.text
+        assert "Trip Calculation Log" not in response.text
+        assert "Gas Price Query Log" not in response.text
+        assert 'class="log-line log-line-debug"' in response.text
+        assert 'class="log-line log-line-info"' in response.text
+        assert 'class="log-line log-line-warning"' in response.text
+        assert 'class="log-line log-line-error"' in response.text
+        assert "Download App Log" in response.text
+        assert download_response.status_code == 200
+        assert download_response.text == log_text
+        assert "attachment" in download_response.headers["content-disposition"]
+        assert "app.log" in download_response.headers["content-disposition"]
     finally:
         app.dependency_overrides.clear()
 

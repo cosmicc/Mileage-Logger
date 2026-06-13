@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -15,6 +16,8 @@ from mileage_logger.config import get_settings
 from mileage_logger.models import Trip
 from mileage_logger.services.gas_prices import get_or_create_monthly_price
 from mileage_logger.services.mileage import monthly_miles
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,7 @@ def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
 
 
 def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport:
+    logger.info("Generating monthly PDF report year=%s month=%s", year, month)
     settings = get_settings()
     gas_price = get_or_create_monthly_price(db, year, month)
     trips = trips_for_month(db, year, month)
@@ -200,9 +204,19 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
     )
     story.append(summary)
     doc.build(story)
-    return MonthlyPdfReport(
+    report = MonthlyPdfReport(
         filename=f"mileage-{year}-{month:02d}.pdf",
         content=buffer.getvalue(),
         total_miles=total_miles,
         reimbursement_total=reimbursement_total,
     )
+    logger.info(
+        "Generated monthly PDF report year=%s month=%s trips=%s total_miles=%s "
+        "reimbursement_total=%s",
+        year,
+        month,
+        len(trips),
+        total_miles,
+        reimbursement_total,
+    )
+    return report

@@ -141,17 +141,26 @@ class AutomaticTripProcessor:
         self._thread: Thread | None = None
 
     def start(self) -> None:
-        if not self.settings.automatic_trip_processing_enabled or self._thread is not None:
+        if not self.settings.automatic_trip_processing_enabled:
+            logger.info("Automatic trip processing is disabled")
+            return
+        if self._thread is not None:
+            logger.debug("Automatic trip processor already running")
             return
         self._stop.clear()
         self._thread = Thread(target=self._run, name="automatic-trip-processor", daemon=True)
         self._thread.start()
+        logger.info(
+            "Automatic trip processor started interval_seconds=%s",
+            self.settings.automatic_trip_processing_interval_seconds,
+        )
 
     def stop(self) -> None:
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
+            logger.info("Automatic trip processor stopped")
 
     def _run(self) -> None:
         self._process_once()

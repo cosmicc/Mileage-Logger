@@ -91,6 +91,7 @@ FORDPASS_ODOMETER_UNIT=km
 FORDPASS_RETRY_ATTEMPTS=3
 FORDPASS_RETRY_DELAY_SECONDS=2
 LOG_DIR=/data/logs
+LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
 ```
@@ -357,6 +358,7 @@ browser and are not saved on the server.
 Runtime logs are stored in the Docker volume `logs_data` at `/data/logs` inside the app and
 gas-snapshot containers. Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also
 sets the container `TZ` value from `LOCAL_TIMEZONE`.
+Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.
 
 ## Gas Price Worker
 

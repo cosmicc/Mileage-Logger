@@ -3,7 +3,7 @@
 <section class="page-header">
   <div>
     <h1>Diagnostics</h1>
-    <p>Runtime status, data counts, and recent app/gas query logs.</p>
+    <p>Runtime status, data counts, and recent app log entries.</p>
   </div>
 </section>
 
@@ -17,6 +17,8 @@
       <dd>{{ database_url }}</dd>
       <dt>Log Directory</dt>
       <dd>{{ settings.log_dir }}</dd>
+      <dt>Log Level</dt>
+      <dd>{{ settings.log_level|upper }}</dd>
       <dt>MQTT Enabled</dt>
       <dd><span class="pill {{ 'good' if settings.mqtt_enabled else 'muted' }}">{{ "Yes" if settings.mqtt_enabled else "No" }}</span></dd>
       <dt>Gas Source</dt>
@@ -129,23 +131,17 @@
 </section>
 
 <section class="panel log-panel">
-  <h2>App Log</h2>
-  <pre>{% for line in app_log_lines %}{{ line }}
-{% else %}No app log entries found.
+  <div class="panel-toolbar">
+    <div>
+      <h2>App Log</h2>
+      <p class="panel-meta">Newest first, filtered at {{ settings.log_level|upper }} level.</p>
+    </div>
+  </div>
+  <pre class="log-view">{% for line in app_log_lines %}<span class="log-line {{ line.css_class }}" data-level="{{ line.level }}">{{ line.text }}</span>
+{% else %}<span class="log-line log-line-debug">No app log entries found.</span>
 {% endfor %}</pre>
-</section>
-
-<section class="panel log-panel">
-  <h2>Trip Calculation Log</h2>
-  <pre>{% for line in trip_log_lines %}{{ line }}
-{% else %}No trip calculation log entries found.
-{% endfor %}</pre>
-</section>
-
-<section class="panel log-panel">
-  <h2>Gas Price Query Log</h2>
-  <pre>{% for line in gas_log_lines %}{{ line }}
-{% else %}No gas price log entries found.
-{% endfor %}</pre>
+  <div class="log-actions">
+    <a class="button-link secondary" href="/diagnostics/logs/app">Download App Log</a>
+  </div>
 </section>
 {% endblock %}

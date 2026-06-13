@@ -220,10 +220,12 @@ def sync_site_from_owntracks_payload(
     if not settings.owntracks_sync_waypoints:
         return None
     if payload.get("_type") != "waypoint":
+        logger.debug("Skipping waypoint sync for payload_type=%s", payload.get("_type"))
         return None
 
     name = _first_region_name(payload)
     if name is None:
+        logger.warning("OwnTracks waypoint payload missing waypoint name")
         return None
     region_id = _region_id(payload)
 
@@ -232,6 +234,7 @@ def sync_site_from_owntracks_payload(
     site_latitude = Decimal(str(payload_latitude)) if payload_latitude is not None else latitude
     site_longitude = Decimal(str(payload_longitude)) if payload_longitude is not None else longitude
     if site_latitude is None or site_longitude is None:
+        logger.warning("OwnTracks waypoint payload missing coordinates name=%s", name)
         return None
 
     site = None
@@ -250,6 +253,13 @@ def sync_site_from_owntracks_payload(
             created_at=_payload_datetime(payload),
         )
         db.add(site)
+        logger.info(
+            "Created OwnTracks waypoint name=%s region_id=%s radius_m=%s event_time=%s",
+            site.name,
+            site.owntracks_region_id or "",
+            site.radius_m,
+            site.created_at.isoformat(),
+        )
         return site
 
     site.name = name
@@ -258,6 +268,13 @@ def sync_site_from_owntracks_payload(
     site.longitude = site_longitude
     site.radius_m = _site_radius_from_payload(payload)
     site.active = True
+    logger.info(
+        "Updated OwnTracks waypoint id=%s name=%s region_id=%s radius_m=%s",
+        site.id,
+        site.name,
+        site.owntracks_region_id or "",
+        site.radius_m,
+    )
     return site
 
 
@@ -280,12 +297,23 @@ def update_site_last_visit_from_transition(
             site = db.scalar(select(Site).where(Site.name == name))
 
     if site is None:
+        logger.warning(
+            "OwnTracks enter transition did not match a waypoint region_id=%s name=%s",
+            region_id or "",
+            _first_region_name(payload) or "",
+        )
         return None
 
     if site.last_visited_at is None or _datetime_for_compare(captured_at) > _datetime_for_compare(
         site.last_visited_at
     ):
         site.last_visited_at = captured_at
+        logger.info(
+            "Updated waypoint last visit site_id=%s name=%s captured_at=%s",
+            site.id,
+            site.name,
+            captured_at.isoformat(),
+        )
     return site
 
 
@@ -313,6 +341,24 @@ def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> 
     db.add(location)
     db.commit()
     db.refresh(location)
+    logger.info(
+        "Stored OwnTracks event id=%s type=%s event=%s captured_at=%s user=%s device=%s topic=%s",
+        location.id,
+        message.payload.get("_type"),
+        message.payload.get("event") or "",
+        location.captured_at.isoformat(),
+        location.user or "",
+        location.device or "",
+        location.topic or "",
+    )
+    logger.debug(
+        "OwnTracks event details id=%s latitude=%s longitude=%s accuracy_m=%s battery_percent=%s",
+        location.id,
+        location.latitude,
+        location.longitude,
+        location.accuracy_m,
+        location.battery_percent,
+    )
     return location
 
 
@@ -326,6 +372,7 @@ def process_owntracks_payload(
 ) -> OwnTracksProcessResult:
     payload = _decode_payload(body)
     payload_type = payload.get("_type")
+    logger.debug("Processing OwnTracks payload type=%s", payload_type)
 
     if payload_type == "waypoint":
         site = sync_site_from_owntracks_payload(db, payload)
