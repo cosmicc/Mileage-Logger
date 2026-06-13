@@ -1,6 +1,6 @@
 # Mileage Logger
 
-Mileage Logger receives OwnTracks location events from an Android phone over HTTP or MQTT,
+Mileage Logger receives OwnTracks waypoint events from an Android phone over HTTP or MQTT,
 stores them in PostgreSQL, lets you review and edit generated waypoint trips, and produces
 monthly reimbursement PDF logs.
 
@@ -11,9 +11,9 @@ monthly reimbursement PDF logs.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
-- OwnTracks waypoint geofence model used to turn location points into daily trips.
-- Personal trip marking that automatically excludes future matching routes.
-- Stop-based trip detection: a client stop must last at least 10 minutes before it creates a trip.
+- OwnTracks waypoint transition model used to turn leave/enter events into trips.
+- Optional FordPass odometer lookup for actual trip mileage.
+- Manual review for generated waypoint names and trip mileage.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -23,7 +23,7 @@ monthly reimbursement PDF logs.
 The reimbursement formula is:
 
 ```text
-monthly included miles / vehicle MPG = reimbursement gallons
+monthly trip miles / vehicle MPG = reimbursement gallons
 reimbursement gallons * Michigan monthly average gas price = total reimbursement
 ```
 
@@ -143,66 +143,84 @@ MQTT_PASSWORD=optional
 MQTT_TOPIC=owntracks/#
 ```
 
-Then run the web app normally. The MQTT worker starts with the app. Use `owntracks/#` if you want
-MQTT ingestion to receive waypoint and transition events, not just location updates.
+Then run the web app normally. The MQTT worker starts with the app. Use `owntracks/#` so MQTT
+ingestion can receive waypoint definitions and transition events.
 
 ## Trip Detection
 
-The app generates trips between qualifying stops:
+The app generates trips directly from OwnTracks waypoint transitions:
 
-- A known OwnTracks waypoint stop qualifies after `OWNTRACKS_STOP_MINUTES`, default `10`.
-- Unknown stationary places are ignored; valid automatic trip endpoints must be saved OwnTracks
-  waypoints.
-- Brief boundary misses are tolerated. A waypoint visit is only treated as ended after the dwell
-  threshold and after the phone is moving away from the waypoint or is at least 500 meters away.
-- A trip starts when you leave the previous qualifying stop and ends when you arrive at the next
-  qualifying stop.
+- A trip is created from a waypoint `leave` event followed by another waypoint `enter` event.
+- `Home` is the exact waypoint name for home.
+- `Home` to `Home` is never a trip.
+- Trips between the same non-home waypoint are kept, because they can represent work travel that
+  returns to the same waypoint.
+- If an `enter` event arrives without a matching `leave`, the app infers the most likely origin
+  from the previous waypoint. If there is no previous waypoint and the destination is not `Home`,
+  the app assumes the missed origin was `Home`.
 
-Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
-stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
+Trip data is calculated automatically. Every incoming OwnTracks transition payload is stored in
+`owntracks_locations` and immediately triggers trip recalculation for that payload's
 `LOCAL_TIMEZONE` day. When the app sees a qualifying trip, it writes the generated row to `trips`.
-The server can run on UTC; app day/month selection, dashboard time, trip time display, and gas
-snapshot dates use `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
+The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
+`LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
+
+Generated mileage uses this order:
+
+1. FordPass odometer delta when `FORDPASS_ENABLED=true` and both endpoint readings are available.
+2. Estimated start/end odometer values using this trip's waypoint distance and any available
+   odometer anchor.
+3. Waypoint-to-waypoint distance when no odometer anchor is available.
+
+Because OwnTracks is only sending waypoint events, there is no full GPS path to measure. Edit a
+trip's miles on the `Trips` page when the generated mileage needs correction. Manual corrections
+apply only to that trip because the same waypoint pair can have different real-world mileage.
+
+FordPass setup uses the `fordpass` Python package. Set these in `.env` or Docker when you want
+odometer-based mileage:
+
+```env
+FORDPASS_ENABLED=true
+FORDPASS_USERNAME=your-fordpass-email
+FORDPASS_PASSWORD=your-fordpass-password
+FORDPASS_VIN=your-maverick-vin
+FORDPASS_ODOMETER_UNIT=km
+FORDPASS_RETRY_ATTEMPTS=3
+FORDPASS_RETRY_DELAY_SECONDS=2
+```
+
+The app stores start/end odometer readings on generated trip rows only. `FORDPASS_ODOMETER_UNIT`
+is the raw unit returned by FordPass before conversion to report miles; use `km` unless your
+account returns miles.
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
 short interval and finalizes completed local days. Once a day is complete, the processor calculates
 that day's trips one last time. When `OWNTRACKS_PURGE_ENABLED=true`, it then purges the processed
 `owntracks_locations` rows for that completed day. Set `OWNTRACKS_PURGE_ENABLED=false` while
-testing to keep old OwnTracks rows. Current-day rows are kept so live tracking data is not deleted
+testing to keep old OwnTracks rows. Current-day rows are kept so live event data is not deleted
 before the day is finished.
-
-If a stop was not a real destination, use the trip's `False Stop` action on the Trips page. The app
-deletes that trip, moves the next trip's start back to the deleted trip's start, and adds the miles
-to the next trip so the intermediate stop is removed.
-
-Use the `Personal` action on the Trips page to toggle a trip between included work mileage and
-excluded personal mileage. Marking a route personal saves it so future matching trips are
-automatically marked personal too.
-
-In Docker, change the stop wait threshold with `OWNTRACKS_STOP_MINUTES`. If unset, it defaults to
-`10`.
 
 Useful Docker environment options:
 
 ```env
 OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
-OWNTRACKS_STOP_MINUTES=10
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
+FORDPASS_ENABLED=false
 ```
 
 ## Workflow
 
 1. Create work waypoints in OwnTracks and publish/export them to the server.
 2. Review or export saved waypoints from the `Waypoints` page.
-3. Let the app automatically create trips from incoming OwnTracks data.
-4. Review `Trips`, switch to the needed month, edit start/end location names if needed, and toggle
-   personal routes.
-5. Add or fetch a monthly gas price for that report month.
-6. Download the monthly PDF report from the `Trips` page.
+3. Configure OwnTracks to send waypoint transition events.
+4. Let the app automatically create trips from incoming OwnTracks transitions.
+5. Review `Trips`, switch to the needed month, and edit waypoint names or miles if needed.
+6. Add or fetch a monthly gas price for that report month.
+7. Download the monthly PDF report from the `Trips` page.
 
 ## Project Commands
 

@@ -9,7 +9,7 @@
 
 <section class="stats-grid">
   <div class="stat">
-    <span>Location Points</span>
+    <span>OwnTracks Events</span>
     <strong>{{ location_count }}</strong>
   </div>
   <div class="stat">
@@ -48,8 +48,9 @@
         <th>Date</th>
         <th>From</th>
         <th>To</th>
+        <th>Start Odo</th>
+        <th>End Odo</th>
         <th>Miles</th>
-        <th>Included</th>
       </tr>
     </thead>
     <tbody>
@@ -58,11 +59,12 @@
         <td>{{ trip.trip_date }}</td>
         <td>{{ trip.origin_display_name }}</td>
         <td>{{ trip.destination_display_name }}</td>
+        <td class="odometer-cell">{{ trip.start_odometer_miles|odometer }}</td>
+        <td class="odometer-cell">{{ trip.end_odometer_miles|odometer }}</td>
         <td>{{ "%.2f"|format(trip.miles) }}</td>
-        <td><span class="pill {{ 'good' if trip.include_in_report else 'muted' }}">{{ "Yes" if trip.include_in_report else "No" }}</span></td>
       </tr>
       {% else %}
-      <tr><td colspan="5">No trips generated yet.</td></tr>
+      <tr><td colspan="6">No trips generated yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

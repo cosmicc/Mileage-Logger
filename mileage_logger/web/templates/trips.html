@@ -29,14 +29,14 @@
 
 <section class="panel">
   <h2>Monthly Trips</h2>
-  <p class="summary-line">Stop threshold: {{ owntracks_stop_minutes }} minutes.</p>
   <table>
     <thead>
       <tr>
         <th>Date</th>
         <th>From</th>
         <th>To</th>
-        <th>Time</th>
+        <th>Start Odo</th>
+        <th>End Odo</th>
         <th>Miles</th>
         <th>Actions</th>
       </tr>
@@ -51,24 +51,17 @@
         </td>
         <td><input form="{{ form_id }}" type="text" name="origin_name" maxlength="160" required value="{{ trip.origin_display_name }}"></td>
         <td><input form="{{ form_id }}" type="text" name="destination_name" maxlength="160" required value="{{ trip.destination_display_name }}"></td>
-        <td>{{ trip.started_at|local_datetime("%I:%M %p") }} - {{ trip.ended_at|local_datetime("%I:%M %p") }}</td>
-        <td>{{ "%.2f"|format(trip.miles) }}</td>
+        <td class="odometer-cell">{{ trip.start_odometer_miles|odometer }}</td>
+        <td class="odometer-cell">{{ trip.end_odometer_miles|odometer }}</td>
+        <td><input form="{{ form_id }}" class="miles-input" type="number" name="miles" min="0" step="0.01" required value="{{ "%.2f"|format(trip.miles) }}"></td>
         <td>
           <div class="trip-actions">
             <button class="small-button" form="{{ form_id }}" type="submit">Save</button>
-            <form action="/trips/{{ trip.id }}/personal" method="post">
-              <button class="small-button secondary" type="submit">
-                {{ "Mark Personal" if trip.include_in_report else "Mark Work" }}
-              </button>
-            </form>
-            <form action="/trips/{{ trip.id }}/false-stop" method="post">
-              <button class="small-button secondary" type="submit">False Stop</button>
-            </form>
           </div>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No trips for this month.</td></tr>
+      <tr><td colspan="7">No trips for this month.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -1,5 +1,6 @@
 from calendar import month_name
 from datetime import date
+from decimal import Decimal
 from math import ceil
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -26,12 +27,7 @@ from mileage_logger.services.gas_prices import (
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
-from mileage_logger.services.mileage import (
-    FalseStopMergeError,
-    merge_false_stop_into_next_trip,
-    toggle_trip_personal,
-    update_trip_location_names,
-)
+from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.timezone import datetime_to_local, local_now, local_today
 from mileage_logger.services.waypoints import owntracks_waypoints_json
@@ -47,7 +43,14 @@ def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
     return datetime_to_local(value).strftime(fmt)
 
 
+def _format_odometer(value) -> str:
+    if value is None:
+        return "-"
+    return f"{Decimal(value):.1f}"
+
+
 templates.env.filters["local_datetime"] = _format_local_datetime
+templates.env.filters["odometer"] = _format_odometer
 WAYPOINT_PAGE_SIZE = 20
 
 
@@ -174,7 +177,6 @@ def trips(
         .order_by(Trip.trip_date.asc(), Trip.started_at.asc())
     )
     all_trips = list(db.scalars(stmt))
-    settings = get_settings()
     return templates.TemplateResponse(
         request,
         "trips.html",
@@ -187,7 +189,6 @@ def trips(
             "previous_month": previous_month,
             "next_year": next_year,
             "next_month": next_month,
-            "owntracks_stop_minutes": settings.owntracks_stop_minutes,
         },
     )
 
@@ -197,45 +198,16 @@ def update_trip_form(
     trip_id: int,
     origin_name: str = Form(...),
     destination_name: str = Form(...),
+    miles: Decimal = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    update_trip_location_names(trip, origin_name, destination_name)
+    update_trip_details(trip, origin_name, destination_name, miles)
     db.commit()
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
-        status_code=303,
-    )
-
-
-@router.post("/trips/{trip_id}/personal")
-def personal_trip_form(
-    trip_id: int,
-    db: Session = Depends(get_db),
-) -> RedirectResponse:
-    try:
-        trip = toggle_trip_personal(db, trip_id)
-    except FalseStopMergeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(
-        url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
-        status_code=303,
-    )
-
-
-@router.post("/trips/{trip_id}/false-stop")
-def false_stop_trip_form(
-    trip_id: int,
-    db: Session = Depends(get_db),
-) -> RedirectResponse:
-    try:
-        merged_trip = merge_false_stop_into_next_trip(db, trip_id)
-    except FalseStopMergeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(
-        url=f"/trips?year={merged_trip.trip_date.year}&month={merged_trip.trip_date.month}",
         status_code=303,
     )
 

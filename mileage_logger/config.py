@@ -20,9 +20,7 @@ class Settings(BaseSettings):
     owntracks_password: str = ""
     owntracks_sync_waypoints: bool = True
     owntracks_default_site_radius_m: int = 150
-    owntracks_stop_minutes: int = 10
     owntracks_purge_enabled: bool = True
-    owntracks_unknown_stop_radius_m: int = 150
     automatic_trip_processing_enabled: bool = True
     automatic_trip_processing_interval_seconds: int = Field(default=60, ge=5)
 
@@ -39,6 +37,14 @@ class Settings(BaseSettings):
     eia_api_key: str = ""
     eia_series_id: str = ""
     vehicle_mpg: Decimal = Field(default=Decimal("25.0"), gt=Decimal("0"))
+
+    fordpass_enabled: bool = False
+    fordpass_username: str = ""
+    fordpass_password: str = ""
+    fordpass_vin: str = ""
+    fordpass_odometer_unit: str = "km"
+    fordpass_retry_attempts: int = Field(default=3, ge=1)
+    fordpass_retry_delay_seconds: float = Field(default=2.0, ge=0)
 
     report_output_dir: str = "reports"
     log_dir: str = "logs"

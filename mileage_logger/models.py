@@ -57,21 +57,6 @@ class Site(Base):
     )
 
 
-class PersonalTripPattern(Base):
-    __tablename__ = "personal_trip_patterns"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    origin_site_id: Mapped[int | None] = mapped_column(ForeignKey("sites.id"), nullable=True)
-    destination_site_id: Mapped[int | None] = mapped_column(ForeignKey("sites.id"), nullable=True)
-    origin_name: Mapped[str] = mapped_column(String(160))
-    destination_name: Mapped[str] = mapped_column(String(160))
-    origin_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
-    origin_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
-    destination_latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
-    destination_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-
-
 class Trip(Base):
     __tablename__ = "trips"
 
@@ -88,7 +73,11 @@ class Trip(Base):
     origin_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     destination_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     miles: Mapped[Decimal] = mapped_column(Numeric(9, 2))
-    include_in_report: Mapped[bool] = mapped_column(Boolean, default=True)
+    start_odometer_miles: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 3), nullable=True
+    )
+    end_odometer_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    mileage_source: Mapped[str] = mapped_column(String(40), default="waypoint_distance")
     source: Mapped[str] = mapped_column(String(40), default="auto")
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -12,7 +12,7 @@ from mileage_logger.services.gas_prices import (
     fetch_and_save_current_snapshot,
     upsert_manual_monthly_price,
 )
-from mileage_logger.services.mileage import update_trip_location_names
+from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     UnsupportedOwnTracksType,
@@ -92,7 +92,7 @@ def update_trip(trip_id: int, update: TripUpdate, db: Session = Depends(get_db))
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    update_trip_location_names(trip, update.origin_name, update.destination_name)
+    update_trip_details(trip, update.origin_name, update.destination_name, update.miles)
     db.commit()
     return {"status": "updated"}
 

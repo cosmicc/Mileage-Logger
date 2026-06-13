@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 from mileage_logger.config import get_settings
 from mileage_logger.models import MonthlyReport, Trip
 from mileage_logger.services.gas_prices import get_or_create_monthly_price
-from mileage_logger.services.mileage import included_monthly_miles
+from mileage_logger.services.mileage import monthly_miles
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,8 @@ class TripReportRow:
     trip_date: date
     from_location: str
     to_location: str
+    start_odometer: Decimal | None
+    end_odometer: Decimal | None
     trip_miles: Decimal
 
 
@@ -50,14 +52,13 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return start, end
 
 
-def included_trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
+def trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
     start, end = _month_bounds(year, month)
     stmt = (
         select(Trip)
         .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
         .where(Trip.trip_date >= start)
         .where(Trip.trip_date < end)
-        .where(Trip.include_in_report.is_(True))
         .order_by(Trip.trip_date.asc(), Trip.started_at.asc())
     )
     return list(db.scalars(stmt))
@@ -71,6 +72,18 @@ def _destination_location(trip: Trip) -> str:
     return trip.destination_display_name
 
 
+def _odometer_value(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(value).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+
+
+def _format_odometer(value: Decimal | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.1f}"
+
+
 def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
     rows: list[TripReportRow] = []
     for trip in trips:
@@ -80,6 +93,8 @@ def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
                 trip_date=trip.trip_date,
                 from_location=_origin_location(trip),
                 to_location=_destination_location(trip),
+                start_odometer=_odometer_value(trip.start_odometer_miles),
+                end_odometer=_odometer_value(trip.end_odometer_miles),
                 trip_miles=trip_miles,
             )
         )
@@ -89,8 +104,8 @@ def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
 def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     settings = get_settings()
     gas_price = get_or_create_monthly_price(db, year, month)
-    trips = included_trips_for_month(db, year, month)
-    total_miles = included_monthly_miles(db, year, month)
+    trips = trips_for_month(db, year, month)
+    total_miles = monthly_miles(db, year, month)
     reimbursement_gallons = calculate_reimbursement_gallons(total_miles, settings.vehicle_mpg)
     reimbursement_total = calculate_reimbursement(
         total_miles,
@@ -121,25 +136,27 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     )
     story = [
         Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
-        Paragraph("Included waypoint trips for reimbursement", styles["Normal"]),
+        Paragraph("Waypoint trips for reimbursement", styles["Normal"]),
         Spacer(1, 16),
     ]
 
-    trip_rows = [["Date", "From", "To", "Trip Mi"]]
+    trip_rows = [["Date", "From", "To", "Start Odo", "End Odo", "Trip Mi"]]
     for row in report_rows:
         trip_rows.append(
             [
                 row.trip_date.isoformat(),
                 Paragraph(row.from_location, table_cell),
                 Paragraph(row.to_location, table_cell),
+                _format_odometer(row.start_odometer),
+                _format_odometer(row.end_odometer),
                 f"{row.trip_miles:.2f}",
             ]
         )
 
     if len(trip_rows) == 1:
-        trip_rows.append(["", "No included trips", "", "0.00"])
+        trip_rows.append(["", "No trips", "", "", "", "0.00"])
 
-    table = Table(trip_rows, repeatRows=1, colWidths=[80, 280, 280, 80])
+    table = Table(trip_rows, repeatRows=1, colWidths=[70, 180, 180, 90, 90, 70])
     table.setStyle(
         TableStyle(
             [

@@ -447,6 +447,16 @@ td input[type="text"] {
   width: min(280px, 34vw);
 }
 
+.miles-input {
+  width: 104px;
+  min-width: 104px;
+}
+
+.odometer-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .trip-actions {
   display: flex;
   flex-wrap: nowrap;

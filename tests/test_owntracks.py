@@ -97,18 +97,17 @@ def test_process_owntracks_payload_automatically_creates_trip() -> None:
     )
     db.commit()
 
-    for captured_at, latitude, longitude in [
-        (day, 42.3314, -83.0458),
-        (day + timedelta(minutes=12), 42.3315, -83.0459),
-        (day + timedelta(minutes=18), 42.3370, -83.0520),
-        (day + timedelta(minutes=25), 42.3440, -83.0600),
-        (day + timedelta(minutes=38), 42.3441, -83.0601),
+    for captured_at, latitude, longitude, event, desc in [
+        (day, 42.3314, -83.0458, "leave", "Client A"),
+        (day + timedelta(minutes=25), 42.3440, -83.0600, "enter", "Client B"),
     ]:
         process_owntracks_payload(
             db,
             json.dumps(
                 {
-                    "_type": "location",
+                    "_type": "transition",
+                    "event": event,
+                    "desc": desc,
                     "lat": latitude,
                     "lon": longitude,
                     "tst": int(captured_at.timestamp()),
