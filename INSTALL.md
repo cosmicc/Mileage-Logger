@@ -83,7 +83,6 @@ OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-OWNTRACKS_PURGE_ENABLED=true
 FORDPASS_ENABLED=false
 FORDPASS_USERNAME=
 FORDPASS_PASSWORD=
@@ -91,7 +90,6 @@ FORDPASS_VIN=
 FORDPASS_ODOMETER_UNIT=km
 FORDPASS_RETRY_ATTEMPTS=3
 FORDPASS_RETRY_DELAY_SECONDS=2
-REPORT_OUTPUT_DIR=/data/reports
 LOG_DIR=/data/logs
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
@@ -289,10 +287,8 @@ is the raw unit returned by FordPass before conversion to report miles; use `km`
 account returns miles.
 
 The web app also starts a background processor. It recalculates the current local day on a short
-interval and finalizes completed local days. Once a day is complete, it calculates that day's trips
-one last time. When `OWNTRACKS_PURGE_ENABLED=true`, it then purges the processed OwnTracks source
-rows for that completed day. Set `OWNTRACKS_PURGE_ENABLED=false` while testing to keep old
-OwnTracks rows. Today's OwnTracks rows remain in place until the day is complete.
+interval and finalizes completed local days. At the start of each new month, old location points,
+trips, and raw gas snapshots are removed so only the current month remains. Waypoints are not reset.
 
 Configuration:
 
@@ -302,7 +298,6 @@ OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-OWNTRACKS_PURGE_ENABLED=true
 FORDPASS_ENABLED=false
 ```
 
@@ -345,8 +340,9 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.
 
-Older months can be selected from the `Trips` page. The PDF can be generated for any month that has
-trips and a saved monthly gas price or daily gas snapshots for that month.
+The PDF can be generated for any retained month that has trips and a saved monthly gas price or
+daily gas snapshots for that month. The app resets location points, trips, and raw gas snapshots at
+the start of each new month.
 
 Reimbursement is calculated as:
 
@@ -355,8 +351,8 @@ total trip miles / VEHICLE_MPG = reimbursement gallons
 reimbursement gallons * Michigan monthly average gas price = total reimbursement
 ```
 
-PDF reports are stored in the Docker volume `reports_data` at `/data/reports` inside the app
-container.
+PDF reports are generated only when you click `Download PDF Report`; they are streamed to the
+browser and are not saved on the server.
 
 Runtime logs are stored in the Docker volume `logs_data` at `/data/logs` inside the app and
 gas-snapshot containers.
@@ -447,25 +443,12 @@ git pull
 docker compose up -d --build
 ```
 
-Run a command inside the app container:
-
-```bash
-docker compose exec app mileage-logger report 2026 6
-```
-
 ## Backups
 
 Back up PostgreSQL:
 
 ```bash
 docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > mileage_logger.sql
-```
-
-Back up generated PDFs:
-
-```bash
-docker run --rm -v mileage-logger_reports_data:/reports -v "$PWD":/backup alpine \
-  tar czf /backup/mileage-reports.tar.gz -C /reports .
 ```
 
 Volume names may differ if your Compose project name is not `mileage-logger`. Check with:

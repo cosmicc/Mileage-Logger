@@ -45,6 +45,7 @@
         <th>Longitude</th>
         <th>Radius</th>
         <th>Region ID</th>
+        <th>Last Visit</th>
       </tr>
     </thead>
     <tbody>
@@ -55,9 +56,12 @@
         <td>{{ waypoint.longitude }}</td>
         <td>{{ waypoint.radius_m }} m</td>
         <td>{{ waypoint.owntracks_region_id or "-" }}</td>
+        <td>
+          {% if waypoint.last_visited_at %}{{ waypoint.last_visited_at|local_datetime("%Y-%m-%d") }}{% else %}-{% endif %}
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="5">No OwnTracks waypoints received yet.</td></tr>
+      <tr><td colspan="6">No OwnTracks waypoints received yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

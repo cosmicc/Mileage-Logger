@@ -120,16 +120,15 @@ def manual_monthly_gas_price(
 
 
 @router.post("/reports/{year}/{month}")
-def generate_report(year: int, month: int, db: Session = Depends(get_db)) -> dict[str, str]:
+def generate_report(year: int, month: int, db: Session = Depends(get_db)) -> Response:
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="month must be 1 through 12")
     try:
         report = generate_monthly_pdf(db, year, month)
     except GasPriceUnavailable as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
-        "status": "generated",
-        "pdf_path": report.pdf_path,
-        "total_miles": str(report.total_miles),
-        "reimbursement_total": str(report.reimbursement_total),
-    }
+    return Response(
+        content=report.content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{report.filename}"'},
+    )

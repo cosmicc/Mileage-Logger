@@ -1,5 +1,6 @@
+import logging
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from math import asin, cos, radians, sin, sqrt
 
@@ -24,6 +25,7 @@ WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
 ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
 ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_attempted"
+trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 
 
 @dataclass(frozen=True)
@@ -407,6 +409,13 @@ def _add_trip(
     odometer_anchor_miles: Decimal | None,
 ) -> Trip | None:
     if _is_home_to_home(origin, destination):
+        trip_logger.info(
+            "trip skipped reason=home_to_home origin=%s destination=%s started_at=%s ended_at=%s",
+            origin.name,
+            destination.name,
+            started_at.isoformat(),
+            ended_at.isoformat(),
+        )
         return None
 
     trip_date = datetime_to_local_date(started_at)
@@ -416,6 +425,12 @@ def _add_trip(
         started_at=started_at,
         ended_at=ended_at,
     ):
+        trip_logger.info(
+            "trip skipped reason=manual_overlap origin=%s destination=%s trip_date=%s",
+            origin.name,
+            destination.name,
+            trip_date.isoformat(),
+        )
         return None
 
     trip_key = (origin.id, destination.id, started_at, ended_at)
@@ -447,6 +462,12 @@ def _add_trip(
         notes = _append_note(notes, "Used waypoint distance because odometer data was unavailable.")
 
     if _should_skip_for_minimum_miles(origin, destination, calculation.miles):
+        trip_logger.info(
+            "trip skipped reason=below_minimum origin=%s destination=%s miles=%s",
+            origin.name,
+            destination.name,
+            calculation.miles,
+        )
         return None
 
     trip = Trip(
@@ -470,6 +491,20 @@ def _add_trip(
     )
     db.add(trip)
     generated.append(trip)
+    trip_logger.info(
+        "trip created date=%s origin=%s destination=%s miles=%s source=%s "
+        "start_odometer=%s end_odometer=%s inferred_leave=%s started_at=%s ended_at=%s",
+        trip_date.isoformat(),
+        origin.name,
+        destination.name,
+        calculation.miles,
+        calculation.mileage_source,
+        calculation.start_odometer_miles,
+        calculation.end_odometer_miles,
+        inferred_leave,
+        started_at.isoformat(),
+        ended_at.isoformat(),
+    )
     return trip
 
 
@@ -516,10 +551,20 @@ def generate_trips(
     sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
     locations = _locations_for_range(db, start_date, end_date)
     if not locations:
+        trip_logger.info(
+            "trip generation skipped reason=no_locations start_date=%s end_date=%s",
+            start_date.isoformat(),
+            end_date.isoformat(),
+        )
         return []
 
     transitions = _waypoint_transitions(locations, sites)
     if not transitions:
+        trip_logger.info(
+            "trip generation skipped reason=no_waypoint_transitions start_date=%s end_date=%s",
+            start_date.isoformat(),
+            end_date.isoformat(),
+        )
         return []
 
     preserved_trips = _preserved_trips_for_range(db, start_date, end_date)
@@ -603,6 +648,13 @@ def generate_trips(
     db.commit()
     for trip in generated:
         db.refresh(trip)
+    trip_logger.info(
+        "trip generation complete start_date=%s end_date=%s transitions=%s generated=%s",
+        start_date.isoformat(),
+        end_date.isoformat(),
+        len(transitions),
+        len(generated),
+    )
     return generated
 
 
@@ -627,30 +679,6 @@ def update_trip_details(
 
 def update_trip_location_names(trip: Trip, origin_name: str, destination_name: str) -> None:
     update_trip_details(trip, origin_name, destination_name)
-
-
-def purge_processed_owntracks_locations(
-    db: Session,
-    start_date: date,
-    end_date: date,
-    *,
-    now: datetime | None = None,
-) -> int:
-    start_dt, range_end_dt = _date_range_bounds(start_date, end_date)
-    current_dt = now or datetime.now(UTC)
-    today_start_dt, _ = local_day_bounds(datetime_to_local_date(current_dt))
-    purge_before = min(range_end_dt, today_start_dt)
-    if purge_before <= start_dt:
-        return 0
-
-    result = db.execute(
-        delete(OwnTracksLocation)
-        .where(OwnTracksLocation.captured_at >= start_dt)
-        .where(OwnTracksLocation.captured_at < purge_before)
-    )
-    db.commit()
-    rowcount = result.rowcount or 0
-    return rowcount if rowcount > 0 else 0
 
 
 def monthly_miles(db: Session, year: int, month: int) -> Decimal:

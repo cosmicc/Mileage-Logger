@@ -60,11 +60,12 @@ def test_process_owntracks_waypoint_creates_site() -> None:
 
 def test_process_owntracks_location_with_region_does_not_create_waypoint() -> None:
     db = _session()
+    current_time = datetime.now(UTC)
     payload = {
         "_type": "location",
         "lat": 42.3314,
         "lon": -83.0458,
-        "tst": 1_718_000_000,
+        "tst": int(current_time.timestamp()),
         "inregions": ["Client Office"],
     }
 
@@ -116,6 +117,12 @@ def test_process_owntracks_payload_automatically_creates_trip() -> None:
         )
 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    client_a = db.scalar(select(Site).where(Site.name == "Client A"))
+    client_b = db.scalar(select(Site).where(Site.name == "Client B"))
     assert len(trips) == 1
     assert trips[0].trip_date == day.date()
     assert trips[0].miles > Decimal("0.00")
+    assert client_a is not None
+    assert client_a.last_visited_at is None
+    assert client_b is not None
+    assert client_b.last_visited_at.replace(tzinfo=UTC) == day + timedelta(minutes=25)

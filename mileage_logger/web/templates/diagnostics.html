@@ -37,8 +37,6 @@
       <dd>{{ trip_count }}</dd>
       <dt>Gas Snapshots</dt>
       <dd>{{ gas_snapshot_count }}</dd>
-      <dt>Reports</dt>
-      <dd>{{ report_count }}</dd>
     </dl>
   </div>
 
@@ -125,6 +123,13 @@
   <h2>App Log</h2>
   <pre>{% for line in app_log_lines %}{{ line }}
 {% else %}No app log entries found.
+{% endfor %}</pre>
+</section>
+
+<section class="panel log-panel">
+  <h2>Trip Calculation Log</h2>
+  <pre>{% for line in trip_log_lines %}{{ line }}
+{% else %}No trip calculation log entries found.
 {% endfor %}</pre>
 </section>
 

@@ -1,0 +1,57 @@
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from sqlalchemy import delete
+from sqlalchemy.orm import Session
+
+from mileage_logger.models import GasPriceSnapshot, OwnTracksLocation, Trip
+from mileage_logger.services.timezone import datetime_to_local, local_day_bounds
+
+
+@dataclass(frozen=True)
+class MonthlyResetResult:
+    location_points: int
+    trips: int
+    gas_snapshots: int
+
+    @property
+    def total(self) -> int:
+        return self.location_points + self.trips + self.gas_snapshots
+
+
+def _rowcount(value: int | None) -> int:
+    return value if value is not None and value > 0 else 0
+
+
+def reset_previous_month_data(
+    db: Session,
+    *,
+    now: datetime | None = None,
+) -> MonthlyResetResult:
+    current_dt = now or datetime.now(UTC)
+    local_dt = datetime_to_local(current_dt)
+    month_start_date = local_dt.date().replace(day=1)
+    month_start_dt, _ = local_day_bounds(month_start_date)
+
+    location_result = db.execute(
+        delete(OwnTracksLocation)
+        .where(OwnTracksLocation.captured_at < month_start_dt)
+        .execution_options(synchronize_session=False)
+    )
+    trip_result = db.execute(
+        delete(Trip)
+        .where(Trip.trip_date < month_start_date)
+        .execution_options(synchronize_session=False)
+    )
+    gas_snapshot_result = db.execute(
+        delete(GasPriceSnapshot)
+        .where(GasPriceSnapshot.observed_on < month_start_date)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+
+    return MonthlyResetResult(
+        location_points=_rowcount(location_result.rowcount),
+        trips=_rowcount(trip_result.rowcount),
+        gas_snapshots=_rowcount(gas_snapshot_result.rowcount),
+    )

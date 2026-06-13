@@ -4,7 +4,7 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from mileage_logger.models import Base, OwnTracksLocation, Site, Trip
+from mileage_logger.models import Base, GasPriceSnapshot, OwnTracksLocation, Site, Trip
 from mileage_logger.services.mileage import (
     MANUAL_TRIP_SOURCE,
     MILEAGE_SOURCE_ESTIMATED_ODOMETER,
@@ -13,9 +13,9 @@ from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
     generate_trips,
     haversine_miles,
-    purge_processed_owntracks_locations,
     update_trip_details,
 )
+from mileage_logger.services.retention import reset_previous_month_data
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
 
 
@@ -430,32 +430,73 @@ def test_generate_trips_does_not_delete_existing_auto_trips_without_source_event
     assert db.scalar(select(Trip).where(Trip.id == trip.id)) is not None
 
 
-def test_purge_processed_owntracks_locations_only_deletes_completed_days() -> None:
+def test_reset_previous_month_data_keeps_current_month_and_waypoints() -> None:
     db = _session()
-    completed_day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
-    current_day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    previous_month = datetime(2026, 5, 31, 13, 0, tzinfo=UTC)
+    current_month = datetime(2026, 6, 1, 13, 0, tzinfo=UTC)
+    site = _site("Home", "42.3314", "-83.0458")
+    previous_trip = Trip(
+        trip_date=date(2026, 5, 31),
+        started_at=previous_month,
+        ended_at=previous_month + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("5.00"),
+        source="auto",
+    )
+    current_trip = Trip(
+        trip_date=date(2026, 6, 1),
+        started_at=current_month,
+        ended_at=current_month + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("6.00"),
+        source="auto",
+    )
     db.add_all(
         [
-            _location(completed_day, "42.3314", "-83.0458"),
-            _location(completed_day + timedelta(minutes=30), "42.3440", "-83.0600"),
-            _location(current_day, "42.3500", "-83.0700"),
+            site,
+            _location(previous_month, "42.3314", "-83.0458"),
+            _location(current_month, "42.3500", "-83.0700"),
+            previous_trip,
+            current_trip,
+            GasPriceSnapshot(
+                observed_on=date(2026, 5, 31),
+                state="MI",
+                grade="regular",
+                price_per_gallon=Decimal("3.000"),
+                source="test",
+            ),
+            GasPriceSnapshot(
+                observed_on=date(2026, 6, 1),
+                state="MI",
+                grade="regular",
+                price_per_gallon=Decimal("3.100"),
+                source="test",
+            ),
         ]
     )
     db.commit()
 
-    purged = purge_processed_owntracks_locations(
-        db,
-        completed_day.date(),
-        current_day.date(),
-        now=current_day,
-    )
+    result = reset_previous_month_data(db, now=current_month)
 
     remaining_locations = list(db.scalars(select(OwnTracksLocation)))
-    assert purged == 2
-    assert [location.captured_at for location in remaining_locations] == [_naive(current_day)]
+    remaining_trips = list(db.scalars(select(Trip)))
+    remaining_snapshots = list(db.scalars(select(GasPriceSnapshot)))
+    assert result.location_points == 1
+    assert result.trips == 1
+    assert result.gas_snapshots == 1
+    assert db.scalar(select(Site).where(Site.id == site.id)) is not None
+    assert [location.captured_at for location in remaining_locations] == [_naive(current_month)]
+    assert [trip.trip_date for trip in remaining_trips] == [date(2026, 6, 1)]
+    assert [snapshot.observed_on for snapshot in remaining_snapshots] == [date(2026, 6, 1)]
 
 
-def test_automatic_trip_processing_finalizes_and_purges_completed_days() -> None:
+def test_automatic_trip_processing_finalizes_completed_days_without_daily_purge() -> None:
     db = _session()
     completed_day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
     current_day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
@@ -477,10 +518,14 @@ def test_automatic_trip_processing_finalizes_and_purges_completed_days() -> None
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
     remaining_locations = list(db.scalars(select(OwnTracksLocation)))
     assert result.generated == 1
-    assert result.purged_owntracks == 2
+    assert result.monthly_reset.total == 0
     assert len(trips) == 1
     assert trips[0].trip_date == completed_day.date()
-    assert [location.captured_at for location in remaining_locations] == [_naive(current_day)]
+    assert [location.captured_at for location in remaining_locations] == [
+        _naive(completed_day),
+        _naive(completed_day + timedelta(minutes=30)),
+        _naive(current_day),
+    ]
 
 
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:
@@ -508,7 +553,7 @@ def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
     remaining_locations = list(db.scalars(select(OwnTracksLocation)))
     assert result.generated == 1
-    assert result.purged_owntracks == 0
+    assert result.monthly_reset.total == 0
     assert len(trips) == 1
     assert trips[0].trip_date == previous_day.date()
     assert trips[0].origin_site.name == "Client"
@@ -519,10 +564,10 @@ def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() 
     ]
 
 
-def test_automatic_trip_processing_purges_completed_local_day_after_local_midnight() -> None:
+def test_automatic_trip_processing_resets_previous_month_after_local_month_start() -> None:
     db = _session()
-    previous_day = datetime(2026, 6, 11, 23, 0, tzinfo=UTC)
-    current_time = datetime(2026, 6, 12, 5, 30, tzinfo=UTC)
+    previous_day = datetime(2026, 5, 31, 23, 0, tzinfo=UTC)
+    current_time = datetime(2026, 6, 1, 5, 30, tzinfo=UTC)
     client = _site("Client", "42.3440", "-83.0600")
     home = _site("Home", "42.3314", "-83.0458")
     db.add_all(
@@ -537,14 +582,15 @@ def test_automatic_trip_processing_purges_completed_local_day_after_local_midnig
 
     result = run_automatic_trip_processing(
         db,
-        touched_date=date(2026, 6, 12),
+        touched_date=date(2026, 6, 1),
         now=current_time,
     )
 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
     remaining_locations = list(db.scalars(select(OwnTracksLocation)))
-    assert result.generated == 1
-    assert result.purged_owntracks == 2
-    assert len(trips) == 1
-    assert trips[0].trip_date == previous_day.date()
+    assert result.generated == 0
+    assert result.monthly_reset.location_points == 2
+    assert len(trips) == 0
     assert remaining_locations == []
+    assert db.scalar(select(Site).where(Site.name == "Client")) is not None
+    assert db.scalar(select(Site).where(Site.name == "Home")) is not None

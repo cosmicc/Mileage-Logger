@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from pathlib import Path
+from io import BytesIO
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import LETTER, landscape
@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from mileage_logger.config import get_settings
-from mileage_logger.models import MonthlyReport, Trip
+from mileage_logger.models import Trip
 from mileage_logger.services.gas_prices import get_or_create_monthly_price
 from mileage_logger.services.mileage import monthly_miles
 
@@ -25,6 +25,14 @@ class TripReportRow:
     start_odometer: Decimal | None
     end_odometer: Decimal | None
     trip_miles: Decimal
+
+
+@dataclass(frozen=True)
+class MonthlyPdfReport:
+    filename: str
+    content: bytes
+    total_miles: Decimal
+    reimbursement_total: Decimal
 
 
 def calculate_reimbursement_gallons(total_miles: Decimal, vehicle_mpg: Decimal) -> Decimal:
@@ -101,7 +109,7 @@ def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
     return rows
 
 
-def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
+def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport:
     settings = get_settings()
     gas_price = get_or_create_monthly_price(db, year, month)
     trips = trips_for_month(db, year, month)
@@ -114,10 +122,6 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     )
     report_rows = trip_report_rows(trips)
 
-    output_dir = Path(settings.report_output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = output_dir / f"mileage-{year}-{month:02d}.pdf"
-
     styles = getSampleStyleSheet()
     table_cell = ParagraphStyle(
         "TableCell",
@@ -126,8 +130,9 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
         fontSize=7,
         leading=8.5,
     )
+    buffer = BytesIO()
     doc = SimpleDocTemplate(
-        str(pdf_path),
+        buffer,
         pagesize=landscape(LETTER),
         leftMargin=0.45 * inch,
         rightMargin=0.45 * inch,
@@ -136,7 +141,6 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     )
     story = [
         Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
-        Paragraph("Waypoint trips for reimbursement", styles["Normal"]),
         Spacer(1, 16),
     ]
 
@@ -196,26 +200,9 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyReport:
     )
     story.append(summary)
     doc.build(story)
-
-    stmt = (
-        select(MonthlyReport).where(MonthlyReport.year == year).where(MonthlyReport.month == month)
+    return MonthlyPdfReport(
+        filename=f"mileage-{year}-{month:02d}.pdf",
+        content=buffer.getvalue(),
+        total_miles=total_miles,
+        reimbursement_total=reimbursement_total,
     )
-    report = db.scalar(stmt)
-    if report is None:
-        report = MonthlyReport(
-            year=year,
-            month=month,
-            total_miles=total_miles,
-            gas_price_id=gas_price.id,
-            reimbursement_total=reimbursement_total,
-            pdf_path=str(pdf_path),
-        )
-        db.add(report)
-    else:
-        report.total_miles = total_miles
-        report.gas_price_id = gas_price.id
-        report.reimbursement_total = reimbursement_total
-        report.pdf_path = str(pdf_path)
-    db.commit()
-    db.refresh(report)
-    return report

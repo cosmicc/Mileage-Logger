@@ -156,6 +156,23 @@ def _region_id(payload: dict) -> str | None:
     return str(region_id).strip() or None
 
 
+def _transition_event(payload: dict) -> str | None:
+    if payload.get("_type") != "transition":
+        return None
+    event = str(payload.get("event") or "").strip().casefold()
+    if event in {"enter", "arrive", "arrival"}:
+        return "enter"
+    if event in {"leave", "exit", "departure"}:
+        return "leave"
+    return None
+
+
+def _datetime_for_compare(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
+
+
 def _site_radius_from_payload(payload: dict) -> int:
     settings = get_settings()
     try:
@@ -236,6 +253,34 @@ def sync_site_from_owntracks_payload(
     return site
 
 
+def update_site_last_visit_from_transition(
+    db: Session,
+    payload: dict,
+    captured_at: datetime,
+) -> Site | None:
+    if _transition_event(payload) != "enter":
+        return None
+
+    site = None
+    region_id = _region_id(payload)
+    if region_id is not None:
+        site = db.scalar(select(Site).where(Site.owntracks_region_id == region_id))
+
+    if site is None:
+        name = _first_region_name(payload)
+        if name is not None:
+            site = db.scalar(select(Site).where(Site.name == name))
+
+    if site is None:
+        return None
+
+    if site.last_visited_at is None or _datetime_for_compare(captured_at) > _datetime_for_compare(
+        site.last_visited_at
+    ):
+        site.last_visited_at = captured_at
+    return site
+
+
 def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> OwnTracksLocation:
     sync_site_from_owntracks_payload(
         db,
@@ -243,6 +288,7 @@ def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> 
         latitude=message.latitude,
         longitude=message.longitude,
     )
+    update_site_last_visit_from_transition(db, message.payload, message.captured_at)
     location = OwnTracksLocation(
         user=message.identity.user,
         device=message.identity.device,

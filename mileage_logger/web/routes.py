@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -16,7 +16,6 @@ from mileage_logger.database import get_db
 from mileage_logger.models import (
     GasPriceSnapshot,
     MonthlyGasPrice,
-    MonthlyReport,
     OwnTracksLocation,
     Site,
     Trip,
@@ -132,9 +131,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             .limit(8)
         )
     )
-    latest_report = db.scalar(
-        select(MonthlyReport).order_by(MonthlyReport.created_at.desc()).limit(1)
-    )
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -145,7 +141,6 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "site_count": site_count,
             "trip_count": trip_count,
             "recent_trips": recent_trips,
-            "latest_report": latest_report,
             "monthly_gas": monthly_gas,
             "vehicle_mpg": settings.vehicle_mpg,
             "app_local_datetime": app_now,
@@ -236,7 +231,10 @@ def waypoints(
     return templates.TemplateResponse(
         request,
         "waypoints.html",
-        {"waypoints": all_waypoints, "waypoint_pagination": pagination},
+        {
+            "waypoints": all_waypoints,
+            "waypoint_pagination": pagination,
+        },
     )
 
 
@@ -292,27 +290,27 @@ def diagnostics(
             "site_count": db.scalar(select(func.count(Site.id))) or 0,
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,
             "gas_snapshot_count": db.scalar(select(func.count(GasPriceSnapshot.id))) or 0,
-            "report_count": db.scalar(select(func.count(MonthlyReport.id))) or 0,
             "latest_location": latest_location,
             "latest_snapshot": latest_snapshot,
             "latest_monthly_gas": latest_monthly_gas,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "app_log_lines": _tail_file(log_dir / "app.log"),
+            "trip_log_lines": _tail_file(log_dir / "trip-calculation.log"),
             "gas_log_lines": _tail_file(log_dir / "gas-snapshot.log"),
         },
     )
 
 
 @router.post("/reports/{year}/{month}")
-def report_form(year: int, month: int, db: Session = Depends(get_db)) -> FileResponse:
+def report_form(year: int, month: int, db: Session = Depends(get_db)) -> Response:
     _validate_month(month)
     try:
         report = generate_monthly_pdf(db, year, month)
     except GasPriceUnavailable as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return FileResponse(
-        report.pdf_path,
+    return Response(
+        content=report.content,
         media_type="application/pdf",
-        filename=f"mileage-{year}-{month:02d}.pdf",
+        headers={"Content-Disposition": f'attachment; filename="{report.filename}"'},
     )

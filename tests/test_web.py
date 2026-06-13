@@ -118,15 +118,22 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
-            db.add_all(
-                Site(
-                    name=f"Waypoint {index:02d}",
-                    latitude=Decimal("42.3314000"),
-                    longitude=Decimal("-83.0458000"),
-                    radius_m=150,
+            waypoints = []
+            for index in range(45):
+                waypoints.append(
+                    Site(
+                        name=f"Waypoint {index:02d}",
+                        latitude=Decimal("42.3314000"),
+                        longitude=Decimal("-83.0458000"),
+                        radius_m=150,
+                        last_visited_at=(
+                            datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
+                            if index == 20
+                            else None
+                        ),
+                    )
                 )
-                for index in range(45)
-            )
+            db.add_all(waypoints)
             db.commit()
 
         response = client.get("/waypoints?page=2")
@@ -138,6 +145,7 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
         assert "/waypoints?page=1" in response.text
         assert "/waypoints?page=3" in response.text
         assert "Waypoint 20" in response.text
+        assert "2026-06-11" in response.text
         assert "Waypoint 39" in response.text
         assert "Waypoint 40" not in response.text
     finally:

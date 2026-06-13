@@ -48,6 +48,7 @@ class Site(Base):
     radius_m: Mapped[int] = mapped_column(Integer, default=150)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_visited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     origin_trips: Mapped[list["Trip"]] = relationship(
         back_populates="origin_site", foreign_keys="Trip.origin_site_id"
@@ -138,21 +139,3 @@ class MonthlyGasPrice(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
-
-
-class MonthlyReport(Base):
-    __tablename__ = "monthly_reports"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    year: Mapped[int] = mapped_column(Integer)
-    month: Mapped[int] = mapped_column(Integer)
-    total_miles: Mapped[Decimal] = mapped_column(Numeric(10, 2))
-    gas_price_id: Mapped[int] = mapped_column(ForeignKey("monthly_gas_prices.id"))
-    reimbursement_total: Mapped[Decimal] = mapped_column(Numeric(10, 2))
-    pdf_path: Mapped[str] = mapped_column(String(500))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
-
-    gas_price: Mapped[MonthlyGasPrice] = relationship()

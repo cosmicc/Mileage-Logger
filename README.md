@@ -58,8 +58,8 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - FastAPI mileage app.
 - Nginx reverse proxy on port `80`.
 - Daily gas price snapshot worker.
-- Persistent Docker volumes for database data and generated PDF reports.
-- In-app diagnostics page for app and gas price query logs.
+- Persistent Docker volumes for database data and runtime logs.
+- In-app diagnostics page for app, trip calculation, and gas price query logs.
 - Optional web UI IP allowlist while keeping `/api/` reachable for OwnTracks.
 
 Create a production `.env` with generated passwords:
@@ -80,7 +80,6 @@ Useful commands:
 docker compose ps
 docker compose logs -f app
 docker compose logs -f nginx
-docker compose exec app mileage-logger report 2026 6
 docker compose down
 ```
 
@@ -194,11 +193,9 @@ is the raw unit returned by FordPass before conversion to report miles; use `km`
 account returns miles.
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
-short interval and finalizes completed local days. Once a day is complete, the processor calculates
-that day's trips one last time. When `OWNTRACKS_PURGE_ENABLED=true`, it then purges the processed
-`owntracks_locations` rows for that completed day. Set `OWNTRACKS_PURGE_ENABLED=false` while
-testing to keep old OwnTracks rows. Current-day rows are kept so live event data is not deleted
-before the day is finished.
+short interval and finalizes completed local days. At the start of each new month, old location
+points, trips, and raw gas snapshots are removed so only the current month remains. Waypoints are
+not reset.
 
 Useful Docker environment options:
 
@@ -208,7 +205,6 @@ OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-OWNTRACKS_PURGE_ENABLED=true
 FORDPASS_ENABLED=false
 ```
 

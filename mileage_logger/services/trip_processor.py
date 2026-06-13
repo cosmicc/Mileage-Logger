@@ -12,18 +12,19 @@ from mileage_logger.models import OwnTracksLocation
 from mileage_logger.services.mileage import (
     date_bounds,
     generate_trips,
-    purge_processed_owntracks_locations,
 )
+from mileage_logger.services.retention import MonthlyResetResult, reset_previous_month_data
 from mileage_logger.services.timezone import datetime_to_local_date
 
 logger = logging.getLogger(__name__)
+trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 _PROCESSING_LOCK = Lock()
 
 
 @dataclass(frozen=True)
 class TripProcessingResult:
     generated: int
-    purged_owntracks: int
+    monthly_reset: MonthlyResetResult
     processed_dates: tuple[date, ...]
 
 
@@ -82,17 +83,21 @@ def run_automatic_trip_processing(
     touched_date: date | None = None,
     now: datetime | None = None,
     finalize_completed_days: bool = True,
-    purge_owntracks: bool | None = None,
 ) -> TripProcessingResult:
-    settings = get_settings()
     current_dt = now or datetime.now(UTC)
-    purge_enabled = settings.owntracks_purge_enabled if purge_owntracks is None else purge_owntracks
     today = datetime_to_local_date(current_dt)
     generated = 0
-    purged = 0
+    monthly_reset = MonthlyResetResult(location_points=0, trips=0, gas_snapshots=0)
     processed_dates: list[date] = []
 
     with _PROCESSING_LOCK:
+        trip_logger.info(
+            "automatic trip processing started touched_date=%s now=%s finalize_completed_days=%s",
+            touched_date.isoformat() if touched_date is not None else "",
+            current_dt.isoformat(),
+            finalize_completed_days,
+        )
+        monthly_reset = reset_previous_month_data(db, now=current_dt)
         if touched_date is not None:
             generated += _generate_for_range(
                 db,
@@ -110,15 +115,23 @@ def run_automatic_trip_processing(
                 day = oldest_date
                 while day < today:
                     generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
-                    if purge_enabled:
-                        purged += purge_processed_owntracks_locations(db, day, day, now=current_dt)
                     day += timedelta(days=1)
 
-    return TripProcessingResult(
+    result = TripProcessingResult(
         generated=generated,
-        purged_owntracks=purged,
+        monthly_reset=monthly_reset,
         processed_dates=tuple(processed_dates),
     )
+    trip_logger.info(
+        "automatic trip processing complete generated=%s reset_location_points=%s "
+        "reset_trips=%s reset_gas_snapshots=%s dates=%s",
+        result.generated,
+        result.monthly_reset.location_points,
+        result.monthly_reset.trips,
+        result.monthly_reset.gas_snapshots,
+        ",".join(day.isoformat() for day in result.processed_dates),
+    )
+    return result
 
 
 class AutomaticTripProcessor:
@@ -153,10 +166,13 @@ class AutomaticTripProcessor:
                 logger.exception("Automatic trip processing failed")
                 return
 
-        if result.generated or result.purged_owntracks:
+        if result.generated or result.monthly_reset.total:
             logger.info(
-                "Automatic trip processing complete generated=%s purged_owntracks=%s dates=%s",
+                "Automatic trip processing complete generated=%s "
+                "reset_location_points=%s reset_trips=%s reset_gas_snapshots=%s dates=%s",
                 result.generated,
-                result.purged_owntracks,
+                result.monthly_reset.location_points,
+                result.monthly_reset.trips,
+                result.monthly_reset.gas_snapshots,
                 ",".join(day.isoformat() for day in result.processed_dates),
             )
