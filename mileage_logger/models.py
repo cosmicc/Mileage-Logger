@@ -78,6 +78,8 @@ class Trip(Base):
         Numeric(12, 3), nullable=True
     )
     end_odometer_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    start_odometer_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    end_odometer_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
     mileage_source: Mapped[str] = mapped_column(String(40), default="waypoint_distance")
     source: Mapped[str] = mapped_column(String(40), default="auto")
     notes: Mapped[str] = mapped_column(Text, default="")

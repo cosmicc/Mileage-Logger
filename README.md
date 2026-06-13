@@ -59,7 +59,8 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Nginx reverse proxy on port `80`.
 - Daily gas price snapshot worker.
 - Persistent Docker volumes for database data and runtime logs.
-- In-app diagnostics page for app, trip calculation, and gas price query logs.
+- In-app diagnostics page for app, trip calculation, and gas price query logs in the configured
+  local timezone.
 - Optional web UI IP allowlist while keeping `/api/` reachable for OwnTracks.
 
 Create a production `.env` with generated passwords:
@@ -207,6 +208,8 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 FORDPASS_ENABLED=false
 ```
+
+Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 
 ## Workflow
 

@@ -28,7 +28,7 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
-from mileage_logger.services.timezone import datetime_to_local, local_now, local_today
+from mileage_logger.services.timezone import datetime_to_local, datetime_to_utc, local_now, local_today
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
@@ -48,8 +48,24 @@ def _format_odometer(value) -> str:
     return f"{Decimal(value):.1f}"
 
 
+def _format_odometer_source(value) -> str:
+    labels = {
+        "fordpass": "FordPass",
+        "estimated": "Estimated",
+        "previous_trip": "Previous trip",
+        "manual": "Manual",
+        "fordpass_odometer": "FordPass",
+        "estimated_odometer": "Estimated",
+        "waypoint_distance": "Waypoint distance",
+    }
+    if value is None:
+        return "-"
+    return labels.get(str(value), str(value).replace("_", " ").title())
+
+
 templates.env.filters["local_datetime"] = _format_local_datetime
 templates.env.filters["odometer"] = _format_odometer
+templates.env.filters["odometer_source"] = _format_odometer_source
 WAYPOINT_PAGE_SIZE = 20
 
 
@@ -100,7 +116,64 @@ def _tail_file(path: Path, max_lines: int = 200) -> list[str]:
         size = file.tell()
         file.seek(max(size - 80_000, 0))
         text = file.read().decode("utf-8", errors="replace")
-    return text.splitlines()[-max_lines:]
+    return list(reversed(text.splitlines()[-max_lines:]))
+
+
+def _waypoint_ordering():
+    return (
+        Site.last_visited_at.desc().nulls_last(),
+        Site.created_at.desc(),
+        Site.name.asc(),
+    )
+
+
+def _latest_odometer_reading(db: Session) -> dict | None:
+    candidates = []
+    options = (joinedload(Trip.origin_site), joinedload(Trip.destination_site))
+
+    latest_end_trip = db.scalar(
+        select(Trip)
+        .options(*options)
+        .where(Trip.end_odometer_miles.is_not(None))
+        .order_by(Trip.ended_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+    if latest_end_trip is not None:
+        candidates.append(
+            {
+                "value": latest_end_trip.end_odometer_miles,
+                "source": latest_end_trip.end_odometer_source or latest_end_trip.mileage_source,
+                "recorded_at": latest_end_trip.ended_at,
+                "trip": latest_end_trip,
+                "position": "End",
+            }
+        )
+
+    latest_start_trip = db.scalar(
+        select(Trip)
+        .options(*options)
+        .where(Trip.start_odometer_miles.is_not(None))
+        .order_by(Trip.started_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+    if latest_start_trip is not None:
+        candidates.append(
+            {
+                "value": latest_start_trip.start_odometer_miles,
+                "source": latest_start_trip.start_odometer_source
+                or latest_start_trip.mileage_source,
+                "recorded_at": latest_start_trip.started_at,
+                "trip": latest_start_trip,
+                "position": "Start",
+            }
+        )
+
+    if not candidates:
+        return None
+    return max(
+        candidates,
+        key=lambda item: (datetime_to_utc(item["recorded_at"]), item["trip"].id),
+    )
 
 
 def _masked_database_url(url: str) -> str:
@@ -123,6 +196,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
     site_count = db.scalar(select(func.count(Site.id))) or 0
     trip_count = db.scalar(select(func.count(Trip.id))) or 0
+    latest_odometer = _latest_odometer_reading(db)
     recent_trips = list(
         db.scalars(
             select(Trip)
@@ -140,6 +214,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "location_count": location_count,
             "site_count": site_count,
             "trip_count": trip_count,
+            "latest_odometer": latest_odometer,
             "recent_trips": recent_trips,
             "monthly_gas": monthly_gas,
             "vehicle_mpg": settings.vehicle_mpg,
@@ -169,7 +244,7 @@ def trips(
         .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
         .where(Trip.trip_date >= start)
         .where(Trip.trip_date < end)
-        .order_by(Trip.trip_date.asc(), Trip.started_at.asc())
+        .order_by(Trip.trip_date.desc(), Trip.started_at.desc())
     )
     all_trips = list(db.scalars(stmt))
     return templates.TemplateResponse(
@@ -223,7 +298,7 @@ def waypoints(
     all_waypoints = list(
         db.scalars(
             select(Site)
-            .order_by(Site.name.asc())
+            .order_by(*_waypoint_ordering())
             .offset((pagination["page"] - 1) * pagination["page_size"])
             .limit(pagination["page_size"])
         )
@@ -240,7 +315,7 @@ def waypoints(
 
 @router.get("/waypoints/export")
 def export_waypoints(db: Session = Depends(get_db)) -> Response:
-    all_waypoints = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    all_waypoints = list(db.scalars(select(Site).order_by(*_waypoint_ordering())))
     return Response(
         content=owntracks_waypoints_json(all_waypoints),
         media_type="application/json",
@@ -279,6 +354,7 @@ def diagnostics(
         .order_by(MonthlyGasPrice.year.desc(), MonthlyGasPrice.month.desc())
         .limit(1)
     )
+    latest_odometer = _latest_odometer_reading(db)
     owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
     return templates.TemplateResponse(
         request,
@@ -293,6 +369,7 @@ def diagnostics(
             "latest_location": latest_location,
             "latest_snapshot": latest_snapshot,
             "latest_monthly_gas": latest_monthly_gas,
+            "latest_odometer": latest_odometer,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "app_log_lines": _tail_file(log_dir / "app.log"),

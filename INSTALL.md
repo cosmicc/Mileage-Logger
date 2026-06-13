@@ -355,7 +355,8 @@ PDF reports are generated only when you click `Download PDF Report`; they are st
 browser and are not saved on the server.
 
 Runtime logs are stored in the Docker volume `logs_data` at `/data/logs` inside the app and
-gas-snapshot containers.
+gas-snapshot containers. Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also
+sets the container `TZ` value from `LOCAL_TIMEZONE`.
 
 ## Gas Price Worker
 

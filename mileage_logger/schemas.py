@@ -45,6 +45,8 @@ class TripRead(BaseModel):
     miles: Decimal
     start_odometer_miles: Decimal | None
     end_odometer_miles: Decimal | None
+    start_odometer_source: str | None
+    end_odometer_source: str | None
     mileage_source: str
     source: str
     notes: str

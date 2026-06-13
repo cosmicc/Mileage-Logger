@@ -6,6 +6,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mileage_logger}
       POSTGRES_USER: ${POSTGRES_USER:-mileage}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mileage}
+      TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,6 +23,7 @@ services:
       APP_ENV: "${APP_ENV:-production}"
       SECRET_KEY: "${SECRET_KEY:-change-me}"
       LOCAL_TIMEZONE: "${LOCAL_TIMEZONE:-America/Detroit}"
+      TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
       CREATE_TABLES_ON_STARTUP: "${CREATE_TABLES_ON_STARTUP:-false}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger}"
       OWNTRACKS_API_TOKEN: "${OWNTRACKS_API_TOKEN:-}"
@@ -75,6 +77,7 @@ services:
       - "${HTTP_PORT:-80}:80"
     environment:
       WEB_ALLOWED_CIDRS: "${WEB_ALLOWED_CIDRS:-}"
+      TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
     depends_on:
       app:
         condition: service_healthy
@@ -87,6 +90,7 @@ services:
       APP_ENV: "${APP_ENV:-production}"
       SECRET_KEY: "${SECRET_KEY:-change-me}"
       LOCAL_TIMEZONE: "${LOCAL_TIMEZONE:-America/Detroit}"
+      TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
       CREATE_TABLES_ON_STARTUP: "${CREATE_TABLES_ON_STARTUP:-false}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger}"
       OWNTRACKS_API_TOKEN: "${OWNTRACKS_API_TOKEN:-}"

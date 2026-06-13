@@ -4,6 +4,13 @@
   <div>
     <h1>Dashboard</h1>
     <p>Review automatic OwnTracks intake, waypoint trips, and monthly mileage.</p>
+    <p class="page-meta">
+      App time:
+      <time datetime="{{ app_local_datetime.isoformat() }}">
+        {{ app_local_datetime.strftime("%Y-%m-%d %I:%M:%S %p") }}
+      </time>
+      {{ app_timezone }} {{ app_timezone_abbr }}
+    </p>
   </div>
 </section>
 
@@ -28,15 +35,18 @@
     <span>Vehicle MPG</span>
     <strong>{{ "%.1f"|format(vehicle_mpg) }}</strong>
   </div>
-  <div class="stat time-stat">
-    <span>App Time</span>
-    <strong>
-      <time datetime="{{ app_local_datetime.isoformat() }}">
-        <span>{{ app_local_datetime.strftime("%Y-%m-%d") }}</span>
-        <span>{{ app_local_datetime.strftime("%I:%M:%S %p") }}</span>
-      </time>
-    </strong>
-    <small>{{ app_timezone }} {{ app_timezone_abbr }}</small>
+  <div class="stat">
+    <span>Last Odometer</span>
+    <strong>{% if latest_odometer %}{{ latest_odometer.value|odometer }}{% else %}-{% endif %}</strong>
+    {% if latest_odometer %}
+    <small>
+      {{ latest_odometer.source|odometer_source }} -
+      {{ latest_odometer.position }} -
+      {{ latest_odometer.recorded_at|local_datetime("%Y-%m-%d %I:%M %p %Z") }}
+    </small>
+    {% else %}
+    <small>No reading yet</small>
+    {% endif %}
   </div>
 </section>
 
@@ -59,8 +69,14 @@
         <td>{{ trip.trip_date }}</td>
         <td>{{ trip.origin_display_name }}</td>
         <td>{{ trip.destination_display_name }}</td>
-        <td class="odometer-cell">{{ trip.start_odometer_miles|odometer }}</td>
-        <td class="odometer-cell">{{ trip.end_odometer_miles|odometer }}</td>
+        <td class="odometer-cell">
+          <span>{{ trip.start_odometer_miles|odometer }}</span>
+          <small>{% if trip.start_odometer_miles is not none %}{{ (trip.start_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
+        </td>
+        <td class="odometer-cell">
+          <span>{{ trip.end_odometer_miles|odometer }}</span>
+          <small>{% if trip.end_odometer_miles is not none %}{{ (trip.end_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
+        </td>
         <td>{{ "%.2f"|format(trip.miles) }}</td>
       </tr>
       {% else %}

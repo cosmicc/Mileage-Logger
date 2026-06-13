@@ -11,6 +11,9 @@ from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_FORDPASS_ODOMETER,
     MILEAGE_SOURCE_MANUAL,
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
+    ODOMETER_SOURCE_ESTIMATED,
+    ODOMETER_SOURCE_FORDPASS,
+    ODOMETER_SOURCE_PREVIOUS_TRIP,
     generate_trips,
     haversine_miles,
     update_trip_details,
@@ -150,6 +153,8 @@ def test_generate_trips_uses_fordpass_odometer_delta(monkeypatch) -> None:
     assert trips[0].start_odometer_miles == Decimal("1000.250")
     assert trips[0].end_odometer_miles == Decimal("1012.875")
     assert trips[0].mileage_source == MILEAGE_SOURCE_FORDPASS_ODOMETER
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_FORDPASS
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_FORDPASS
 
 
 def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
@@ -216,6 +221,8 @@ def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypat
         Decimal("0.001")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_ESTIMATED
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_FORDPASS
     assert "Estimated odometer" in trips[0].notes
 
 
@@ -265,6 +272,8 @@ def test_generate_trips_estimates_from_prior_odometer_anchor_when_fordpass_unava
         Decimal("0.001")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
 def test_generate_trips_ignores_home_to_home_but_allows_same_work_waypoint() -> None:

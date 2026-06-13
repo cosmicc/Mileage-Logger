@@ -1,10 +1,20 @@
 import logging
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from mileage_logger.config import get_settings
+from mileage_logger.services.timezone import local_timezone
 
 TRIP_CALCULATION_LOGGER = "mileage_logger.trip_calculation"
+
+
+class LocalTimezoneFormatter(logging.Formatter):
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        value = datetime.fromtimestamp(record.created, tz=local_timezone())
+        if datefmt:
+            return value.strftime(datefmt)
+        return value.isoformat(timespec="seconds")
 
 
 def _configure_named_file_logger(
@@ -38,9 +48,9 @@ def configure_logging(process_name: str) -> Path:
     root_logger.setLevel(logging.INFO)
 
     marker = f"mileage_logger_{process_name}_file"
-    formatter = logging.Formatter(
+    formatter = LocalTimezoneFormatter(
         "%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        datefmt="%Y-%m-%d %H:%M:%S %Z",
     )
 
     trip_log_path = log_dir / "trip-calculation.log"

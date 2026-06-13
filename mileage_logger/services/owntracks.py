@@ -167,6 +167,17 @@ def _transition_event(payload: dict) -> str | None:
     return None
 
 
+def _payload_datetime(payload: dict) -> datetime:
+    for key in ("tst", "wtst"):
+        try:
+            value = payload.get(key)
+            if value is not None:
+                return datetime.fromtimestamp(int(value), tz=UTC)
+        except (TypeError, ValueError, OSError):
+            continue
+    return datetime.now(UTC)
+
+
 def _datetime_for_compare(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -182,11 +193,7 @@ def _site_radius_from_payload(payload: dict) -> int:
 
 
 def _payload_date(payload: dict) -> date:
-    try:
-        timestamp = int(payload.get("tst") or datetime.now(UTC).timestamp())
-        return datetime_to_local_date(datetime.fromtimestamp(timestamp, tz=UTC))
-    except (TypeError, ValueError, OSError):
-        return datetime_to_local_date(datetime.now(UTC))
+    return datetime_to_local_date(_payload_datetime(payload))
 
 
 def _run_trip_processing(db: Session, payload: dict) -> None:
@@ -240,6 +247,7 @@ def sync_site_from_owntracks_payload(
             longitude=site_longitude,
             radius_m=_site_radius_from_payload(payload),
             active=True,
+            created_at=_payload_datetime(payload),
         )
         db.add(site)
         return site
@@ -295,7 +303,7 @@ def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> 
         topic=message.identity.topic,
         tracker_id=message.tracker_id,
         captured_at=message.captured_at,
-        received_at=datetime.now(UTC),
+        received_at=message.captured_at,
         latitude=message.latitude,
         longitude=message.longitude,
         accuracy_m=message.accuracy_m,

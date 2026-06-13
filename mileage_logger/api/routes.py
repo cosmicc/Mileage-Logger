@@ -74,12 +74,28 @@ def locations(
 @router.get("/sites", response_model=list[WaypointRead])
 @router.get("/waypoints", response_model=list[WaypointRead])
 def list_waypoints(db: Session = Depends(get_db)) -> list[Site]:
-    return list(db.scalars(select(Site).order_by(Site.name.asc())))
+    return list(
+        db.scalars(
+            select(Site).order_by(
+                Site.last_visited_at.desc().nulls_last(),
+                Site.created_at.desc(),
+                Site.name.asc(),
+            )
+        )
+    )
 
 
 @router.get("/waypoints/export")
 def export_waypoints(db: Session = Depends(get_db)) -> Response:
-    all_waypoints = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    all_waypoints = list(
+        db.scalars(
+            select(Site).order_by(
+                Site.last_visited_at.desc().nulls_last(),
+                Site.created_at.desc(),
+                Site.name.asc(),
+            )
+        )
+    )
     return Response(
         content=owntracks_waypoints_json(all_waypoints),
         media_type="application/json",

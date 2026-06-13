@@ -79,9 +79,9 @@ def test_recent_owntracks_entries_include_travel_entries() -> None:
     events = recent_owntracks_entries(db)
 
     assert [event.raw_payload["_type"] for event in events] == [
-        "waypoint",
-        "location",
         "transition",
+        "location",
+        "waypoint",
     ]
 
 
@@ -110,13 +110,14 @@ def test_paginated_owntracks_entries_loads_requested_page() -> None:
     assert page.has_previous is True
     assert page.has_next is True
     assert len(page.entries) == 20
-    assert page.entries[0].raw_payload["index"] == 24
-    assert page.entries[-1].raw_payload["index"] == 5
+    assert page.entries[0].raw_payload["index"] == 5
+    assert page.entries[-1].raw_payload["index"] == 24
 
 
 def test_waypoints_page_paginates_twenty_per_page() -> None:
     client, session_factory = _test_client_session()
     try:
+        created_start = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
         with session_factory() as db:
             waypoints = []
             for index in range(45):
@@ -126,6 +127,7 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
                         latitude=Decimal("42.3314000"),
                         longitude=Decimal("-83.0458000"),
                         radius_m=150,
+                        created_at=created_start + timedelta(minutes=index),
                         last_visited_at=(
                             datetime(2026, 6, 11, 12, 0, tzinfo=UTC)
                             if index == 20
@@ -136,18 +138,22 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
             db.add_all(waypoints)
             db.commit()
 
+        first_page_response = client.get("/waypoints?page=1")
         response = client.get("/waypoints?page=2")
 
+        assert first_page_response.status_code == 200
+        assert "Waypoint 20" in first_page_response.text
+        assert "2026-06-11" in first_page_response.text
         assert response.status_code == 200
         assert "Showing 21-40" in response.text
         assert "of 45" in response.text
         assert "Page 2 of 3" in response.text
         assert "/waypoints?page=1" in response.text
         assert "/waypoints?page=3" in response.text
-        assert "Waypoint 20" in response.text
-        assert "2026-06-11" in response.text
-        assert "Waypoint 39" in response.text
-        assert "Waypoint 40" not in response.text
+        assert "Waypoint 25" in response.text
+        assert "Waypoint 06" in response.text
+        assert "Waypoint 26" not in response.text
+        assert "Waypoint 20" not in response.text
     finally:
         app.dependency_overrides.clear()
 

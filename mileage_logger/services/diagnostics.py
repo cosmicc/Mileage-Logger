@@ -45,14 +45,15 @@ def paginated_owntracks_entries(
     total_pages = max(1, ceil(total / page_size))
     current_page = min(max(page, 1), total_pages)
     offset = (current_page - 1) * page_size
-    entries = list(
+    newest_entries = list(
         db.scalars(
             select(OwnTracksLocation)
-            .order_by(OwnTracksLocation.received_at.desc(), OwnTracksLocation.id.desc())
+            .order_by(OwnTracksLocation.id.desc())
             .offset(offset)
             .limit(page_size)
         )
     )
+    entries = list(reversed(newest_entries))
     return OwnTracksEntriesPage(
         entries=entries,
         page=current_page,

@@ -75,6 +75,7 @@ def test_process_owntracks_location_with_region_does_not_create_waypoint() -> No
     assert result.location is not None
     assert site is None
     assert db.scalar(select(OwnTracksLocation.id)) is not None
+    assert result.location.received_at.replace(tzinfo=UTC) == current_time.replace(microsecond=0)
 
 
 def test_process_owntracks_payload_automatically_creates_trip() -> None:

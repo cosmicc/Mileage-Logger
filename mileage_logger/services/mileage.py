@@ -20,6 +20,9 @@ MILEAGE_SOURCE_FORDPASS_ODOMETER = "fordpass_odometer"
 MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"
 MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"
 MILEAGE_SOURCE_MANUAL = "manual"
+ODOMETER_SOURCE_FORDPASS = "fordpass"
+ODOMETER_SOURCE_ESTIMATED = "estimated"
+ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 HOME_WAYPOINT_NAME = "Home"
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
@@ -41,6 +44,8 @@ class MileageCalculation:
     mileage_source: str
     start_odometer_miles: Decimal | None = None
     end_odometer_miles: Decimal | None = None
+    start_odometer_source: str | None = None
+    end_odometer_source: str | None = None
 
 
 def haversine_miles(
@@ -316,6 +321,8 @@ def _estimated_odometer_calculation(
             mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=estimated_end,
+            start_odometer_source=ODOMETER_SOURCE_FORDPASS,
+            end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
         )
 
     if end_odometer_miles is not None:
@@ -328,6 +335,8 @@ def _estimated_odometer_calculation(
             mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
             start_odometer_miles=estimated_start,
             end_odometer_miles=end_odometer_miles,
+            start_odometer_source=ODOMETER_SOURCE_ESTIMATED,
+            end_odometer_source=ODOMETER_SOURCE_FORDPASS,
         )
 
     if odometer_anchor_miles is None:
@@ -343,6 +352,8 @@ def _estimated_odometer_calculation(
         mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
         start_odometer_miles=estimated_start,
         end_odometer_miles=estimated_end,
+        start_odometer_source=ODOMETER_SOURCE_PREVIOUS_TRIP,
+        end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
     )
 
 
@@ -361,6 +372,8 @@ def _mileage_calculation(
             mileage_source=MILEAGE_SOURCE_FORDPASS_ODOMETER,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=end_odometer_miles,
+            start_odometer_source=ODOMETER_SOURCE_FORDPASS,
+            end_odometer_source=ODOMETER_SOURCE_FORDPASS,
         )
 
     distance_miles = _distance_estimate_miles(origin, destination)
@@ -444,6 +457,8 @@ def _add_trip(
             mileage_source=existing_auto_trip.mileage_source,
             start_odometer_miles=existing_auto_trip.start_odometer_miles,
             end_odometer_miles=existing_auto_trip.end_odometer_miles,
+            start_odometer_source=existing_auto_trip.start_odometer_source,
+            end_odometer_source=existing_auto_trip.end_odometer_source,
         )
         notes = existing_auto_trip.notes
     else:
@@ -485,6 +500,8 @@ def _add_trip(
         miles=calculation.miles,
         start_odometer_miles=calculation.start_odometer_miles,
         end_odometer_miles=calculation.end_odometer_miles,
+        start_odometer_source=calculation.start_odometer_source,
+        end_odometer_source=calculation.end_odometer_source,
         mileage_source=calculation.mileage_source,
         source=AUTO_TRIP_SOURCE,
         notes=notes,
@@ -493,14 +510,17 @@ def _add_trip(
     generated.append(trip)
     trip_logger.info(
         "trip created date=%s origin=%s destination=%s miles=%s source=%s "
-        "start_odometer=%s end_odometer=%s inferred_leave=%s started_at=%s ended_at=%s",
+        "start_odometer=%s start_odometer_source=%s end_odometer=%s "
+        "end_odometer_source=%s inferred_leave=%s started_at=%s ended_at=%s",
         trip_date.isoformat(),
         origin.name,
         destination.name,
         calculation.miles,
         calculation.mileage_source,
         calculation.start_odometer_miles,
+        calculation.start_odometer_source,
         calculation.end_odometer_miles,
+        calculation.end_odometer_source,
         inferred_leave,
         started_at.isoformat(),
         ended_at.isoformat(),

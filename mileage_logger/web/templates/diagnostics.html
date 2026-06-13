@@ -49,6 +49,15 @@
       <dd>{% if latest_snapshot %}{{ latest_snapshot.observed_on }} ${{ "%.3f"|format(latest_snapshot.price_per_gallon) }}{% else %}None{% endif %}</dd>
       <dt>Monthly Gas</dt>
       <dd>{% if latest_monthly_gas %}{{ latest_monthly_gas.year }}-{{ "%02d"|format(latest_monthly_gas.month) }} ${{ "%.3f"|format(latest_monthly_gas.average_price_per_gallon) }}{% else %}None{% endif %}</dd>
+      <dt>Odometer</dt>
+      <dd>
+        {% if latest_odometer %}
+        {{ latest_odometer.value|odometer }}
+        {{ latest_odometer.source|odometer_source }}
+        {{ latest_odometer.position }}
+        at {{ latest_odometer.recorded_at|local_datetime }}
+        {% else %}None{% endif %}
+      </dd>
     </dl>
   </div>
 </section>

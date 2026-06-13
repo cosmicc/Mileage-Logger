@@ -155,6 +155,13 @@ p {
   color: var(--muted);
 }
 
+.page-meta {
+  margin-bottom: 0;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -202,21 +209,26 @@ p {
   line-height: 1;
 }
 
-.time-stat strong {
-  font-size: 24px;
-  line-height: 1.15;
+.stat small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
-.time-stat time span,
-.time-stat small {
+.odometer-cell span,
+.odometer-cell small {
   display: block;
 }
 
-.time-stat small {
-  margin-top: 8px;
+.odometer-cell small {
+  margin-top: 3px;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
 }
 
 .panel {

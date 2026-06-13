@@ -51,8 +51,14 @@
         </td>
         <td><input form="{{ form_id }}" type="text" name="origin_name" maxlength="160" required value="{{ trip.origin_display_name }}"></td>
         <td><input form="{{ form_id }}" type="text" name="destination_name" maxlength="160" required value="{{ trip.destination_display_name }}"></td>
-        <td class="odometer-cell">{{ trip.start_odometer_miles|odometer }}</td>
-        <td class="odometer-cell">{{ trip.end_odometer_miles|odometer }}</td>
+        <td class="odometer-cell">
+          <span>{{ trip.start_odometer_miles|odometer }}</span>
+          <small>{% if trip.start_odometer_miles is not none %}{{ (trip.start_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
+        </td>
+        <td class="odometer-cell">
+          <span>{{ trip.end_odometer_miles|odometer }}</span>
+          <small>{% if trip.end_odometer_miles is not none %}{{ (trip.end_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
+        </td>
         <td><input form="{{ form_id }}" class="miles-input" type="number" name="miles" min="0" step="0.01" required value="{{ "%.2f"|format(trip.miles) }}"></td>
         <td>
           <div class="trip-actions">
