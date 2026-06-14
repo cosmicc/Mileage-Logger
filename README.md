@@ -58,6 +58,7 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - FastAPI mileage app.
 - Nginx reverse proxy on port `80`.
 - Daily gas price snapshot worker.
+- Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volumes for database data and runtime logs.
 - In-app diagnostics page for app, trip calculation, and gas price query logs in the configured
   local timezone.
@@ -69,7 +70,8 @@ Create a production `.env` with generated passwords:
 ./scripts/init_docker_env.sh
 ```
 
-Review `.env`, then start the stack:
+Review `.env`, set `CLOUDFLARED_TUNNEL_TOKEN` to the token from the Cloudflare dashboard, then
+start the stack:
 
 ```bash
 docker compose up -d --build
@@ -231,14 +233,15 @@ expired token every cycle.
 
 ## Cloudflare Tunnel
 
-The Compose file includes an optional `cloudflared` service for a remotely managed Cloudflare
-Tunnel. In the Cloudflare dashboard, publish the application route to the internal service:
+The Compose file includes `cloudflared` as a normal required service for a remotely managed
+Cloudflare Tunnel. In the Cloudflare dashboard, publish the application route to the internal
+service:
 
 ```text
 http://nginx:80
 ```
 
-Then set the tunnel token and start the profile:
+Set the tunnel token in `.env`:
 
 ```env
 CLOUDFLARED_TUNNEL_TOKEN=your-cloudflare-tunnel-token
@@ -247,9 +250,7 @@ CLOUDFLARED_METRICS=
 CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 ```
 
-```bash
-docker compose --profile cloudflare up -d --build
-```
+Then start the normal stack with `docker compose up -d --build`.
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
 short interval and finalizes completed local days. At the start of each new month, old location

@@ -95,11 +95,9 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
-    profiles:
-      - cloudflare
     command: tunnel --no-autoupdate run
     environment:
-      TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN:-}"
+      TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN:?CLOUDFLARED_TUNNEL_TOKEN must be set}"
       TUNNEL_LOGLEVEL: "${CLOUDFLARED_LOG_LEVEL:-info}"
       TUNNEL_METRICS: "${CLOUDFLARED_METRICS:-}"
       TUNNEL_TRANSPORT_PROTOCOL: "${CLOUDFLARED_TRANSPORT_PROTOCOL:-auto}"

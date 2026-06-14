@@ -5,6 +5,7 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 - `postgres`: PostgreSQL database.
 - `app`: FastAPI mileage logger.
 - `nginx`: reverse proxy that serves the web app on HTTP port `80`.
+- `cloudflared`: Cloudflare Tunnel connector for public HTTPS access.
 - `gas-snapshot`: daily Michigan gas price snapshot worker.
 - `logs_data`: shared Docker volume for diagnostics logs.
 
@@ -65,9 +66,10 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `POSTGRES_PASSWORD`
 - `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
-  - `LOG_DIR`
+- `LOG_DIR`
 
-Review the file before starting:
+Review the file before starting, and set `CLOUDFLARED_TUNNEL_TOKEN` to the token from the
+Cloudflare dashboard:
 
 ```bash
 nano .env
@@ -156,7 +158,7 @@ Expected result:
 - `app` healthy.
 - `nginx` running.
 - `gas-snapshot` running.
-- `cloudflared` running only when the `cloudflare` Compose profile is enabled.
+- `cloudflared` running.
 
 Open the app:
 
@@ -196,6 +198,7 @@ docker-compose.yml
    - `DATABASE_URL`
    - `OWNTRACKS_API_TOKEN`
    - `OWNTRACKS_PASSWORD`
+   - `CLOUDFLARED_TUNNEL_TOKEN`
 8. Optional: set `WEB_ALLOWED_CIDRS` to restrict web UI access while keeping `/api/` open.
 9. Deploy the stack.
 
@@ -338,8 +341,9 @@ connected vehicle. The connected vehicle must have the `read_odometer` permissio
 
 ## Cloudflare Tunnel
 
-The Compose file includes an optional `cloudflared` service for a remotely managed Cloudflare
-Tunnel. In the Cloudflare dashboard, publish the application route to the Compose-internal service:
+The Compose file includes `cloudflared` as a normal required service for a remotely managed
+Cloudflare Tunnel. In the Cloudflare dashboard, publish the application route to the
+Compose-internal service:
 
 ```text
 http://nginx:80
@@ -354,10 +358,10 @@ CLOUDFLARED_METRICS=
 CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 ```
 
-Start the stack with the tunnel profile:
+Start the normal stack:
 
 ```bash
-docker compose --profile cloudflare up -d --build
+docker compose up -d --build
 ```
 
 For Smartcar, use the public Cloudflare hostname as the callback base, for example:
