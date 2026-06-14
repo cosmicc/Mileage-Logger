@@ -47,6 +47,8 @@ services:
       EIA_SERIES_ID: "${EIA_SERIES_ID:-}"
       VEHICLE_MPG: "${VEHICLE_MPG:-25.0}"
       SMARTCAR_ENABLED: "${SMARTCAR_ENABLED:-false}"
+      SMARTCAR_MANAGEMENT_TOKEN: "${SMARTCAR_MANAGEMENT_TOKEN:-}"
+      SMARTCAR_API_POLLING_ENABLED: "${SMARTCAR_API_POLLING_ENABLED:-false}"
       SMARTCAR_ACCESS_TOKEN: "${SMARTCAR_ACCESS_TOKEN:-}"
       SMARTCAR_CLIENT_ID: "${SMARTCAR_CLIENT_ID:-}"
       SMARTCAR_CLIENT_SECRET: "${SMARTCAR_CLIENT_SECRET:-}"
@@ -59,6 +61,7 @@ services:
       SMARTCAR_RETRY_ATTEMPTS: "${SMARTCAR_RETRY_ATTEMPTS:-3}"
       SMARTCAR_RETRY_DELAY_SECONDS: "${SMARTCAR_RETRY_DELAY_SECONDS:-2}"
       SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS: "${SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS:-3600}"
+      SMARTCAR_WEBHOOK_MAX_BODY_BYTES: "${SMARTCAR_WEBHOOK_MAX_BODY_BYTES:-262144}"
       LOG_DIR: /data/logs
     volumes:
       - logs_data:/data/logs
@@ -88,6 +91,22 @@ services:
     depends_on:
       app:
         condition: service_healthy
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles:
+      - cloudflare
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN:-}"
+      TUNNEL_LOGLEVEL: "${CLOUDFLARED_LOG_LEVEL:-info}"
+      TUNNEL_METRICS: "${CLOUDFLARED_METRICS:-}"
+      TUNNEL_TRANSPORT_PROTOCOL: "${CLOUDFLARED_TRANSPORT_PROTOCOL:-auto}"
+      TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
+    depends_on:
+      nginx:
+        condition: service_started
 
   gas-snapshot:
     build: .

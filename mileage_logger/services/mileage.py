@@ -16,7 +16,11 @@ from mileage_logger.models import (
     TripProcessingCheckpoint,
     normalize_location_name,
 )
-from mileage_logger.services.smartcar import current_odometer_miles
+from mileage_logger.services.smartcar import (
+    current_odometer_miles,
+    latest_webhook_odometer_event,
+    latest_webhook_odometer_miles,
+)
 from mileage_logger.services.timezone import datetime_to_local_date, local_day_bounds
 
 METERS_PER_MILE = Decimal("1609.344")
@@ -244,10 +248,27 @@ def _set_payload_odometer_attempted(location: OwnTracksLocation) -> None:
     location.raw_payload = payload
 
 
-def _odometer_for_transition(transition: WaypointTransition) -> Decimal | None:
+def _odometer_for_transition(db: Session, transition: WaypointTransition) -> Decimal | None:
     odometer = _payload_odometer_miles(transition.location)
     if odometer is not None:
         return odometer
+
+    webhook_odometer = latest_webhook_odometer_miles(
+        db,
+        at=transition.location.captured_at,
+    )
+    if webhook_odometer is not None:
+        _set_payload_odometer_miles(transition.location, webhook_odometer)
+        trip_logger.debug(
+            "Captured stored Smartcar webhook odometer site=%s event=%s odometer=%s "
+            "captured_at=%s",
+            transition.site.name,
+            transition.event,
+            webhook_odometer,
+            transition.location.captured_at.isoformat(),
+        )
+        return webhook_odometer
+
     payload = transition.location.raw_payload or {}
     if payload.get(ODOMETER_ATTEMPTED_PAYLOAD_KEY) or payload.get(
         LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY
@@ -512,7 +533,11 @@ def _add_or_update_trip(
 
     trip_key = (origin.id, destination.id, started_at, ended_at)
     existing_auto_trip = existing_auto_trips.get(trip_key)
-    if existing_auto_trip is not None:
+    if existing_auto_trip is not None and existing_auto_trip.mileage_source in {
+        MILEAGE_SOURCE_SMARTCAR_ODOMETER,
+        LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
+        MILEAGE_SOURCE_ESTIMATED_ODOMETER,
+    }:
         calculation = MileageCalculation(
             miles=Decimal(existing_auto_trip.miles).quantize(
                 Decimal("0.01"),
@@ -609,6 +634,7 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
                         MILEAGE_SOURCE_SMARTCAR_ODOMETER,
                         LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
                         MILEAGE_SOURCE_ESTIMATED_ODOMETER,
+                        MILEAGE_SOURCE_WAYPOINT_DISTANCE,
                     ]
                 )
             )
@@ -631,6 +657,10 @@ def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal |
     )
     if trip_odometer is not None:
         return trip_odometer
+
+    webhook_event = latest_webhook_odometer_event(db, at=before_datetime)
+    if webhook_event is not None:
+        return webhook_event.odometer_miles
 
     return db.scalar(
         select(TripProcessingCheckpoint.odometer_anchor_miles)
@@ -681,11 +711,11 @@ def generate_trips(
 
     for transition in transitions:
         if transition.event == "leave":
-            _odometer_for_transition(transition)
+            _odometer_for_transition(db, transition)
             pending_leave = transition
             continue
 
-        end_odometer_miles = _odometer_for_transition(transition)
+        end_odometer_miles = _odometer_for_transition(db, transition)
         if pending_leave is not None:
             trip = _add_or_update_trip(
                 db,
@@ -697,7 +727,7 @@ def generate_trips(
                 started_at=pending_leave.location.captured_at,
                 ended_at=transition.location.captured_at,
                 inferred_leave=False,
-                start_odometer_miles=_odometer_for_transition(pending_leave),
+                start_odometer_miles=_odometer_for_transition(db, pending_leave),
                 end_odometer_miles=end_odometer_miles,
                 odometer_anchor_miles=odometer_anchor_miles,
             )
@@ -712,7 +742,7 @@ def generate_trips(
                 started_at=transition.location.captured_at,
                 ended_at=transition.location.captured_at,
                 inferred_leave=True,
-                start_odometer_miles=_odometer_for_transition(last_arrival),
+                start_odometer_miles=_odometer_for_transition(db, last_arrival),
                 end_odometer_miles=end_odometer_miles,
                 odometer_anchor_miles=odometer_anchor_miles,
             )

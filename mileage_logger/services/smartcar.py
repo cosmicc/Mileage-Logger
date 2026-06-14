@@ -1,14 +1,23 @@
 import hashlib
+import hmac
+import json
 import logging
 import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from threading import Lock
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from mileage_logger.config import Settings, get_settings
+from mileage_logger.database import SessionLocal
+from mileage_logger.models import SmartcarWebhookEvent, SmartcarWebhookSignal
 
 logger = logging.getLogger(__name__)
 KM_PER_MILE = Decimal("1.609344")
@@ -20,6 +29,15 @@ _token_lock = Lock()
 _token_cache: dict[tuple[str, str, str], tuple[str, float]] = {}
 _auth_failure_lock = Lock()
 _auth_failure_retry_after: dict[tuple[str, str, str], float] = {}
+SMARTCAR_SIGNATURE_PREFIX = "sha256="
+SMARTCAR_VERIFY_EVENT = "VERIFY"
+SMARTCAR_ODOMETER_SIGNAL_CODE = "odometer-traveleddistance"
+SMARTCAR_FUEL_SIGNAL_CODE = "internalcombustionengine-fuellevel"
+SMARTCAR_LOCK_SIGNAL_CODE = "closure-islocked"
+SMARTCAR_ONLINE_SIGNAL_CODE = "connectivitystatus-isonline"
+SMARTCAR_NICKNAME_SIGNAL_CODE = "vehicleidentification-nickname"
+SMARTCAR_VIN_SIGNAL_CODE = "vehicleidentification-vin"
+SMARTCAR_FIRMWARE_SIGNAL_CODE = "connectivitysoftware-currentfirmwareversion"
 
 
 class SmartcarOdometerError(RuntimeError):
@@ -28,6 +46,18 @@ class SmartcarOdometerError(RuntimeError):
 
 class SmartcarAuthenticationError(SmartcarOdometerError):
     """Raised when Smartcar rejects the configured token or permission set."""
+
+
+class SmartcarWebhookError(ValueError):
+    """Raised when a Smartcar webhook cannot be safely accepted."""
+
+
+@dataclass(frozen=True)
+class SmartcarWebhookProcessResult:
+    """Result from storing or deduplicating a Smartcar webhook delivery."""
+
+    event: SmartcarWebhookEvent
+    created: bool
 
 
 def _decimal_value(value: object) -> Decimal | None:
@@ -113,8 +143,433 @@ def odometer_miles_from_response(
     return odometer
 
 
-def _configured(settings: Settings) -> bool:
-    """Require an explicit enable flag and a usable Smartcar credential before requests."""
+def hash_webhook_challenge(management_token: str, challenge: str) -> str:
+    """Return Smartcar's required hex HMAC for a webhook VERIFY challenge."""
+    cleaned_token = management_token.strip()
+    if not cleaned_token:
+        raise SmartcarWebhookError("Smartcar management token is not configured")
+    if not challenge:
+        raise SmartcarWebhookError("Smartcar VERIFY payload did not include a challenge")
+    return hmac.new(
+        cleaned_token.encode("utf-8"),
+        challenge.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _normalized_signature(signature: str | None) -> str:
+    """Normalize Smartcar signature header values before constant-time comparison."""
+    cleaned_signature = str(signature or "").strip()
+    if cleaned_signature.casefold().startswith(SMARTCAR_SIGNATURE_PREFIX):
+        return cleaned_signature[len(SMARTCAR_SIGNATURE_PREFIX) :].strip().casefold()
+    return cleaned_signature.casefold()
+
+
+def verify_webhook_signature(
+    raw_body: bytes,
+    signature: str | None,
+    management_token: str,
+) -> bool:
+    """Verify Smartcar's SC-Signature HMAC against the exact raw request body."""
+    cleaned_token = management_token.strip()
+    normalized_signature = _normalized_signature(signature)
+    if not cleaned_token or not normalized_signature:
+        return False
+
+    expected_signature = hmac.new(
+        cleaned_token.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected_signature, normalized_signature)
+
+
+def decode_webhook_payload(raw_body: bytes) -> dict[str, object]:
+    """Decode a Smartcar webhook body as a JSON object with bounded assumptions."""
+    if not raw_body:
+        raise SmartcarWebhookError("Smartcar webhook body is empty")
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SmartcarWebhookError("Smartcar webhook body is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise SmartcarWebhookError("Smartcar webhook body must be a JSON object")
+    return payload
+
+
+def _text_value(value: object) -> str | None:
+    """Return a trimmed string for JSON scalar values."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _mapping_value(value: object) -> dict[str, object]:
+    """Return a JSON object value or an empty mapping for malformed nested fields."""
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _list_value(value: object) -> list[object]:
+    """Return a JSON array value or an empty list for malformed nested fields."""
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _smartcar_timestamp(value: object) -> datetime | None:
+    """Convert Smartcar millisecond or ISO timestamps into timezone-aware UTC datetimes."""
+    if value in (None, ""):
+        return None
+
+    if isinstance(value, str):
+        cleaned_value = value.strip()
+        if not cleaned_value:
+            return None
+        if not cleaned_value.replace(".", "", 1).isdigit():
+            try:
+                return datetime.fromisoformat(cleaned_value.replace("Z", "+00:00")).astimezone(
+                    UTC
+                )
+            except ValueError:
+                return None
+        value = cleaned_value
+
+    timestamp_value = _decimal_value(value)
+    if timestamp_value is None or timestamp_value <= 0:
+        return None
+
+    timestamp_seconds = (
+        timestamp_value / Decimal("1000")
+        if timestamp_value > Decimal("10000000000")
+        else timestamp_value
+    )
+    try:
+        return datetime.fromtimestamp(float(timestamp_seconds), tz=UTC)
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _signal_status(signal: dict[str, object]) -> str | None:
+    """Return the status.value field from a Smartcar signal."""
+    status = _mapping_value(signal.get("status"))
+    return _text_value(status.get("value"))
+
+
+def _signal_succeeded(signal: dict[str, object]) -> bool:
+    """Return true when a Smartcar signal reports SUCCESS."""
+    return (_signal_status(signal) or "").casefold() == "success"
+
+
+def _signal_body(signal: dict[str, object]) -> dict[str, object]:
+    """Return the body object from a Smartcar signal."""
+    return _mapping_value(signal.get("body"))
+
+
+def _signal_meta(signal: dict[str, object]) -> dict[str, object]:
+    """Return the meta object from a Smartcar signal."""
+    return _mapping_value(signal.get("meta"))
+
+
+def _signal_value(signal: dict[str, object]) -> object | None:
+    """Return a successful signal's body.value field."""
+    if not _signal_succeeded(signal):
+        return None
+    return _signal_body(signal).get("value")
+
+
+def _signal_unit(signal: dict[str, object]) -> str | None:
+    """Return a signal unit from body.unit when Smartcar includes one."""
+    return _text_value(_signal_body(signal).get("unit"))
+
+
+def _signal_recorded_at(signal: dict[str, object]) -> datetime | None:
+    """Return the best available timestamp for a Smartcar signal value."""
+    meta = _signal_meta(signal)
+    return _smartcar_timestamp(meta.get("oemUpdatedAt")) or _smartcar_timestamp(
+        meta.get("retrievedAt")
+    )
+
+
+def _signal_key(signal: dict[str, object]) -> tuple[str, str]:
+    """Return lowercase lookup keys for a Smartcar signal code and display name."""
+    return (
+        (_text_value(signal.get("code")) or "").casefold(),
+        (_text_value(signal.get("name")) or "").casefold(),
+    )
+
+
+def _signals_from_payload(payload: dict[str, object]) -> list[dict[str, object]]:
+    """Return Smartcar signal objects from a webhook payload."""
+    data = _mapping_value(payload.get("data"))
+    signals: list[dict[str, object]] = []
+    for signal in _list_value(data.get("signals")):
+        if isinstance(signal, dict):
+            signals.append(signal)
+    return signals
+
+
+def _signal_lookup(signals: list[dict[str, object]]) -> dict[str, dict[str, object]]:
+    """Index Smartcar signals by code and by display name for summary extraction."""
+    lookup: dict[str, dict[str, object]] = {}
+    for signal in signals:
+        code, name = _signal_key(signal)
+        if code:
+            lookup[code] = signal
+        if name:
+            lookup[name] = signal
+    return lookup
+
+
+def _signal_by_key(
+    lookup: dict[str, dict[str, object]],
+    code: str,
+    name: str,
+) -> dict[str, object] | None:
+    """Return a signal by stable Smartcar code first, then by display name."""
+    return lookup.get(code.casefold()) or lookup.get(name.casefold())
+
+
+def _decimal_signal_value(signal: dict[str, object] | None) -> Decimal | None:
+    """Return a successful Smartcar signal value as Decimal."""
+    if signal is None:
+        return None
+    return _decimal_value(_signal_value(signal))
+
+
+def _boolean_signal_value(signal: dict[str, object] | None) -> bool | None:
+    """Return a successful Smartcar signal value as bool."""
+    if signal is None:
+        return None
+    value = _signal_value(signal)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        cleaned_value = value.strip().casefold()
+        if cleaned_value in {"true", "1", "yes"}:
+            return True
+        if cleaned_value in {"false", "0", "no"}:
+            return False
+    return None
+
+
+def _odometer_from_signal(
+    signal: dict[str, object] | None,
+    *,
+    default_unit: str,
+) -> tuple[Decimal | None, Decimal | None, str | None, datetime | None]:
+    """Return converted miles, raw value, unit, and timestamp from an odometer signal."""
+    raw_value = _decimal_signal_value(signal)
+    if raw_value is None:
+        return None, None, None, None
+
+    signal_unit = _signal_unit(signal) or default_unit
+    odometer_miles = _convert_to_miles(raw_value, signal_unit)
+    return odometer_miles, raw_value, signal_unit, _signal_recorded_at(signal)
+
+
+def _event_identifiers(
+    payload: dict[str, object],
+) -> tuple[str, str | None, dict[str, object]]:
+    """Return required event id, optional delivery id, and metadata from a webhook payload."""
+    event_id = _text_value(payload.get("eventId"))
+    if event_id is None:
+        raise SmartcarWebhookError("Smartcar webhook payload missing eventId")
+
+    metadata = _mapping_value(payload.get("meta"))
+    delivery_id = _text_value(metadata.get("deliveryId"))
+    return event_id, delivery_id, metadata
+
+
+def _existing_webhook_event(
+    db: Session,
+    *,
+    event_id: str,
+    delivery_id: str | None,
+) -> SmartcarWebhookEvent | None:
+    """Return an already-stored Smartcar webhook event for idempotent retries."""
+    existing_event = db.scalar(
+        select(SmartcarWebhookEvent).where(SmartcarWebhookEvent.event_id == event_id)
+    )
+    if existing_event is not None:
+        return existing_event
+    if delivery_id is None:
+        return None
+    return db.scalar(
+        select(SmartcarWebhookEvent).where(SmartcarWebhookEvent.delivery_id == delivery_id)
+    )
+
+
+def _build_signal_row(signal: dict[str, object]) -> SmartcarWebhookSignal:
+    """Build a database row for one Smartcar signal object."""
+    body = _signal_body(signal)
+    meta = _signal_meta(signal)
+    return SmartcarWebhookSignal(
+        code=_text_value(signal.get("code")),
+        name=_text_value(signal.get("name")),
+        group=_text_value(signal.get("group")),
+        status=_signal_status(signal),
+        value=body.get("value"),
+        unit=_text_value(body.get("unit")),
+        oem_updated_at=_smartcar_timestamp(meta.get("oemUpdatedAt")),
+        retrieved_at=_smartcar_timestamp(meta.get("retrievedAt")),
+        body=body,
+        meta=meta,
+        raw_signal=signal,
+    )
+
+
+def store_webhook_payload(
+    db: Session,
+    payload: dict[str, object],
+    *,
+    settings: Settings | None = None,
+) -> SmartcarWebhookProcessResult:
+    """Store a verified Smartcar webhook payload and all included signal values."""
+    settings = settings or get_settings()
+    event_id, delivery_id, metadata = _event_identifiers(payload)
+    existing_event = _existing_webhook_event(db, event_id=event_id, delivery_id=delivery_id)
+    if existing_event is not None:
+        logger.info(
+            "Ignored duplicate Smartcar webhook event_id=%s delivery_id=%s database_id=%s",
+            event_id,
+            delivery_id or "",
+            existing_event.id,
+        )
+        return SmartcarWebhookProcessResult(event=existing_event, created=False)
+
+    data = _mapping_value(payload.get("data"))
+    user = _mapping_value(data.get("user"))
+    vehicle = _mapping_value(data.get("vehicle"))
+    signals = _signals_from_payload(payload)
+    lookup = _signal_lookup(signals)
+
+    odometer_signal = _signal_by_key(lookup, SMARTCAR_ODOMETER_SIGNAL_CODE, "TraveledDistance")
+    fuel_signal = _signal_by_key(lookup, SMARTCAR_FUEL_SIGNAL_CODE, "FuelLevel")
+    lock_signal = _signal_by_key(lookup, SMARTCAR_LOCK_SIGNAL_CODE, "IsLocked")
+    online_signal = _signal_by_key(lookup, SMARTCAR_ONLINE_SIGNAL_CODE, "IsOnline")
+    nickname_signal = _signal_by_key(lookup, SMARTCAR_NICKNAME_SIGNAL_CODE, "Nickname")
+    vin_signal = _signal_by_key(lookup, SMARTCAR_VIN_SIGNAL_CODE, "VIN")
+    firmware_signal = _signal_by_key(
+        lookup,
+        SMARTCAR_FIRMWARE_SIGNAL_CODE,
+        "CurrentFirmwareVersion",
+    )
+    odometer_miles, odometer_raw_value, odometer_unit, odometer_recorded_at = (
+        _odometer_from_signal(odometer_signal, default_unit=settings.smartcar_odometer_unit)
+    )
+    vehicle_year_value = _decimal_value(vehicle.get("year"))
+
+    event = SmartcarWebhookEvent(
+        event_id=event_id,
+        event_type=_text_value(payload.get("eventType")) or "UNKNOWN",
+        user_id=_text_value(user.get("id")),
+        vehicle_id=_text_value(vehicle.get("id")),
+        vehicle_make=_text_value(vehicle.get("make")),
+        vehicle_model=_text_value(vehicle.get("model")),
+        vehicle_year=int(vehicle_year_value) if vehicle_year_value is not None else None,
+        vehicle_mode=_text_value(vehicle.get("mode")),
+        vehicle_powertrain_type=_text_value(vehicle.get("powertrainType")),
+        webhook_id=_text_value(metadata.get("webhookId")),
+        webhook_name=_text_value(metadata.get("webhookName")),
+        delivery_id=delivery_id,
+        delivered_at=_smartcar_timestamp(metadata.get("deliveredAt")),
+        received_at=datetime.now(UTC),
+        odometer_miles=odometer_miles,
+        odometer_raw_value=odometer_raw_value,
+        odometer_unit=odometer_unit,
+        odometer_recorded_at=odometer_recorded_at,
+        fuel_percent=_decimal_signal_value(fuel_signal),
+        fuel_unit=_signal_unit(fuel_signal),
+        is_locked=_boolean_signal_value(lock_signal),
+        is_online=_boolean_signal_value(online_signal),
+        nickname=_text_value(_signal_value(nickname_signal)) if nickname_signal else None,
+        vin=_text_value(_signal_value(vin_signal)) if vin_signal else None,
+        firmware_version=(
+            _text_value(_signal_value(firmware_signal)) if firmware_signal else None
+        ),
+        triggers=_list_value(payload.get("triggers")),
+        raw_payload=payload,
+    )
+    event.signal_rows = [_build_signal_row(signal) for signal in signals]
+    db.add(event)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        duplicate_event = _existing_webhook_event(
+            db,
+            event_id=event_id,
+            delivery_id=delivery_id,
+        )
+        if duplicate_event is None:
+            raise
+        return SmartcarWebhookProcessResult(event=duplicate_event, created=False)
+
+    db.refresh(event)
+    logger.info(
+        "Stored Smartcar webhook event id=%s event_id=%s type=%s vehicle_id=%s "
+        "delivery_id=%s odometer_miles=%s signal_count=%s",
+        event.id,
+        event.event_id,
+        event.event_type,
+        event.vehicle_id or "",
+        event.delivery_id or "",
+        event.odometer_miles if event.odometer_miles is not None else "",
+        len(event.signal_rows),
+    )
+    return SmartcarWebhookProcessResult(event=event, created=True)
+
+
+def _latest_webhook_odometer_query(at: datetime | None = None) -> Any:
+    """Build the query that returns the freshest stored Smartcar odometer event."""
+    recorded_timestamp = func.coalesce(
+        SmartcarWebhookEvent.odometer_recorded_at,
+        SmartcarWebhookEvent.delivered_at,
+        SmartcarWebhookEvent.received_at,
+    )
+    query = (
+        select(SmartcarWebhookEvent)
+        .where(SmartcarWebhookEvent.odometer_miles.is_not(None))
+        .order_by(
+            SmartcarWebhookEvent.odometer_recorded_at.desc().nulls_last(),
+            SmartcarWebhookEvent.delivered_at.desc().nulls_last(),
+            SmartcarWebhookEvent.received_at.desc(),
+            SmartcarWebhookEvent.id.desc(),
+        )
+        .limit(1)
+    )
+    if at is not None:
+        query = query.where(recorded_timestamp <= at)
+    return query
+
+
+def latest_webhook_odometer_event(
+    db: Session,
+    at: datetime | None = None,
+) -> SmartcarWebhookEvent | None:
+    """Return the newest stored Smartcar odometer webhook event."""
+    return db.scalar(_latest_webhook_odometer_query(at=at))
+
+
+def latest_webhook_odometer_miles(
+    db: Session | None = None,
+    at: datetime | None = None,
+) -> Decimal | None:
+    """Return the newest stored Smartcar webhook odometer in miles."""
+    if db is not None:
+        event = latest_webhook_odometer_event(db, at=at)
+        return event.odometer_miles if event is not None else None
+
+    with SessionLocal() as session:
+        event = latest_webhook_odometer_event(session, at=at)
+        return event.odometer_miles if event is not None else None
+
+
+def _api_configured(settings: Settings) -> bool:
+    """Require explicit Smartcar enablement and API credentials before API requests."""
     return settings.smartcar_enabled and (
         bool(settings.smartcar_access_token) or _client_credentials_configured(settings)
     )
@@ -332,7 +787,25 @@ def current_odometer_miles(
 ) -> Decimal | None:
     """Read the current Smartcar odometer in miles when the integration is configured."""
     settings = settings or get_settings()
-    if not _configured(settings):
+    if settings.smartcar_enabled:
+        try:
+            webhook_odometer = latest_webhook_odometer_miles()
+        except Exception:
+            logger.exception("Stored Smartcar webhook odometer lookup failed")
+            webhook_odometer = None
+        if webhook_odometer is not None:
+            logger.debug("Using stored Smartcar webhook odometer miles=%s", webhook_odometer)
+            return webhook_odometer
+
+    if not force and not settings.smartcar_api_polling_enabled:
+        logger.debug(
+            "Smartcar API odometer polling skipped enabled=%s api_polling_enabled=%s",
+            settings.smartcar_enabled,
+            settings.smartcar_api_polling_enabled,
+        )
+        return None
+
+    if not _api_configured(settings):
         logger.debug(
             "Smartcar odometer skipped enabled=%s token_configured=%s "
             "client_credentials_configured=%s vehicle_id_configured=%s",

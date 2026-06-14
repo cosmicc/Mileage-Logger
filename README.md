@@ -12,7 +12,7 @@ monthly reimbursement PDF logs.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
 - OwnTracks waypoint transition model used to turn leave/enter events into trips.
-- Optional Smartcar odometer lookup for actual trip mileage.
+- Optional Smartcar webhook ingestion for real-time vehicle state and odometer mileage.
 - Manual review for generated waypoint names and trip mileage.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
@@ -167,7 +167,8 @@ The server can run on UTC; app day/month selection, dashboard time, and gas snap
 
 Generated mileage uses this order:
 
-1. Smartcar odometer delta when `SMARTCAR_ENABLED=true` and both endpoint readings are available.
+1. Verified Smartcar webhook odometer delta when `SMARTCAR_ENABLED=true` and both endpoint
+   readings are available.
 2. Estimated start/end odometer values using this trip's waypoint distance and any available
    odometer anchor.
 3. Waypoint-to-waypoint distance when no odometer anchor is available.
@@ -176,33 +177,79 @@ Because OwnTracks is only sending waypoint events, there is no full GPS path to 
 trip's miles on the `Trips` page when the generated mileage needs correction. Manual corrections
 apply only to that trip because the same waypoint pair can have different real-world mileage.
 
-Smartcar setup uses direct HTTPS API requests. You can either set a ready-to-use API access token
-or set Smartcar client credentials so the app can request short-lived tokens from the Smartcar
-token endpoint. Set these in `.env` or Docker when you want odometer-based mileage:
+Smartcar setup uses a webhook callback for vehicle state data. Set the Smartcar callback URI to:
+
+```text
+https://your-host.example.com/api/smartcar/webhook
+```
+
+The `/api/webhooks/smartcar` alias is also available if you prefer that path. Smartcar sends a
+`VERIFY` event when the callback URI is created or changed. The app answers that challenge with an
+HMAC-SHA256 hash generated from `SMARTCAR_MANAGEMENT_TOKEN`, then requires the `SC-Signature`
+header on normal vehicle events before storing any data.
+
+Set these in `.env` or Docker when you want webhook-based odometer mileage:
 
 ```env
 SMARTCAR_ENABLED=true
+SMARTCAR_MANAGEMENT_TOKEN=your-smartcar-application-management-token
+SMARTCAR_API_POLLING_ENABLED=false
+SMARTCAR_WEBHOOK_MAX_BODY_BYTES=262144
+SMARTCAR_ODOMETER_UNIT=km
+```
+
+Webhook deliveries are stored in `smartcar_webhook_events`, and each included signal is stored in
+`smartcar_webhook_signals`. The event row also summarizes common values such as odometer, fuel
+level, lock state, online state, nickname, VIN, firmware version, and vehicle metadata.
+
+Direct Smartcar API odometer polling is now only an optional automatic fallback. Leave it disabled
+for webhook-only operation. The Diagnostics page test button can still force-test configured API
+credentials. If you explicitly want automatic fallback reads, set:
+
+```env
+SMARTCAR_API_POLLING_ENABLED=true
 SMARTCAR_ACCESS_TOKEN=your-smartcar-api-access-token
-SMARTCAR_CLIENT_ID=your-smartcar-client-id
-SMARTCAR_CLIENT_SECRET=your-smartcar-client-secret
+SMARTCAR_CLIENT_ID=optional-smartcar-client-id
+SMARTCAR_CLIENT_SECRET=optional-smartcar-client-secret
 SMARTCAR_TOKEN_URL=https://iam.smartcar.com/oauth2/token
 SMARTCAR_SCOPE=read_odometer
 SMARTCAR_VEHICLE_ID=optional-smartcar-vehicle-id
 SMARTCAR_API_BASE_URL=https://api.smartcar.com/v2.0
-SMARTCAR_ODOMETER_UNIT=km
 SMARTCAR_TIMEOUT_SECONDS=20
 SMARTCAR_RETRY_ATTEMPTS=3
 SMARTCAR_RETRY_DELAY_SECONDS=2
 SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS=3600
 ```
 
-The app stores start/end odometer readings on generated trip rows only. `SMARTCAR_ODOMETER_UNIT`
-is the raw unit returned by Smartcar before conversion to report miles; Smartcar v2 odometer values
-default to kilometers. If `SMARTCAR_VEHICLE_ID` is blank, the app calls Smartcar's vehicles endpoint
-and uses the first connected vehicle. The connected vehicle must have the `read_odometer`
-permission. If Smartcar rejects authentication or permissions, automatic odometer reads pause for
+`SMARTCAR_ODOMETER_UNIT` is the raw unit returned by Smartcar before conversion to report miles;
+Smartcar odometer values commonly use kilometers. If direct API polling is enabled and
+`SMARTCAR_VEHICLE_ID` is blank, the app calls Smartcar's vehicles endpoint and uses the first
+connected vehicle. The connected vehicle must have the `read_odometer` permission. If Smartcar
+rejects authentication or permissions, automatic API reads pause for
 `SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS` so the background processor does not keep retrying a bad or
-expired token every cycle. The Diagnostics page test button bypasses that pause for manual retests.
+expired token every cycle.
+
+## Cloudflare Tunnel
+
+The Compose file includes an optional `cloudflared` service for a remotely managed Cloudflare
+Tunnel. In the Cloudflare dashboard, publish the application route to the internal service:
+
+```text
+http://nginx:80
+```
+
+Then set the tunnel token and start the profile:
+
+```env
+CLOUDFLARED_TUNNEL_TOKEN=your-cloudflare-tunnel-token
+CLOUDFLARED_LOG_LEVEL=info
+CLOUDFLARED_METRICS=
+CLOUDFLARED_TRANSPORT_PROTOCOL=auto
+```
+
+```bash
+docker compose --profile cloudflare up -d --build
+```
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
 short interval and finalizes completed local days. At the start of each new month, old location
@@ -218,6 +265,8 @@ LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 SMARTCAR_ENABLED=false
+SMARTCAR_MANAGEMENT_TOKEN=
+SMARTCAR_API_POLLING_ENABLED=false
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.

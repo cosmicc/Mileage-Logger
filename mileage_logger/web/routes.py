@@ -33,7 +33,11 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
-from mileage_logger.services.smartcar import SmartcarAuthenticationError, current_odometer_miles
+from mileage_logger.services.smartcar import (
+    SmartcarAuthenticationError,
+    current_odometer_miles,
+    latest_webhook_odometer_event,
+)
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
@@ -252,6 +256,7 @@ def _latest_odometer_reading(db: Session) -> dict | None:
                 "source": latest_end_trip.end_odometer_source or latest_end_trip.mileage_source,
                 "recorded_at": latest_end_trip.ended_at,
                 "trip": latest_end_trip,
+                "database_id": latest_end_trip.id,
                 "position": "End",
             }
         )
@@ -271,7 +276,23 @@ def _latest_odometer_reading(db: Session) -> dict | None:
                 or latest_start_trip.mileage_source,
                 "recorded_at": latest_start_trip.started_at,
                 "trip": latest_start_trip,
+                "database_id": latest_start_trip.id,
                 "position": "Start",
+            }
+        )
+
+    latest_webhook_event = latest_webhook_odometer_event(db)
+    if latest_webhook_event is not None:
+        candidates.append(
+            {
+                "value": latest_webhook_event.odometer_miles,
+                "source": "smartcar",
+                "recorded_at": latest_webhook_event.odometer_recorded_at
+                or latest_webhook_event.delivered_at
+                or latest_webhook_event.received_at,
+                "trip": None,
+                "database_id": latest_webhook_event.id,
+                "position": "Webhook",
             }
         )
 
@@ -279,7 +300,7 @@ def _latest_odometer_reading(db: Session) -> dict | None:
         return None
     return max(
         candidates,
-        key=lambda item: (datetime_to_utc(item["recorded_at"]), item["trip"].id),
+        key=lambda item: (datetime_to_utc(item["recorded_at"]), item["database_id"]),
     )
 
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added signed Smartcar webhook ingestion with VERIFY challenge handling, raw-body
+  `SC-Signature` validation, event deduplication, vehicle state storage, signal row storage, and
+  webhook-first odometer readings for trip mileage.
+- Added an optional `cloudflared` Docker Compose profile for Cloudflare Tunnel deployments.
 - Changed automatic trip processing to use a persistent OwnTracks checkpoint and append/update trips in place without deleting existing trip rows.
 - Replaced the FordPass odometer package with direct Smartcar API odometer reads.
 - Added an initial Smartcar odometer anchor when no odometer data exists yet.

@@ -130,6 +130,228 @@ class TripProcessingCheckpoint(Base):
     )
 
 
+class SmartcarWebhookEvent(Base):
+    """Stored Smartcar webhook delivery after HMAC verification succeeds."""
+
+    __tablename__ = "smartcar_webhook_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[str] = mapped_column(
+        String(80),
+        unique=True,
+        index=True,
+        comment="Smartcar eventId value used to reject duplicate event processing.",
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(80),
+        index=True,
+        comment="Smartcar eventType value such as VEHICLE_STATE or VEHICLE_ERROR.",
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+        comment="Smartcar user identifier from data.user.id.",
+    )
+    vehicle_id: Mapped[str | None] = mapped_column(
+        String(80),
+        index=True,
+        nullable=True,
+        comment="Smartcar vehicle identifier from data.vehicle.id.",
+    )
+    vehicle_make: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+        comment="Vehicle make included in the webhook vehicle object.",
+    )
+    vehicle_model: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+        comment="Vehicle model included in the webhook vehicle object.",
+    )
+    vehicle_year: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Vehicle model year included in the webhook vehicle object.",
+    )
+    vehicle_mode: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Smartcar vehicle mode such as live, test, or simulated.",
+    )
+    vehicle_powertrain_type: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Vehicle powertrain type such as ICE, HEV, PHEV, or BEV.",
+    )
+    webhook_id: Mapped[str | None] = mapped_column(
+        String(80),
+        index=True,
+        nullable=True,
+        comment="Smartcar webhook identifier from meta.webhookId.",
+    )
+    webhook_name: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        comment="Smartcar webhook display name from meta.webhookName.",
+    )
+    delivery_id: Mapped[str | None] = mapped_column(
+        String(80),
+        unique=True,
+        nullable=True,
+        comment="Smartcar delivery identifier from meta.deliveryId.",
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Timestamp Smartcar says it delivered the webhook event.",
+    )
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        comment="Timestamp this app accepted the verified webhook event.",
+    )
+    odometer_miles: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 3),
+        nullable=True,
+        comment="Webhook odometer reading converted to miles for trip mileage.",
+    )
+    odometer_raw_value: Mapped[Decimal | None] = mapped_column(
+        Numeric(14, 3),
+        nullable=True,
+        comment="Original odometer value before unit conversion.",
+    )
+    odometer_unit: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="Original Smartcar odometer unit, usually km or mi.",
+    )
+    odometer_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="OEM or retrieval timestamp attached to the odometer signal.",
+    )
+    fuel_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2),
+        nullable=True,
+        comment="Fuel level percentage when Smartcar includes a fuel signal.",
+    )
+    fuel_unit: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="Unit attached to the Smartcar fuel level signal.",
+    )
+    is_locked: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+        comment="Door lock state from the Smartcar closure-islocked signal.",
+    )
+    is_online: Mapped[bool | None] = mapped_column(
+        Boolean,
+        nullable=True,
+        comment="Connectivity state from the Smartcar connectivitystatus-isonline signal.",
+    )
+    nickname: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        comment="Vehicle nickname from the Smartcar vehicle identification signal.",
+    )
+    vin: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Vehicle VIN from the Smartcar vehicle identification signal.",
+    )
+    firmware_version: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+        comment="Current firmware version when Smartcar includes that signal.",
+    )
+    triggers: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        comment="Webhook trigger objects from the Smartcar payload.",
+    )
+    raw_payload: Mapped[dict] = mapped_column(
+        JSON,
+        comment="Complete verified Smartcar payload for audit and future parsing.",
+    )
+
+    signal_rows: Mapped[list["SmartcarWebhookSignal"]] = relationship(
+        back_populates="event",
+        cascade="all, delete-orphan",
+    )
+
+
+class SmartcarWebhookSignal(Base):
+    """Stored Smartcar signal belonging to a verified webhook delivery."""
+
+    __tablename__ = "smartcar_webhook_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("smartcar_webhook_events.id", ondelete="CASCADE"),
+        index=True,
+        comment="Database id for the parent Smartcar webhook delivery.",
+    )
+    code: Mapped[str | None] = mapped_column(
+        String(160),
+        index=True,
+        nullable=True,
+        comment="Smartcar signal code such as odometer-traveleddistance.",
+    )
+    name: Mapped[str | None] = mapped_column(
+        String(160),
+        index=True,
+        nullable=True,
+        comment="Smartcar signal display name such as TraveledDistance.",
+    )
+    group: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        comment="Smartcar signal group such as Odometer or VehicleIdentification.",
+    )
+    status: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+        comment="Smartcar signal status value, normally SUCCESS for usable data.",
+    )
+    value: Mapped[object | None] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Signal body.value exactly as Smartcar sent it.",
+    )
+    unit: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Signal body.unit value when Smartcar includes one.",
+    )
+    oem_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="OEM update timestamp from signal meta.oemUpdatedAt.",
+    )
+    retrieved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Smartcar retrieval timestamp from signal meta.retrievedAt.",
+    )
+    body: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        comment="Complete Smartcar signal body object.",
+    )
+    meta: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        comment="Complete Smartcar signal meta object.",
+    )
+    raw_signal: Mapped[dict] = mapped_column(
+        JSON,
+        comment="Complete Smartcar signal object for audit and future parsing.",
+    )
+
+    event: Mapped[SmartcarWebhookEvent] = relationship(back_populates="signal_rows")
+
+
 class GasPriceSnapshot(Base):
     __tablename__ = "gas_price_snapshots"
 

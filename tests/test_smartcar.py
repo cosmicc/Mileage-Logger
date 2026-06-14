@@ -59,6 +59,7 @@ def test_current_odometer_uses_configured_vehicle_id(monkeypatch) -> None:
 
     settings = Settings(
         smartcar_enabled=True,
+        smartcar_api_polling_enabled=True,
         smartcar_access_token="configured-token",
         smartcar_vehicle_id="vehicle-123",
         smartcar_api_base_url="https://api.smartcar.test/v2.0",
@@ -84,6 +85,7 @@ def test_current_odometer_fetches_client_credentials_token(monkeypatch) -> None:
 
     settings = Settings(
         smartcar_enabled=True,
+        smartcar_api_polling_enabled=True,
         smartcar_client_id="client-id",
         smartcar_client_secret="client-secret",
         smartcar_vehicle_id="vehicle-123",
@@ -111,6 +113,7 @@ def test_current_odometer_auto_detects_vehicle_id(monkeypatch) -> None:
 
     settings = Settings(
         smartcar_enabled=True,
+        smartcar_api_polling_enabled=True,
         smartcar_access_token="auto-detect-token",
         smartcar_api_base_url="https://api.smartcar.test/v2.0",
         smartcar_retry_delay_seconds=0,
@@ -136,6 +139,7 @@ def test_current_odometer_auth_failure_does_not_retry_or_repeat(
 
     settings = Settings(
         smartcar_enabled=True,
+        smartcar_api_polling_enabled=True,
         smartcar_access_token="auth-failure-token",
         smartcar_vehicle_id="vehicle-401",
         smartcar_retry_attempts=3,
@@ -163,6 +167,7 @@ def test_current_odometer_force_can_raise_auth_failure(monkeypatch) -> None:
 
     settings = Settings(
         smartcar_enabled=True,
+        smartcar_api_polling_enabled=True,
         smartcar_access_token="force-auth-failure-token",
         smartcar_vehicle_id="vehicle-401",
         smartcar_retry_attempts=3,
@@ -172,3 +177,21 @@ def test_current_odometer_force_can_raise_auth_failure(monkeypatch) -> None:
 
     with pytest.raises(SmartcarAuthenticationError):
         current_odometer_miles(settings, force=True, raise_on_auth_error=True)
+
+
+def test_current_odometer_skips_api_polling_until_enabled(monkeypatch) -> None:
+    def fail_get(_url: str, **_: Any) -> FakeSmartcarResponse:
+        raise AssertionError("Smartcar API polling should not run by default")
+
+    settings = Settings(
+        smartcar_enabled=True,
+        smartcar_access_token="api-token",
+        smartcar_vehicle_id="vehicle-123",
+    )
+    monkeypatch.setattr("mileage_logger.services.smartcar.httpx.get", fail_get)
+    monkeypatch.setattr(
+        "mileage_logger.services.smartcar.latest_webhook_odometer_miles",
+        lambda: None,
+    )
+
+    assert current_odometer_miles(settings) is None
