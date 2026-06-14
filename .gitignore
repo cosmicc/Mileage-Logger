@@ -10,4 +10,3 @@ reports/
 dist/
 build/
 .DS_Store
-alembic/

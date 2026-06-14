@@ -35,7 +35,12 @@ class TripProcessingResult:
     checkpoint_location_id: int | None = None
 
 
+def _ensure_checkpoint_table(db: Session) -> None:
+    TripProcessingCheckpoint.__table__.create(bind=db.get_bind(), checkfirst=True)
+
+
 def _get_or_create_checkpoint(db: Session) -> TripProcessingCheckpoint:
+    _ensure_checkpoint_table(db)
     checkpoint = db.scalar(
         select(TripProcessingCheckpoint).where(
             TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT

@@ -579,6 +579,20 @@ def test_automatic_trip_processing_uses_checkpoint_without_duplicate_trips() -> 
     assert checkpoint.last_owntracks_location_id == latest_location_id
 
 
+def test_automatic_trip_processing_creates_missing_checkpoint_table() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    TripProcessingCheckpoint.__table__.drop(engine)
+    db = sessionmaker(bind=engine, expire_on_commit=False)()
+
+    result = run_automatic_trip_processing(db, now=datetime(2026, 6, 10, 13, 0, tzinfo=UTC))
+
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert result.generated == 0
+    assert checkpoint is not None
+    assert checkpoint.name == "automatic_trip_processing"
+
+
 def test_automatic_trip_processing_saves_initial_fordpass_odometer_anchor(monkeypatch) -> None:
     db = _session()
     current_time = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
