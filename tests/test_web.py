@@ -15,6 +15,7 @@ from mileage_logger.services.diagnostics import (
     recent_owntracks_entries,
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
+from mileage_logger.services.smartcar import SmartcarAuthenticationError
 from mileage_logger.web.routes import _human_duration_since
 
 
@@ -261,29 +262,54 @@ def test_diagnostics_shows_last_received_owntracks_age() -> None:
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_fordpass_api_test_button_reports_pass(monkeypatch) -> None:
+def test_diagnostics_smartcar_api_test_button_reports_pass(monkeypatch) -> None:
     monkeypatch.setattr(
         "mileage_logger.web.routes.get_settings",
         lambda: Settings(
             database_url="sqlite://",
-            fordpass_enabled=True,
-            fordpass_username="configured",
-            fordpass_password="configured",
-            fordpass_vin="configured",
+            smartcar_enabled=True,
+            smartcar_access_token="configured",
+            smartcar_vehicle_id="configured",
         ),
     )
     monkeypatch.setattr(
         "mileage_logger.web.routes.current_odometer_miles",
-        lambda settings: Decimal("12345.600"),
+        lambda settings, **_: Decimal("12345.600"),
     )
     client, _ = _test_client_session()
     try:
-        response = client.post("/diagnostics/test/fordpass")
+        response = client.post("/diagnostics/test/smartcar")
 
         assert response.status_code == 200
-        assert "FordPass API" in response.text
+        assert "Smartcar API" in response.text
         assert "Pass" in response.text
         assert "12345.6 miles" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_smartcar_api_test_button_reports_auth_failure(monkeypatch) -> None:
+    def raise_auth_failure(_settings: Settings, **_: object) -> Decimal:
+        raise SmartcarAuthenticationError("Smartcar authentication failed.")
+
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            smartcar_enabled=True,
+            smartcar_access_token="configured",
+            smartcar_vehicle_id="configured",
+        ),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.current_odometer_miles", raise_auth_failure)
+    client, _ = _test_client_session()
+    try:
+        response = client.post("/diagnostics/test/smartcar")
+
+        assert response.status_code == 200
+        assert "Smartcar API" in response.text
+        assert "Fail" in response.text
+        assert "Smartcar authentication failed." in response.text
     finally:
         app.dependency_overrides.clear()
 

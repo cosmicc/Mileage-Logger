@@ -78,6 +78,27 @@ def test_formatter_redacts_sensitive_query_values() -> None:
     assert "secret-value" not in formatted
 
 
+def test_formatter_redacts_bearer_tokens() -> None:
+    formatter = LocalTimezoneFormatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S %Z",
+    )
+    record = logging.LogRecord(
+        "mileage_logger.test",
+        logging.INFO,
+        __file__,
+        1,
+        "Authorization: Bearer secret-smartcar-token",
+        (),
+        None,
+    )
+
+    formatted = formatter.format(record)
+
+    assert "Authorization: Bearer ***" in formatted
+    assert "secret-smartcar-token" not in formatted
+
+
 def test_tail_file_returns_level_classes_newest_first(tmp_path) -> None:
     log_path = tmp_path / "app.log"
     log_path.write_text(

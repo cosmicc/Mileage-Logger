@@ -15,12 +15,12 @@ from mileage_logger.models import (
 from mileage_logger.services.mileage import (
     MANUAL_TRIP_SOURCE,
     MILEAGE_SOURCE_ESTIMATED_ODOMETER,
-    MILEAGE_SOURCE_FORDPASS_ODOMETER,
     MILEAGE_SOURCE_MANUAL,
+    MILEAGE_SOURCE_SMARTCAR_ODOMETER,
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
     ODOMETER_SOURCE_ESTIMATED,
-    ODOMETER_SOURCE_FORDPASS,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
+    ODOMETER_SOURCE_SMARTCAR,
     generate_trips,
     haversine_miles,
     update_trip_details,
@@ -133,7 +133,7 @@ def test_generate_trips_from_leave_and_enter_transitions() -> None:
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
 
 
-def test_generate_trips_uses_fordpass_odometer_delta(monkeypatch) -> None:
+def test_generate_trips_uses_smartcar_odometer_delta(monkeypatch) -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
@@ -159,9 +159,9 @@ def test_generate_trips_uses_fordpass_odometer_delta(monkeypatch) -> None:
     assert trips[0].miles == Decimal("12.63")
     assert trips[0].start_odometer_miles == Decimal("1000.250")
     assert trips[0].end_odometer_miles == Decimal("1012.875")
-    assert trips[0].mileage_source == MILEAGE_SOURCE_FORDPASS_ODOMETER
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_FORDPASS
-    assert trips[0].end_odometer_source == ODOMETER_SOURCE_FORDPASS
+    assert trips[0].mileage_source == MILEAGE_SOURCE_SMARTCAR_ODOMETER
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_SMARTCAR
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_SMARTCAR
 
 
 def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
@@ -199,7 +199,7 @@ def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
     assert regenerated[0].miles == Decimal("6.50")
     assert regenerated[0].start_odometer_miles == Decimal("1000.000")
     assert regenerated[0].end_odometer_miles == Decimal("1006.500")
-    assert regenerated[0].mileage_source == MILEAGE_SOURCE_FORDPASS_ODOMETER
+    assert regenerated[0].mileage_source == MILEAGE_SOURCE_SMARTCAR_ODOMETER
 
 
 def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypatch) -> None:
@@ -233,11 +233,11 @@ def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypat
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_ESTIMATED
-    assert trips[0].end_odometer_source == ODOMETER_SOURCE_FORDPASS
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_SMARTCAR
     assert "Estimated odometer" in trips[0].notes
 
 
-def test_generate_trips_estimates_from_prior_odometer_anchor_when_fordpass_unavailable(
+def test_generate_trips_estimates_from_prior_odometer_anchor_when_smartcar_unavailable(
     monkeypatch,
 ) -> None:
     db = _session()
@@ -593,7 +593,7 @@ def test_automatic_trip_processing_creates_missing_checkpoint_table() -> None:
     assert checkpoint.name == "automatic_trip_processing"
 
 
-def test_automatic_trip_processing_saves_initial_fordpass_odometer_anchor(monkeypatch) -> None:
+def test_automatic_trip_processing_saves_initial_smartcar_odometer_anchor(monkeypatch) -> None:
     db = _session()
     current_time = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
     monkeypatch.setattr(

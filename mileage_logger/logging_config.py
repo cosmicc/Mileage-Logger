@@ -9,8 +9,10 @@ from mileage_logger.services.timezone import local_timezone
 
 TRIP_CALCULATION_LOGGER = "mileage_logger.trip_calculation"
 SENSITIVE_QUERY_VALUE_RE = re.compile(
-    r"(?i)(\b(?:api_key|apikey|access_token|refresh_token|token|client_secret|password)=)([^&\s\"']+)"
+    r"(?i)(\b(?:api_key|apikey|access_token|refresh_token|token|client_secret|password)=)"
+    r"([^&\s\"']+)"
 )
+SENSITIVE_BEARER_VALUE_RE = re.compile(r"(?i)(authorization:\s*bearer\s+)([^\s\"']+)")
 LOG_LEVEL_VALUES = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -19,7 +21,8 @@ LOG_LEVEL_VALUES = {
 
 
 def redact_sensitive_text(value: str) -> str:
-    return SENSITIVE_QUERY_VALUE_RE.sub(r"\1***", value)
+    redacted = SENSITIVE_QUERY_VALUE_RE.sub(r"\1***", value)
+    return SENSITIVE_BEARER_VALUE_RE.sub(r"\1***", redacted)
 
 
 class LocalTimezoneFormatter(logging.Formatter):
@@ -80,6 +83,8 @@ def configure_logging(process_name: str) -> Path:
     root_logger.setLevel(level)
     logging.getLogger("httpx").setLevel(max(level, logging.WARNING))
     logging.getLogger("httpcore").setLevel(max(level, logging.WARNING))
+    logging.getLogger("requests").setLevel(max(level, logging.WARNING))
+    logging.getLogger("urllib3").setLevel(max(level, logging.WARNING))
 
     marker = f"mileage_logger_{process_name}_file"
     formatter = LocalTimezoneFormatter(

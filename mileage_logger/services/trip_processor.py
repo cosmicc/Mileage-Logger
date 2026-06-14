@@ -14,11 +14,11 @@ from mileage_logger.models import (
     Trip,
     TripProcessingCheckpoint,
 )
-from mileage_logger.services.fordpass import current_odometer_miles
 from mileage_logger.services.mileage import (
     generate_trips,
 )
 from mileage_logger.services.retention import MonthlyResetResult, reset_previous_month_data
+from mileage_logger.services.smartcar import current_odometer_miles
 from mileage_logger.services.timezone import datetime_to_local_date
 
 logger = logging.getLogger(__name__)
@@ -88,13 +88,13 @@ def _ensure_initial_odometer_anchor(
 
     odometer = current_odometer_miles()
     if odometer is None:
-        trip_logger.debug("Initial FordPass odometer anchor unavailable")
+        trip_logger.debug("Initial Smartcar odometer anchor unavailable")
         return
 
     checkpoint.odometer_anchor_miles = odometer
     checkpoint.odometer_anchor_recorded_at = current_dt
     trip_logger.info(
-        "Saved initial FordPass odometer anchor miles=%s recorded_at=%s",
+        "Saved initial Smartcar odometer anchor miles=%s recorded_at=%s",
         odometer,
         current_dt.isoformat(),
     )

@@ -25,7 +25,6 @@ from mileage_logger.models import (
     Trip,
 )
 from mileage_logger.services.diagnostics import paginated_owntracks_entries
-from mileage_logger.services.fordpass import current_odometer_miles
 from mileage_logger.services.gas_prices import (
     EiaSeriesProvider,
     GasPriceUnavailable,
@@ -34,6 +33,7 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
+from mileage_logger.services.smartcar import SmartcarAuthenticationError, current_odometer_miles
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
@@ -62,10 +62,12 @@ def _format_odometer(value) -> str:
 
 def _format_odometer_source(value) -> str:
     labels = {
+        "smartcar": "Smartcar",
         "fordpass": "FordPass",
         "estimated": "Estimated",
         "previous_trip": "Previous trip",
         "manual": "Manual",
+        "smartcar_odometer": "Smartcar",
         "fordpass_odometer": "FordPass",
         "estimated_odometer": "Estimated",
         "waypoint_distance": "Waypoint distance",
@@ -454,9 +456,9 @@ def refresh_gas_price_form(
 def diagnostics(
     request: Request,
     owntracks_page: int = Query(default=1, ge=1),
-    fordpass_test: str | None = Query(default=None),
-    fordpass_message: str | None = Query(default=None),
-    fordpass_value: str | None = Query(default=None),
+    smartcar_test: str | None = Query(default=None),
+    smartcar_message: str | None = Query(default=None),
+    smartcar_value: str | None = Query(default=None),
     eia_test: str | None = Query(default=None),
     eia_message: str | None = Query(default=None),
     eia_value: str | None = Query(default=None),
@@ -503,28 +505,36 @@ def diagnostics(
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
-            "fordpass_test_result": _api_test_result(
-                fordpass_test,
-                fordpass_message,
-                fordpass_value,
+            "smartcar_test_result": _api_test_result(
+                smartcar_test,
+                smartcar_message,
+                smartcar_value,
             ),
             "eia_test_result": _api_test_result(eia_test, eia_message, eia_value),
         },
     )
 
 
-@router.post("/diagnostics/test/fordpass")
-def test_fordpass_api() -> RedirectResponse:
+@router.post("/diagnostics/test/smartcar")
+def test_smartcar_api() -> RedirectResponse:
     settings = get_settings()
     try:
-        odometer = current_odometer_miles(settings)
-    except Exception:
-        logger.warning("FordPass diagnostic test failed with an unexpected provider error")
+        odometer = current_odometer_miles(settings, force=True, raise_on_auth_error=True)
+    except SmartcarAuthenticationError as exc:
         return _diagnostics_redirect(
             "api-tests",
             {
-                "fordpass_test": "fail",
-                "fordpass_message": "FordPass test failed. Check the app log for provider details.",
+                "smartcar_test": "fail",
+                "smartcar_message": str(exc),
+            },
+        )
+    except Exception:
+        logger.warning("Smartcar diagnostic test failed with an unexpected provider error")
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "smartcar_test": "fail",
+                "smartcar_message": "Smartcar test failed. Check the app log for provider details.",
             },
         )
 
@@ -532,17 +542,17 @@ def test_fordpass_api() -> RedirectResponse:
         return _diagnostics_redirect(
             "api-tests",
             {
-                "fordpass_test": "fail",
-                "fordpass_message": "FordPass did not return an odometer reading.",
+                "smartcar_test": "fail",
+                "smartcar_message": "Smartcar did not return an odometer reading.",
             },
         )
 
     return _diagnostics_redirect(
         "api-tests",
         {
-            "fordpass_test": "pass",
-            "fordpass_message": "FordPass returned an odometer reading.",
-            "fordpass_value": f"{odometer:.1f} miles",
+            "smartcar_test": "pass",
+            "smartcar_message": "Smartcar returned an odometer reading.",
+            "smartcar_value": f"{odometer:.1f} miles",
         },
     )
 

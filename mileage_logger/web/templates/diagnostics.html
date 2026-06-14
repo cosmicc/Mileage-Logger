@@ -70,28 +70,42 @@
   <div class="panel">
     <div class="panel-toolbar">
       <div>
-        <h2>FordPass API</h2>
+        <h2>Smartcar API</h2>
         <p class="panel-meta">Odometer connectivity test.</p>
       </div>
-      <form method="post" action="/diagnostics/test/fordpass">
+      <form method="post" action="/diagnostics/test/smartcar">
         <button type="submit" class="small-button">Test</button>
       </form>
     </div>
     <dl class="diagnostic-list">
       <dt>Enabled</dt>
-      <dd><span class="pill {{ 'good' if settings.fordpass_enabled else 'muted' }}">{{ "Yes" if settings.fordpass_enabled else "No" }}</span></dd>
-      <dt>Username</dt>
-      <dd><span class="pill {{ 'good' if settings.fordpass_username else 'muted' }}">{{ "Set" if settings.fordpass_username else "Missing" }}</span></dd>
-      <dt>Password</dt>
-      <dd><span class="pill {{ 'good' if settings.fordpass_password else 'muted' }}">{{ "Set" if settings.fordpass_password else "Missing" }}</span></dd>
-      <dt>VIN</dt>
-      <dd><span class="pill {{ 'good' if settings.fordpass_vin else 'muted' }}">{{ "Set" if settings.fordpass_vin else "Missing" }}</span></dd>
+      <dd><span class="pill {{ 'good' if settings.smartcar_enabled else 'muted' }}">{{ "Yes" if settings.smartcar_enabled else "No" }}</span></dd>
+      <dt>Token Mode</dt>
+      <dd>
+        {% if settings.smartcar_access_token %}
+        Static token
+        {% elif settings.smartcar_client_id and settings.smartcar_client_secret %}
+        Client credentials
+        {% else %}
+        Missing
+        {% endif %}
+      </dd>
+      <dt>Access Token</dt>
+      <dd><span class="pill {{ 'good' if settings.smartcar_access_token else 'muted' }}">{{ "Set" if settings.smartcar_access_token else "Missing" }}</span></dd>
+      <dt>Client ID</dt>
+      <dd><span class="pill {{ 'good' if settings.smartcar_client_id else 'muted' }}">{{ "Set" if settings.smartcar_client_id else "Missing" }}</span></dd>
+      <dt>Client Secret</dt>
+      <dd><span class="pill {{ 'good' if settings.smartcar_client_secret else 'muted' }}">{{ "Set" if settings.smartcar_client_secret else "Missing" }}</span></dd>
+      <dt>Vehicle ID</dt>
+      <dd><span class="pill {{ 'good' if settings.smartcar_vehicle_id else 'muted' }}">{{ "Set" if settings.smartcar_vehicle_id else "Auto-detect" }}</span></dd>
+      <dt>Odometer Unit</dt>
+      <dd>{{ settings.smartcar_odometer_unit }}</dd>
       <dt>Test Result</dt>
       <dd>
-        {% if fordpass_test_result %}
-        <span class="pill {{ 'good' if fordpass_test_result.passed else 'bad' }}">{{ "Pass" if fordpass_test_result.passed else "Fail" }}</span>
-        {{ fordpass_test_result.message }}
-        {% if fordpass_test_result.value %}<span class="diagnostic-value">{{ fordpass_test_result.value }}</span>{% endif %}
+        {% if smartcar_test_result %}
+        <span class="pill {{ 'good' if smartcar_test_result.passed else 'bad' }}">{{ "Pass" if smartcar_test_result.passed else "Fail" }}</span>
+        {{ smartcar_test_result.message }}
+        {% if smartcar_test_result.value %}<span class="diagnostic-value">{{ smartcar_test_result.value }}</span>{% endif %}
         {% else %}
         Not run
         {% endif %}

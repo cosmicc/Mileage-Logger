@@ -16,25 +16,28 @@ from mileage_logger.models import (
     TripProcessingCheckpoint,
     normalize_location_name,
 )
-from mileage_logger.services.fordpass import current_odometer_miles
+from mileage_logger.services.smartcar import current_odometer_miles
 from mileage_logger.services.timezone import datetime_to_local_date, local_day_bounds
 
 METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
 AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
-MILEAGE_SOURCE_FORDPASS_ODOMETER = "fordpass_odometer"
+MILEAGE_SOURCE_SMARTCAR_ODOMETER = "smartcar_odometer"
+LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER = "fordpass_odometer"
 MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"
 MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"
 MILEAGE_SOURCE_MANUAL = "manual"
-ODOMETER_SOURCE_FORDPASS = "fordpass"
+ODOMETER_SOURCE_SMARTCAR = "smartcar"
 ODOMETER_SOURCE_ESTIMATED = "estimated"
 ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 HOME_WAYPOINT_NAME = "Home"
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
-ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
-ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_attempted"
+ODOMETER_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_miles"
+LEGACY_ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
+ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_attempted"
+LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_attempted"
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 
 
@@ -214,13 +217,16 @@ def _append_note(existing_notes: str | None, note: str) -> str:
 
 
 def _payload_odometer_miles(location: OwnTracksLocation) -> Decimal | None:
-    value = (location.raw_payload or {}).get(ODOMETER_PAYLOAD_KEY)
-    if value is None:
-        return None
-    try:
-        return Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-    except (InvalidOperation, ValueError):
-        return None
+    payload = location.raw_payload or {}
+    for key in (ODOMETER_PAYLOAD_KEY, LEGACY_ODOMETER_PAYLOAD_KEY):
+        value = payload.get(key)
+        if value is None:
+            continue
+        try:
+            return Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError):
+            continue
+    return None
 
 
 def _set_payload_odometer_miles(location: OwnTracksLocation, odometer_miles: Decimal) -> None:
@@ -242,19 +248,23 @@ def _odometer_for_transition(transition: WaypointTransition) -> Decimal | None:
     odometer = _payload_odometer_miles(transition.location)
     if odometer is not None:
         return odometer
-    if (transition.location.raw_payload or {}).get(ODOMETER_ATTEMPTED_PAYLOAD_KEY):
+    payload = transition.location.raw_payload or {}
+    if payload.get(ODOMETER_ATTEMPTED_PAYLOAD_KEY) or payload.get(
+        LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY
+    ):
         return None
 
     odometer = current_odometer_miles()
     if odometer is None:
         _set_payload_odometer_attempted(transition.location)
-        log = trip_logger.warning if get_settings().fordpass_enabled else trip_logger.debug
+        settings = get_settings()
+        log = trip_logger.warning if settings.smartcar_enabled else trip_logger.debug
         log(
-            "Odometer unavailable site=%s event=%s captured_at=%s fordpass_enabled=%s",
+            "Odometer unavailable site=%s event=%s captured_at=%s smartcar_enabled=%s",
             transition.site.name,
             transition.event,
             transition.location.captured_at.isoformat(),
-            get_settings().fordpass_enabled,
+            settings.smartcar_enabled,
         )
         return None
 
@@ -343,7 +353,7 @@ def _estimated_odometer_calculation(
             mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=estimated_end,
-            start_odometer_source=ODOMETER_SOURCE_FORDPASS,
+            start_odometer_source=ODOMETER_SOURCE_SMARTCAR,
             end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
         )
 
@@ -358,7 +368,7 @@ def _estimated_odometer_calculation(
             start_odometer_miles=estimated_start,
             end_odometer_miles=end_odometer_miles,
             start_odometer_source=ODOMETER_SOURCE_ESTIMATED,
-            end_odometer_source=ODOMETER_SOURCE_FORDPASS,
+            end_odometer_source=ODOMETER_SOURCE_SMARTCAR,
         )
 
     if odometer_anchor_miles is None:
@@ -391,11 +401,11 @@ def _mileage_calculation(
     if odometer_miles is not None:
         return MileageCalculation(
             miles=odometer_miles,
-            mileage_source=MILEAGE_SOURCE_FORDPASS_ODOMETER,
+            mileage_source=MILEAGE_SOURCE_SMARTCAR_ODOMETER,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=end_odometer_miles,
-            start_odometer_source=ODOMETER_SOURCE_FORDPASS,
-            end_odometer_source=ODOMETER_SOURCE_FORDPASS,
+            start_odometer_source=ODOMETER_SOURCE_SMARTCAR,
+            end_odometer_source=ODOMETER_SOURCE_SMARTCAR,
         )
 
     distance_miles = _distance_estimate_miles(origin, destination)
@@ -595,7 +605,11 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
             .where(Trip.trip_date.in_(source_dates))
             .where(
                 Trip.mileage_source.in_(
-                    [MILEAGE_SOURCE_FORDPASS_ODOMETER, MILEAGE_SOURCE_ESTIMATED_ODOMETER]
+                    [
+                        MILEAGE_SOURCE_SMARTCAR_ODOMETER,
+                        LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
+                        MILEAGE_SOURCE_ESTIMATED_ODOMETER,
+                    ]
                 )
             )
         )

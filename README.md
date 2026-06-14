@@ -12,7 +12,7 @@ monthly reimbursement PDF logs.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
 - OwnTracks waypoint transition model used to turn leave/enter events into trips.
-- Optional FordPass odometer lookup for actual trip mileage.
+- Optional Smartcar odometer lookup for actual trip mileage.
 - Manual review for generated waypoint names and trip mileage.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
@@ -167,7 +167,7 @@ The server can run on UTC; app day/month selection, dashboard time, and gas snap
 
 Generated mileage uses this order:
 
-1. FordPass odometer delta when `FORDPASS_ENABLED=true` and both endpoint readings are available.
+1. Smartcar odometer delta when `SMARTCAR_ENABLED=true` and both endpoint readings are available.
 2. Estimated start/end odometer values using this trip's waypoint distance and any available
    odometer anchor.
 3. Waypoint-to-waypoint distance when no odometer anchor is available.
@@ -176,26 +176,37 @@ Because OwnTracks is only sending waypoint events, there is no full GPS path to 
 trip's miles on the `Trips` page when the generated mileage needs correction. Manual corrections
 apply only to that trip because the same waypoint pair can have different real-world mileage.
 
-FordPass setup uses the `fordpass` Python package. Set these in `.env` or Docker when you want
-odometer-based mileage:
+Smartcar setup uses direct HTTPS API requests. You can either set a ready-to-use API access token
+or set Smartcar client credentials so the app can request short-lived tokens from the Smartcar
+token endpoint. Set these in `.env` or Docker when you want odometer-based mileage:
 
 ```env
-FORDPASS_ENABLED=true
-FORDPASS_USERNAME=your-fordpass-email
-FORDPASS_PASSWORD=your-fordpass-password
-FORDPASS_VIN=your-maverick-vin
-FORDPASS_ODOMETER_UNIT=km
-FORDPASS_RETRY_ATTEMPTS=3
-FORDPASS_RETRY_DELAY_SECONDS=2
+SMARTCAR_ENABLED=true
+SMARTCAR_ACCESS_TOKEN=your-smartcar-api-access-token
+SMARTCAR_CLIENT_ID=your-smartcar-client-id
+SMARTCAR_CLIENT_SECRET=your-smartcar-client-secret
+SMARTCAR_TOKEN_URL=https://iam.smartcar.com/oauth2/token
+SMARTCAR_SCOPE=read_odometer
+SMARTCAR_VEHICLE_ID=optional-smartcar-vehicle-id
+SMARTCAR_API_BASE_URL=https://api.smartcar.com/v2.0
+SMARTCAR_ODOMETER_UNIT=km
+SMARTCAR_TIMEOUT_SECONDS=20
+SMARTCAR_RETRY_ATTEMPTS=3
+SMARTCAR_RETRY_DELAY_SECONDS=2
+SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS=3600
 ```
 
-The app stores start/end odometer readings on generated trip rows only. `FORDPASS_ODOMETER_UNIT`
-is the raw unit returned by FordPass before conversion to report miles; use `km` unless your
-account returns miles.
+The app stores start/end odometer readings on generated trip rows only. `SMARTCAR_ODOMETER_UNIT`
+is the raw unit returned by Smartcar before conversion to report miles; Smartcar v2 odometer values
+default to kilometers. If `SMARTCAR_VEHICLE_ID` is blank, the app calls Smartcar's vehicles endpoint
+and uses the first connected vehicle. The connected vehicle must have the `read_odometer`
+permission. If Smartcar rejects authentication or permissions, automatic odometer reads pause for
+`SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS` so the background processor does not keep retrying a bad or
+expired token every cycle. The Diagnostics page test button bypasses that pause for manual retests.
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
 short interval and finalizes completed local days. At the start of each new month, old location
-points, trips, and raw gas snapshots are removed so only the current month remains. Waypoints are
+points and raw gas snapshots are removed so only the current month remains. Trips and waypoints are
 not reset.
 
 Useful Docker environment options:
@@ -206,7 +217,7 @@ OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
-FORDPASS_ENABLED=false
+SMARTCAR_ENABLED=false
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
