@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -7,6 +8,9 @@ from mileage_logger.config import Settings, get_settings
 from mileage_logger.services.timezone import local_timezone
 
 TRIP_CALCULATION_LOGGER = "mileage_logger.trip_calculation"
+SENSITIVE_QUERY_VALUE_RE = re.compile(
+    r"(?i)(\b(?:api_key|apikey|access_token|refresh_token|token|client_secret|password)=)([^&\s\"']+)"
+)
 LOG_LEVEL_VALUES = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -14,14 +18,19 @@ LOG_LEVEL_VALUES = {
 }
 
 
+def redact_sensitive_text(value: str) -> str:
+    return SENSITIVE_QUERY_VALUE_RE.sub(r"\1***", value)
+
+
 class LocalTimezoneFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         formatted = super().format(record)
         if "\n" not in formatted:
-            return formatted
+            return redact_sensitive_text(formatted)
         line_prefix = f"{self.formatTime(record, self.datefmt)} {record.levelname} [{record.name}] "
         lines = formatted.splitlines()
-        return "\n".join([lines[0], *(f"{line_prefix}{line}" for line in lines[1:])])
+        prefixed = "\n".join([lines[0], *(f"{line_prefix}{line}" for line in lines[1:])])
+        return redact_sensitive_text(prefixed)
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         value = datetime.fromtimestamp(record.created, tz=local_timezone())
@@ -69,6 +78,8 @@ def configure_logging(process_name: str) -> Path:
 
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
+    logging.getLogger("httpx").setLevel(max(level, logging.WARNING))
+    logging.getLogger("httpcore").setLevel(max(level, logging.WARNING))
 
     marker = f"mileage_logger_{process_name}_file"
     formatter = LocalTimezoneFormatter(

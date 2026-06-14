@@ -4,11 +4,18 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from math import asin, cos, radians, sin, sqrt
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
-from mileage_logger.models import OwnTracksLocation, Site, Trip, normalize_location_name
+from mileage_logger.models import (
+    AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+    OwnTracksLocation,
+    Site,
+    Trip,
+    TripProcessingCheckpoint,
+    normalize_location_name,
+)
 from mileage_logger.services.fordpass import current_odometer_miles
 from mileage_logger.services.timezone import datetime_to_local_date, local_day_bounds
 
@@ -421,7 +428,39 @@ def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decim
     return miles < get_settings().min_trip_miles
 
 
-def _add_trip(
+def _apply_trip_values(
+    trip: Trip,
+    *,
+    trip_date: date,
+    origin: Site,
+    destination: Site,
+    started_at: datetime,
+    ended_at: datetime,
+    calculation: MileageCalculation,
+    notes: str,
+) -> None:
+    trip.trip_date = trip_date
+    trip.origin_site_id = origin.id
+    trip.destination_site_id = destination.id
+    trip.started_at = started_at
+    trip.ended_at = ended_at
+    trip.start_latitude = _site_latitude(origin)
+    trip.start_longitude = _site_longitude(origin)
+    trip.end_latitude = _site_latitude(destination)
+    trip.end_longitude = _site_longitude(destination)
+    trip.origin_name = origin.name
+    trip.destination_name = destination.name
+    trip.miles = calculation.miles
+    trip.start_odometer_miles = calculation.start_odometer_miles
+    trip.end_odometer_miles = calculation.end_odometer_miles
+    trip.start_odometer_source = calculation.start_odometer_source
+    trip.end_odometer_source = calculation.end_odometer_source
+    trip.mileage_source = calculation.mileage_source
+    trip.source = AUTO_TRIP_SOURCE
+    trip.notes = notes
+
+
+def _add_or_update_trip(
     db: Session,
     generated: list[Trip],
     preserved_trips: list[Trip],
@@ -491,7 +530,11 @@ def _add_trip(
     elif calculation.mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE:
         notes = _append_note(notes, "Used waypoint distance because odometer data was unavailable.")
 
-    if _should_skip_for_minimum_miles(origin, destination, calculation.miles):
+    if existing_auto_trip is None and _should_skip_for_minimum_miles(
+        origin,
+        destination,
+        calculation.miles,
+    ):
         trip_logger.debug(
             "trip skipped reason=below_minimum origin=%s destination=%s miles=%s",
             origin.name,
@@ -500,33 +543,31 @@ def _add_trip(
         )
         return None
 
-    trip = Trip(
+    if existing_auto_trip is None:
+        trip = Trip()
+        db.add(trip)
+        action = "created"
+    else:
+        trip = existing_auto_trip
+        action = "updated"
+
+    _apply_trip_values(
+        trip,
         trip_date=trip_date,
-        origin_site_id=origin.id,
-        destination_site_id=destination.id,
+        origin=origin,
+        destination=destination,
         started_at=started_at,
         ended_at=ended_at,
-        start_latitude=_site_latitude(origin),
-        start_longitude=_site_longitude(origin),
-        end_latitude=_site_latitude(destination),
-        end_longitude=_site_longitude(destination),
-        origin_name=origin.name,
-        destination_name=destination.name,
-        miles=calculation.miles,
-        start_odometer_miles=calculation.start_odometer_miles,
-        end_odometer_miles=calculation.end_odometer_miles,
-        start_odometer_source=calculation.start_odometer_source,
-        end_odometer_source=calculation.end_odometer_source,
-        mileage_source=calculation.mileage_source,
-        source=AUTO_TRIP_SOURCE,
+        calculation=calculation,
         notes=notes,
     )
-    db.add(trip)
+    existing_auto_trips[trip_key] = trip
     generated.append(trip)
     trip_logger.info(
-        "trip created date=%s origin=%s destination=%s miles=%s source=%s "
+        "trip %s date=%s origin=%s destination=%s miles=%s source=%s "
         "start_odometer=%s start_odometer_source=%s end_odometer=%s "
         "end_odometer_source=%s inferred_leave=%s started_at=%s ended_at=%s",
+        action,
         trip_date.isoformat(),
         origin.name,
         destination.name,
@@ -567,11 +608,22 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
 
 
 def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal | None:
-    return db.scalar(
+    trip_odometer = db.scalar(
         select(Trip.end_odometer_miles)
         .where(Trip.ended_at < before_datetime)
         .where(Trip.end_odometer_miles.is_not(None))
         .order_by(Trip.ended_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+    if trip_odometer is not None:
+        return trip_odometer
+
+    return db.scalar(
+        select(TripProcessingCheckpoint.odometer_anchor_miles)
+        .where(TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
+        .where(TripProcessingCheckpoint.odometer_anchor_miles.is_not(None))
+        .where(TripProcessingCheckpoint.odometer_anchor_recorded_at <= before_datetime)
+        .order_by(TripProcessingCheckpoint.updated_at.desc(), TripProcessingCheckpoint.id.desc())
         .limit(1)
     )
 
@@ -607,19 +659,6 @@ def generate_trips(
         {datetime_to_local_date(event.location.captured_at) for event in transitions}
     )
     existing_auto_trips = _existing_auto_trips_for_dates(db, source_dates)
-    delete_result = db.execute(
-        delete(Trip)
-        .where(Trip.source == AUTO_TRIP_SOURCE)
-        .where(Trip.trip_date.in_(source_dates))
-    )
-    deleted = delete_result.rowcount or 0
-    if deleted:
-        trip_logger.info(
-            "Deleted existing auto trips before regeneration count=%s dates=%s",
-            deleted,
-            ",".join(day.isoformat() for day in source_dates),
-        )
-
     home_site = _home_site(sites)
     pending_leave: WaypointTransition | None = None
     last_arrival: WaypointTransition | None = None
@@ -634,7 +673,7 @@ def generate_trips(
 
         end_odometer_miles = _odometer_for_transition(transition)
         if pending_leave is not None:
-            trip = _add_trip(
+            trip = _add_or_update_trip(
                 db,
                 generated,
                 preserved_trips,
@@ -649,7 +688,7 @@ def generate_trips(
                 odometer_anchor_miles=odometer_anchor_miles,
             )
         elif last_arrival is not None and last_arrival.site.id != transition.site.id:
-            trip = _add_trip(
+            trip = _add_or_update_trip(
                 db,
                 generated,
                 preserved_trips,
@@ -664,7 +703,7 @@ def generate_trips(
                 odometer_anchor_miles=odometer_anchor_miles,
             )
         elif last_arrival is None and home_site is not None and home_site.id != transition.site.id:
-            trip = _add_trip(
+            trip = _add_or_update_trip(
                 db,
                 generated,
                 preserved_trips,

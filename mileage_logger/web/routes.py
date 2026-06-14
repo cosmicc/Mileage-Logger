@@ -2,20 +2,21 @@ import logging
 import re
 from calendar import month_name
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from math import ceil
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
+from mileage_logger.logging_config import redact_sensitive_text
 from mileage_logger.models import (
     GasPriceSnapshot,
     MonthlyGasPrice,
@@ -24,7 +25,9 @@ from mileage_logger.models import (
     Trip,
 )
 from mileage_logger.services.diagnostics import paginated_owntracks_entries
+from mileage_logger.services.fordpass import current_odometer_miles
 from mileage_logger.services.gas_prices import (
+    EiaSeriesProvider,
     GasPriceUnavailable,
     get_or_create_monthly_price,
     refresh_current_monthly_price,
@@ -98,6 +101,17 @@ class LogLine:
     css_class: str
 
 
+@dataclass(frozen=True)
+class ApiTestResult:
+    status: str
+    message: str
+    value: str = ""
+
+    @property
+    def passed(self) -> bool:
+        return self.status == "pass"
+
+
 def _current_year_month() -> tuple[int, int]:
     today = local_today()
     return today.year, today.month
@@ -137,6 +151,44 @@ def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGas
         return None, f"Could not load gas price: {exc}"
 
 
+def _human_duration_since(value: datetime | None, *, now: datetime | None = None) -> str:
+    if value is None:
+        return "Never"
+    current_dt = now or datetime.now(UTC)
+    elapsed_seconds = int((datetime_to_utc(current_dt) - datetime_to_utc(value)).total_seconds())
+    if elapsed_seconds <= 5:
+        return "just now"
+
+    units = (
+        ("day", 86_400),
+        ("hour", 3_600),
+        ("minute", 60),
+    )
+    for label, unit_seconds in units:
+        count = elapsed_seconds // unit_seconds
+        if count >= 1:
+            suffix = "" if count == 1 else "s"
+            return f"{count} {label}{suffix} ago"
+    return f"{elapsed_seconds} seconds ago"
+
+
+def _api_test_result(
+    status: str | None,
+    message: str | None,
+    value: str | None,
+) -> ApiTestResult | None:
+    if status not in {"pass", "fail"}:
+        return None
+    cleaned_message = (message or "").strip()[:300]
+    cleaned_value = (value or "").strip()[:120]
+    return ApiTestResult(status=status, message=cleaned_message, value=cleaned_value)
+
+
+def _diagnostics_redirect(fragment: str, params: dict[str, str]) -> RedirectResponse:
+    query = urlencode(params)
+    return RedirectResponse(url=f"/diagnostics?{query}#{fragment}", status_code=303)
+
+
 def _log_line_is_visible(line: str, min_level: int) -> bool:
     match = LOG_LINE_LEVEL_RE.search(line)
     if match is None:
@@ -165,7 +217,9 @@ def _tail_file(path: Path, max_lines: int = 200, log_level: str = "info") -> lis
         text = file.read().decode("utf-8", errors="replace")
     min_level = LOG_LEVEL_VALUES[log_level]
     visible_lines = [
-        line for line in text.splitlines() if _log_line_is_visible(line, min_level)
+        redact_sensitive_text(line)
+        for line in text.splitlines()
+        if _log_line_is_visible(line, min_level)
     ]
     return [_log_line_entry(line) for line in reversed(visible_lines[-max_lines:])]
 
@@ -400,12 +454,21 @@ def refresh_gas_price_form(
 def diagnostics(
     request: Request,
     owntracks_page: int = Query(default=1, ge=1),
+    fordpass_test: str | None = Query(default=None),
+    fordpass_message: str | None = Query(default=None),
+    fordpass_value: str | None = Query(default=None),
+    eia_test: str | None = Query(default=None),
+    eia_message: str | None = Query(default=None),
+    eia_value: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     settings = get_settings()
     log_dir = Path(settings.log_dir)
     latest_location = db.scalar(
         select(OwnTracksLocation).order_by(OwnTracksLocation.captured_at.desc()).limit(1)
+    )
+    latest_received_location = db.scalar(
+        select(OwnTracksLocation).order_by(OwnTracksLocation.received_at.desc()).limit(1)
     )
     latest_snapshot = db.scalar(
         select(GasPriceSnapshot).order_by(GasPriceSnapshot.observed_on.desc()).limit(1)
@@ -428,25 +491,107 @@ def diagnostics(
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,
             "gas_snapshot_count": db.scalar(select(func.count(GasPriceSnapshot.id))) or 0,
             "latest_location": latest_location,
+            "last_owntracks_received_at": (
+                latest_received_location.received_at if latest_received_location else None
+            ),
+            "last_owntracks_received_age": _human_duration_since(
+                latest_received_location.received_at if latest_received_location else None
+            ),
             "latest_snapshot": latest_snapshot,
             "latest_monthly_gas": latest_monthly_gas,
             "latest_odometer": latest_odometer,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
+            "fordpass_test_result": _api_test_result(
+                fordpass_test,
+                fordpass_message,
+                fordpass_value,
+            ),
+            "eia_test_result": _api_test_result(eia_test, eia_message, eia_value),
+        },
+    )
+
+
+@router.post("/diagnostics/test/fordpass")
+def test_fordpass_api() -> RedirectResponse:
+    settings = get_settings()
+    try:
+        odometer = current_odometer_miles(settings)
+    except Exception:
+        logger.warning("FordPass diagnostic test failed with an unexpected provider error")
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "fordpass_test": "fail",
+                "fordpass_message": "FordPass test failed. Check the app log for provider details.",
+            },
+        )
+
+    if odometer is None:
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "fordpass_test": "fail",
+                "fordpass_message": "FordPass did not return an odometer reading.",
+            },
+        )
+
+    return _diagnostics_redirect(
+        "api-tests",
+        {
+            "fordpass_test": "pass",
+            "fordpass_message": "FordPass returned an odometer reading.",
+            "fordpass_value": f"{odometer:.1f} miles",
+        },
+    )
+
+
+@router.post("/diagnostics/test/eia")
+def test_eia_api() -> RedirectResponse:
+    settings = get_settings()
+    try:
+        reading = EiaSeriesProvider().current_regular_price(settings.gas_price_state)
+    except GasPriceUnavailable as exc:
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "eia_test": "fail",
+                "eia_message": str(exc),
+            },
+        )
+    except Exception:
+        logger.warning("EIA diagnostic test failed with an unexpected provider error")
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "eia_test": "fail",
+                "eia_message": "EIA test failed. Check the API key, series ID, and app log.",
+            },
+        )
+
+    return _diagnostics_redirect(
+        "api-tests",
+        {
+            "eia_test": "pass",
+            "eia_message": "EIA returned a current regular gas price reading.",
+            "eia_value": f"${reading.price_per_gallon:.3f} on {reading.observed_on}",
         },
     )
 
 
 @router.get("/diagnostics/logs/app")
-def download_app_log() -> FileResponse:
+def download_app_log() -> Response:
     log_path = Path(get_settings().log_dir) / "app.log"
     if not log_path.exists():
         raise HTTPException(status_code=404, detail="App log not found")
-    return FileResponse(
-        log_path,
-        media_type="text/plain",
-        filename="app.log",
+    return Response(
+        content=redact_sensitive_text(log_path.read_text(encoding="utf-8", errors="replace")),
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="app.log"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from mileage_logger.models import GasPriceSnapshot, OwnTracksLocation, Trip
+from mileage_logger.models import GasPriceSnapshot, OwnTracksLocation
 from mileage_logger.services.timezone import datetime_to_local, local_day_bounds
 
 logger = logging.getLogger(__name__)
@@ -41,11 +41,6 @@ def reset_previous_month_data(
         .where(OwnTracksLocation.captured_at < month_start_dt)
         .execution_options(synchronize_session=False)
     )
-    trip_result = db.execute(
-        delete(Trip)
-        .where(Trip.trip_date < month_start_date)
-        .execution_options(synchronize_session=False)
-    )
     gas_snapshot_result = db.execute(
         delete(GasPriceSnapshot)
         .where(GasPriceSnapshot.observed_on < month_start_date)
@@ -55,7 +50,7 @@ def reset_previous_month_data(
 
     result = MonthlyResetResult(
         location_points=_rowcount(location_result.rowcount),
-        trips=_rowcount(trip_result.rowcount),
+        trips=0,
         gas_snapshots=_rowcount(gas_snapshot_result.rowcount),
     )
     if result.total:

@@ -8,9 +8,14 @@ from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
 from mileage_logger.database import SessionLocal
-from mileage_logger.models import OwnTracksLocation
+from mileage_logger.models import (
+    AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+    OwnTracksLocation,
+    Trip,
+    TripProcessingCheckpoint,
+)
+from mileage_logger.services.fordpass import current_odometer_miles
 from mileage_logger.services.mileage import (
-    date_bounds,
     generate_trips,
 )
 from mileage_logger.services.retention import MonthlyResetResult, reset_previous_month_data
@@ -26,26 +31,68 @@ class TripProcessingResult:
     generated: int
     monthly_reset: MonthlyResetResult
     processed_dates: tuple[date, ...]
+    processed_location_count: int = 0
+    checkpoint_location_id: int | None = None
 
 
-def _has_owntracks_locations_for_date(db: Session, day: date) -> bool:
-    start_dt, end_dt = date_bounds(day)
-    location_id = db.scalar(
-        select(OwnTracksLocation.id)
-        .where(OwnTracksLocation.captured_at >= start_dt)
-        .where(OwnTracksLocation.captured_at < end_dt)
+def _get_or_create_checkpoint(db: Session) -> TripProcessingCheckpoint:
+    checkpoint = db.scalar(
+        select(TripProcessingCheckpoint).where(
+            TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT
+        )
+    )
+    if checkpoint is not None:
+        return checkpoint
+
+    checkpoint = TripProcessingCheckpoint(name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
+    db.add(checkpoint)
+    db.flush()
+    return checkpoint
+
+
+def _new_locations_after_checkpoint(
+    db: Session,
+    checkpoint: TripProcessingCheckpoint,
+) -> list[OwnTracksLocation]:
+    stmt = select(OwnTracksLocation).order_by(OwnTracksLocation.id.asc())
+    if checkpoint.last_owntracks_location_id is not None:
+        stmt = stmt.where(OwnTracksLocation.id > checkpoint.last_owntracks_location_id)
+    return list(db.scalars(stmt))
+
+
+def _has_any_trip_odometer(db: Session) -> bool:
+    trip_id = db.scalar(
+        select(Trip.id)
+        .where(
+            (Trip.start_odometer_miles.is_not(None))
+            | (Trip.end_odometer_miles.is_not(None))
+        )
         .limit(1)
     )
-    return location_id is not None
+    return trip_id is not None
 
 
-def _oldest_owntracks_date(db: Session) -> date | None:
-    captured_at = db.scalar(
-        select(OwnTracksLocation.captured_at)
-        .order_by(OwnTracksLocation.captured_at.asc())
-        .limit(1)
+def _ensure_initial_odometer_anchor(
+    db: Session,
+    checkpoint: TripProcessingCheckpoint,
+    *,
+    current_dt: datetime,
+) -> None:
+    if checkpoint.odometer_anchor_miles is not None or _has_any_trip_odometer(db):
+        return
+
+    odometer = current_odometer_miles()
+    if odometer is None:
+        trip_logger.debug("Initial FordPass odometer anchor unavailable")
+        return
+
+    checkpoint.odometer_anchor_miles = odometer
+    checkpoint.odometer_anchor_recorded_at = current_dt
+    trip_logger.info(
+        "Saved initial FordPass odometer anchor miles=%s recorded_at=%s",
+        odometer,
+        current_dt.isoformat(),
     )
-    return datetime_to_local_date(captured_at) if captured_at is not None else None
 
 
 def _generate_for_date(
@@ -61,20 +108,13 @@ def _generate_for_date(
     return len(generate_trips(db, day, day, as_of=as_of))
 
 
-def _generate_for_range(
-    db: Session,
-    start_date: date,
-    end_date: date,
-    processed_dates: list[date],
-    *,
-    as_of: datetime,
-) -> int:
-    day = start_date
-    while day <= end_date:
-        if day not in processed_dates:
-            processed_dates.append(day)
-        day += timedelta(days=1)
-    return len(generate_trips(db, start_date, end_date, as_of=as_of))
+def _dates_touched_by_new_locations(locations: list[OwnTracksLocation]) -> set[date]:
+    touched_dates: set[date] = set()
+    for location in locations:
+        location_date = datetime_to_local_date(location.captured_at)
+        touched_dates.add(location_date)
+        touched_dates.add(location_date - timedelta(days=1))
+    return touched_dates
 
 
 def run_automatic_trip_processing(
@@ -89,6 +129,8 @@ def run_automatic_trip_processing(
     generated = 0
     monthly_reset = MonthlyResetResult(location_points=0, trips=0, gas_snapshots=0)
     processed_dates: list[date] = []
+    processed_location_count = 0
+    checkpoint_location_id: int | None = None
 
     with _PROCESSING_LOCK:
         trip_logger.info(
@@ -97,38 +139,47 @@ def run_automatic_trip_processing(
             current_dt.isoformat(),
             finalize_completed_days,
         )
-        monthly_reset = reset_previous_month_data(db, now=current_dt)
-        if touched_date is not None:
-            generated += _generate_for_range(
-                db,
-                touched_date - timedelta(days=1),
-                touched_date,
-                processed_dates,
-                as_of=current_dt,
-            )
-        elif _has_owntracks_locations_for_date(db, today):
-            generated += _generate_for_date(db, today, processed_dates, as_of=current_dt)
+        checkpoint = _get_or_create_checkpoint(db)
+        _ensure_initial_odometer_anchor(db, checkpoint, current_dt=current_dt)
+        checkpoint_location_id = checkpoint.last_owntracks_location_id
 
-        if finalize_completed_days:
-            oldest_date = _oldest_owntracks_date(db)
-            if oldest_date is not None:
-                day = oldest_date
-                while day < today:
-                    generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
-                    day += timedelta(days=1)
+        new_locations = _new_locations_after_checkpoint(db, checkpoint)
+        dates_to_process = _dates_touched_by_new_locations(new_locations)
+        if touched_date is not None:
+            dates_to_process.add(touched_date)
+            dates_to_process.add(touched_date - timedelta(days=1))
+
+        if not finalize_completed_days:
+            dates_to_process = {day for day in dates_to_process if day <= today}
+
+        for day in sorted(dates_to_process):
+            generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
+
+        if new_locations:
+            checkpoint.last_owntracks_location_id = max(location.id for location in new_locations)
+            checkpoint_location_id = checkpoint.last_owntracks_location_id
+            processed_location_count = len(new_locations)
+            db.commit()
+
+        monthly_reset = reset_previous_month_data(db, now=current_dt)
 
     result = TripProcessingResult(
         generated=generated,
         monthly_reset=monthly_reset,
         processed_dates=tuple(processed_dates),
+        processed_location_count=processed_location_count,
+        checkpoint_location_id=checkpoint_location_id,
     )
     trip_logger.info(
         "automatic trip processing complete generated=%s reset_location_points=%s "
-        "reset_trips=%s reset_gas_snapshots=%s dates=%s",
+        "reset_trips=%s reset_gas_snapshots=%s processed_locations=%s checkpoint_location_id=%s "
+        "dates=%s",
         result.generated,
         result.monthly_reset.location_points,
         result.monthly_reset.trips,
         result.monthly_reset.gas_snapshots,
+        result.processed_location_count,
+        result.checkpoint_location_id or "",
         ",".join(day.isoformat() for day in result.processed_dates),
     )
     return result

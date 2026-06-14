@@ -14,7 +14,8 @@ from mileage_logger.services.diagnostics import (
     paginated_owntracks_entries,
     recent_owntracks_entries,
 )
-from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider
+from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
+from mileage_logger.web.routes import _human_duration_since
 
 
 def _session() -> Session:
@@ -125,6 +126,7 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
                 waypoints.append(
                     Site(
                         name=f"Waypoint {index:02d}",
+                        owntracks_region_id=f"region-{index:02d}",
                         latitude=Decimal("42.3314000"),
                         longitude=Decimal("-83.0458000"),
                         radius_m=150,
@@ -149,6 +151,8 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
         assert "Showing 21-40" in response.text
         assert "of 45" in response.text
         assert "Page 2 of 3" in response.text
+        assert "OwnTracks Region ID" not in response.text
+        assert "region-25" not in response.text
         assert "/waypoints?page=1" in response.text
         assert "/waypoints?page=3" in response.text
         assert "Waypoint 25" in response.text
@@ -188,6 +192,7 @@ def test_diagnostics_shows_single_colored_app_log_and_download(
 
         assert response.status_code == 200
         assert "App Log" in response.text
+        assert "Refresh App Log" in response.text
         assert "Trip Calculation Log" not in response.text
         assert "Gas Price Query Log" not in response.text
         assert 'class="log-line log-line-debug"' in response.text
@@ -199,6 +204,119 @@ def test_diagnostics_shows_single_colored_app_log_and_download(
         assert download_response.text == log_text
         assert "attachment" in download_response.headers["content-disposition"]
         assert "app.log" in download_response.headers["content-disposition"]
+        assert download_response.headers["cache-control"] == "no-store"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_app_log_download_redacts_sensitive_query_values(tmp_path, monkeypatch) -> None:
+    log_path = tmp_path / "app.log"
+    log_path.write_text(
+        "2026-06-13 09:00:00 EDT INFO [httpx] GET "
+        "https://api.example.test/path?api_key=secret-value&series=test",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(database_url="sqlite://", log_dir=str(tmp_path)),
+    )
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/diagnostics/logs/app")
+
+        assert response.status_code == 200
+        assert "api_key=***" in response.text
+        assert "secret-value" not in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_human_duration_since_formats_last_received_age() -> None:
+    now = datetime(2026, 6, 14, 12, 0, tzinfo=UTC)
+
+    assert _human_duration_since(now - timedelta(minutes=5), now=now) == "5 minutes ago"
+    assert _human_duration_since(None, now=now) == "Never"
+
+
+def test_diagnostics_shows_last_received_owntracks_age() -> None:
+    client, session_factory = _test_client_session()
+    received_at = datetime.now(UTC) - timedelta(minutes=5)
+    try:
+        with session_factory() as db:
+            db.add(
+                _location(
+                    datetime(2026, 6, 11, 12, 0, tzinfo=UTC),
+                    received_at,
+                    {"_type": "location"},
+                )
+            )
+            db.commit()
+
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        assert "Last OwnTracks Received" in response.text
+        assert "minutes ago" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_fordpass_api_test_button_reports_pass(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            fordpass_enabled=True,
+            fordpass_username="configured",
+            fordpass_password="configured",
+            fordpass_vin="configured",
+        ),
+    )
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.current_odometer_miles",
+        lambda settings: Decimal("12345.600"),
+    )
+    client, _ = _test_client_session()
+    try:
+        response = client.post("/diagnostics/test/fordpass")
+
+        assert response.status_code == 200
+        assert "FordPass API" in response.text
+        assert "Pass" in response.text
+        assert "12345.6 miles" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_eia_api_test_button_reports_pass(monkeypatch) -> None:
+    class FakeEiaProvider:
+        def current_regular_price(self, state: str) -> GasPriceReading:
+            return GasPriceReading(
+                state=state,
+                grade="regular",
+                price_per_gallon=Decimal("3.250"),
+                source="eia_series",
+                source_detail="test",
+                observed_on=datetime(2026, 6, 14, tzinfo=UTC).date(),
+            )
+
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            eia_api_key="configured",
+            eia_series_id="PET.EMM_EPMR_PTE_SMI_DPG.W",
+        ),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.EiaSeriesProvider", FakeEiaProvider)
+    client, _ = _test_client_session()
+    try:
+        response = client.post("/diagnostics/test/eia")
+
+        assert response.status_code == 200
+        assert "EIA API" in response.text
+        assert "Pass" in response.text
+        assert "$3.250" in response.text
     finally:
         app.dependency_overrides.clear()
 

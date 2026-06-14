@@ -5,6 +5,7 @@ from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 UNKNOWN_LOCATION_NAME = "Unknown"
+AUTOMATIC_TRIP_PROCESSING_CHECKPOINT = "automatic_trip_processing"
 
 
 def normalize_location_name(value: str | None) -> str:
@@ -110,6 +111,23 @@ class Trip(Base):
         if self.destination_site is not None:
             return self.destination_site.name
         return UNKNOWN_LOCATION_NAME
+
+
+class TripProcessingCheckpoint(Base):
+    __tablename__ = "trip_processing_checkpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    last_owntracks_location_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    odometer_anchor_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    odometer_anchor_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
 
 
 class GasPriceSnapshot(Base):

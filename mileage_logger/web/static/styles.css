@@ -507,6 +507,12 @@ td input[type="text"] {
   color: var(--muted-text);
 }
 
+.pill.bad {
+  border: 1px solid rgba(239, 111, 108, 0.3);
+  background: rgba(239, 111, 108, 0.14);
+  color: #fca5a5;
+}
+
 .diagnostics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -580,6 +586,13 @@ td input[type="text"] {
   overflow-wrap: anywhere;
 }
 
+.diagnostic-value {
+  display: block;
+  margin-top: 5px;
+  color: var(--text);
+  font-weight: 800;
+}
+
 .payload-details summary {
   cursor: pointer;
   color: var(--accent);
@@ -621,8 +634,12 @@ td input[type="text"] {
   color: var(--muted);
 }
 
-.log-line-info {
+.log-line-debug {
   color: #86efac;
+}
+
+.log-line-info {
+  color: #f8fafc;
 }
 
 .log-line-warning {
@@ -635,6 +652,8 @@ td input[type="text"] {
 
 .log-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
   margin-top: 12px;
 }

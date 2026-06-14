@@ -57,6 +57,27 @@ def test_formatter_adds_level_to_exception_traceback_lines() -> None:
     assert all(" ERROR [mileage_logger.test] " in line for line in lines)
 
 
+def test_formatter_redacts_sensitive_query_values() -> None:
+    formatter = LocalTimezoneFormatter(
+        "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S %Z",
+    )
+    record = logging.LogRecord(
+        "mileage_logger.test",
+        logging.INFO,
+        __file__,
+        1,
+        "GET https://api.example.test/path?api_key=secret-value&series=test",
+        (),
+        None,
+    )
+
+    formatted = formatter.format(record)
+
+    assert "api_key=***" in formatted
+    assert "secret-value" not in formatted
+
+
 def test_tail_file_returns_level_classes_newest_first(tmp_path) -> None:
     log_path = tmp_path / "app.log"
     log_path.write_text(
@@ -80,3 +101,17 @@ def test_tail_file_returns_level_classes_newest_first(tmp_path) -> None:
         "log-line-info",
         "log-line-debug",
     ]
+
+
+def test_tail_file_redacts_sensitive_query_values(tmp_path) -> None:
+    log_path = tmp_path / "app.log"
+    log_path.write_text(
+        "2026-06-13 09:00:00 EDT INFO [httpx] GET "
+        "https://api.example.test/path?api_key=secret-value&series=test",
+        encoding="utf-8",
+    )
+
+    entries = _tail_file(log_path, max_lines=10, log_level="debug")
+
+    assert entries[0].text.endswith("api_key=***&series=test")
+    assert "secret-value" not in entries[0].text

@@ -4,7 +4,14 @@ from decimal import Decimal
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from mileage_logger.models import Base, GasPriceSnapshot, OwnTracksLocation, Site, Trip
+from mileage_logger.models import (
+    Base,
+    GasPriceSnapshot,
+    OwnTracksLocation,
+    Site,
+    Trip,
+    TripProcessingCheckpoint,
+)
 from mileage_logger.services.mileage import (
     MANUAL_TRIP_SOURCE,
     MILEAGE_SOURCE_ESTIMATED_ODOMETER,
@@ -176,15 +183,19 @@ def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
         ]
     )
     db.commit()
-    generate_trips(db, day.date(), day.date())
+    first_generation = generate_trips(db, day.date(), day.date())
+    first_trip_id = first_generation[0].id
     monkeypatch.setattr(
         "mileage_logger.services.mileage.current_odometer_miles",
         lambda: Decimal("2000.000"),
     )
 
     regenerated = generate_trips(db, day.date(), day.date())
+    all_trips = list(db.scalars(select(Trip).order_by(Trip.id.asc())))
 
     assert len(regenerated) == 1
+    assert regenerated[0].id == first_trip_id
+    assert [trip.id for trip in all_trips] == [first_trip_id]
     assert regenerated[0].miles == Decimal("6.50")
     assert regenerated[0].start_odometer_miles == Decimal("1000.000")
     assert regenerated[0].end_odometer_miles == Decimal("1006.500")
@@ -494,14 +505,17 @@ def test_reset_previous_month_data_keeps_current_month_and_waypoints() -> None:
     result = reset_previous_month_data(db, now=current_month)
 
     remaining_locations = list(db.scalars(select(OwnTracksLocation)))
-    remaining_trips = list(db.scalars(select(Trip)))
+    remaining_trips = list(db.scalars(select(Trip).order_by(Trip.trip_date.asc())))
     remaining_snapshots = list(db.scalars(select(GasPriceSnapshot)))
     assert result.location_points == 1
-    assert result.trips == 1
+    assert result.trips == 0
     assert result.gas_snapshots == 1
     assert db.scalar(select(Site).where(Site.id == site.id)) is not None
     assert [location.captured_at for location in remaining_locations] == [_naive(current_month)]
-    assert [trip.trip_date for trip in remaining_trips] == [date(2026, 6, 1)]
+    assert [trip.trip_date for trip in remaining_trips] == [
+        date(2026, 5, 31),
+        date(2026, 6, 1),
+    ]
     assert [snapshot.observed_on for snapshot in remaining_snapshots] == [date(2026, 6, 1)]
 
 
@@ -535,6 +549,51 @@ def test_automatic_trip_processing_finalizes_completed_days_without_daily_purge(
         _naive(completed_day + timedelta(minutes=30)),
         _naive(current_day),
     ]
+
+
+def test_automatic_trip_processing_uses_checkpoint_without_duplicate_trips() -> None:
+    db = _session()
+    day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _transition(day + timedelta(minutes=30), client, "enter"),
+        ]
+    )
+    db.commit()
+
+    first_result = run_automatic_trip_processing(db, now=day + timedelta(hours=1))
+    second_result = run_automatic_trip_processing(db, now=day + timedelta(hours=2))
+
+    trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert first_result.processed_location_count == 2
+    assert second_result.processed_location_count == 0
+    assert len(trips) == 1
+    assert checkpoint is not None
+    latest_location_id = max(location.id for location in db.scalars(select(OwnTracksLocation)))
+    assert checkpoint.last_owntracks_location_id == latest_location_id
+
+
+def test_automatic_trip_processing_saves_initial_fordpass_odometer_anchor(monkeypatch) -> None:
+    db = _session()
+    current_time = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    monkeypatch.setattr(
+        "mileage_logger.services.trip_processor.current_odometer_miles",
+        lambda: Decimal("12345.678"),
+    )
+
+    result = run_automatic_trip_processing(db, now=current_time)
+
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert result.generated == 0
+    assert checkpoint is not None
+    assert checkpoint.odometer_anchor_miles == Decimal("12345.678")
+    assert checkpoint.odometer_anchor_recorded_at == _naive(current_time)
 
 
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:
@@ -597,9 +656,11 @@ def test_automatic_trip_processing_resets_previous_month_after_local_month_start
 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
     remaining_locations = list(db.scalars(select(OwnTracksLocation)))
-    assert result.generated == 0
+    assert result.generated == 1
     assert result.monthly_reset.location_points == 2
-    assert len(trips) == 0
+    assert result.monthly_reset.trips == 0
+    assert len(trips) == 1
+    assert trips[0].trip_date == previous_day.date()
     assert remaining_locations == []
     assert db.scalar(select(Site).where(Site.name == "Client")) is not None
     assert db.scalar(select(Site).where(Site.name == "Home")) is not None

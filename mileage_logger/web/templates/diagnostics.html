@@ -47,6 +47,8 @@
     <dl class="diagnostic-list">
       <dt>Location</dt>
       <dd>{% if latest_location %}{{ latest_location.captured_at|local_datetime }} at {{ latest_location.latitude }}, {{ latest_location.longitude }}{% else %}None{% endif %}</dd>
+      <dt>Last OwnTracks Received</dt>
+      <dd>{% if last_owntracks_received_at %}{{ last_owntracks_received_at|local_datetime }} ({{ last_owntracks_received_age }}){% else %}Never{% endif %}</dd>
       <dt>Gas Snapshot</dt>
       <dd>{% if latest_snapshot %}{{ latest_snapshot.observed_on }} ${{ "%.3f"|format(latest_snapshot.price_per_gallon) }}{% else %}None{% endif %}</dd>
       <dt>Monthly Gas</dt>
@@ -59,6 +61,70 @@
         {{ latest_odometer.position }}
         at {{ latest_odometer.recorded_at|local_datetime }}
         {% else %}None{% endif %}
+      </dd>
+    </dl>
+  </div>
+</section>
+
+<section id="api-tests" class="diagnostics-grid">
+  <div class="panel">
+    <div class="panel-toolbar">
+      <div>
+        <h2>FordPass API</h2>
+        <p class="panel-meta">Odometer connectivity test.</p>
+      </div>
+      <form method="post" action="/diagnostics/test/fordpass">
+        <button type="submit" class="small-button">Test</button>
+      </form>
+    </div>
+    <dl class="diagnostic-list">
+      <dt>Enabled</dt>
+      <dd><span class="pill {{ 'good' if settings.fordpass_enabled else 'muted' }}">{{ "Yes" if settings.fordpass_enabled else "No" }}</span></dd>
+      <dt>Username</dt>
+      <dd><span class="pill {{ 'good' if settings.fordpass_username else 'muted' }}">{{ "Set" if settings.fordpass_username else "Missing" }}</span></dd>
+      <dt>Password</dt>
+      <dd><span class="pill {{ 'good' if settings.fordpass_password else 'muted' }}">{{ "Set" if settings.fordpass_password else "Missing" }}</span></dd>
+      <dt>VIN</dt>
+      <dd><span class="pill {{ 'good' if settings.fordpass_vin else 'muted' }}">{{ "Set" if settings.fordpass_vin else "Missing" }}</span></dd>
+      <dt>Test Result</dt>
+      <dd>
+        {% if fordpass_test_result %}
+        <span class="pill {{ 'good' if fordpass_test_result.passed else 'bad' }}">{{ "Pass" if fordpass_test_result.passed else "Fail" }}</span>
+        {{ fordpass_test_result.message }}
+        {% if fordpass_test_result.value %}<span class="diagnostic-value">{{ fordpass_test_result.value }}</span>{% endif %}
+        {% else %}
+        Not run
+        {% endif %}
+      </dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <div class="panel-toolbar">
+      <div>
+        <h2>EIA API</h2>
+        <p class="panel-meta">Gas price series connectivity test.</p>
+      </div>
+      <form method="post" action="/diagnostics/test/eia">
+        <button type="submit" class="small-button">Test</button>
+      </form>
+    </div>
+    <dl class="diagnostic-list">
+      <dt>API Key</dt>
+      <dd><span class="pill {{ 'good' if settings.eia_api_key else 'muted' }}">{{ "Set" if settings.eia_api_key else "Missing" }}</span></dd>
+      <dt>Series ID</dt>
+      <dd><span class="pill {{ 'good' if settings.eia_series_id else 'muted' }}">{{ settings.eia_series_id if settings.eia_series_id else "Missing" }}</span></dd>
+      <dt>State</dt>
+      <dd>{{ settings.gas_price_state }}</dd>
+      <dt>Test Result</dt>
+      <dd>
+        {% if eia_test_result %}
+        <span class="pill {{ 'good' if eia_test_result.passed else 'bad' }}">{{ "Pass" if eia_test_result.passed else "Fail" }}</span>
+        {{ eia_test_result.message }}
+        {% if eia_test_result.value %}<span class="diagnostic-value">{{ eia_test_result.value }}</span>{% endif %}
+        {% else %}
+        Not run
+        {% endif %}
       </dd>
     </dl>
   </div>
@@ -130,7 +196,7 @@
   </table>
 </section>
 
-<section class="panel log-panel">
+<section id="app-log" class="panel log-panel">
   <div class="panel-toolbar">
     <div>
       <h2>App Log</h2>
@@ -141,6 +207,7 @@
 {% else %}<span class="log-line log-line-debug">No app log entries found.</span>
 {% endfor %}</pre>
   <div class="log-actions">
+    <a class="button-link secondary" href="/diagnostics#app-log">Refresh App Log</a>
     <a class="button-link secondary" href="/diagnostics/logs/app">Download App Log</a>
   </div>
 </section>

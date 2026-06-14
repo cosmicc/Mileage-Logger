@@ -331,7 +331,7 @@ def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> 
         topic=message.identity.topic,
         tracker_id=message.tracker_id,
         captured_at=message.captured_at,
-        received_at=message.captured_at,
+        received_at=datetime.now(UTC),
         latitude=message.latitude,
         longitude=message.longitude,
         accuracy_m=message.accuracy_m,

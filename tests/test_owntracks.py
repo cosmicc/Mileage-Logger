@@ -61,6 +61,7 @@ def test_process_owntracks_waypoint_creates_site() -> None:
 def test_process_owntracks_location_with_region_does_not_create_waypoint() -> None:
     db = _session()
     current_time = datetime.now(UTC)
+    before_receive = datetime.now(UTC)
     payload = {
         "_type": "location",
         "lat": 42.3314,
@@ -70,12 +71,17 @@ def test_process_owntracks_location_with_region_does_not_create_waypoint() -> No
     }
 
     result = process_owntracks_payload(db, json.dumps(payload).encode("utf-8"))
+    after_receive = datetime.now(UTC)
     site = db.scalar(select(Site).where(Site.name == "Client Office"))
+    received_at = result.location.received_at
+    if received_at.tzinfo is None:
+        received_at = received_at.replace(tzinfo=UTC)
 
     assert result.location is not None
     assert site is None
     assert db.scalar(select(OwnTracksLocation.id)) is not None
-    assert result.location.received_at.replace(tzinfo=UTC) == current_time.replace(microsecond=0)
+    assert result.location.captured_at.replace(tzinfo=UTC) == current_time.replace(microsecond=0)
+    assert before_receive <= received_at <= after_receive
 
 
 def test_process_owntracks_payload_automatically_creates_trip() -> None:
