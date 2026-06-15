@@ -24,7 +24,10 @@ from mileage_logger.models import (
     Site,
     Trip,
 )
-from mileage_logger.services.diagnostics import paginated_owntracks_entries
+from mileage_logger.services.diagnostics import (
+    owntracks_movement_diagnostics,
+    paginated_owntracks_entries,
+)
 from mileage_logger.services.gas_prices import (
     EiaSeriesProvider,
     GasPriceUnavailable,
@@ -571,6 +574,7 @@ def diagnostics(
     )
     latest_odometer = _latest_odometer_reading(db)
     owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
+    movement_diagnostics = owntracks_movement_diagnostics(db)
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
@@ -593,6 +597,8 @@ def diagnostics(
             "latest_odometer": latest_odometer,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
+            "movement_state": movement_diagnostics.current_state,
+            "movement_state_changes": movement_diagnostics.state_changes,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
             "smartcar_test_result": _api_test_result(
                 smartcar_test,

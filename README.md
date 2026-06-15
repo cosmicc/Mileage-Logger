@@ -277,12 +277,17 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
+OWNTRACKS_DRIVING_SPEED_MPH=10.0
+OWNTRACKS_DRIVING_WINDOW_MINUTES=10
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
+Diagnostics marks you as driving when recent OwnTracks movement outside saved waypoints is at or
+above `OWNTRACKS_DRIVING_SPEED_MPH`; computed speeds only compare points within
+`OWNTRACKS_DRIVING_WINDOW_MINUTES`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.
 
 ## Workflow

@@ -396,6 +396,8 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
+OWNTRACKS_DRIVING_SPEED_MPH=10.0
+OWNTRACKS_DRIVING_WINDOW_MINUTES=10
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
@@ -404,6 +406,9 @@ SMARTCAR_API_POLLING_ENABLED=false
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
 waypoints. Location `inregions` values are only used to match already-saved waypoints; they do not
 create new waypoints.
+The Diagnostics page marks driving when recent OwnTracks movement outside saved waypoints is at or
+above `OWNTRACKS_DRIVING_SPEED_MPH`; computed speeds only compare points within
+`OWNTRACKS_DRIVING_WINDOW_MINUTES`.
 
 ## Test Ingestion
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added Diagnostics current OwnTracks state detection for inside-waypoint and driving statuses,
+  plus a state-change log limited to waypoint arrivals, waypoint departures, and driving detected.
 - Added a Trips page manual-entry form and trip-date editing so date, origin, destination, and
   distance can be entered or corrected manually.
 - Added a Diagnostics page manual odometer form that stores the current odometer as an audited

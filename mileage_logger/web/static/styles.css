@@ -522,6 +522,12 @@ td input[type="text"] {
   color: var(--muted-text);
 }
 
+.pill.warning {
+  border: 1px solid rgba(226, 173, 69, 0.3);
+  background: rgba(226, 173, 69, 0.14);
+  color: #f1cf88;
+}
+
 .pill.bad {
   border: 1px solid rgba(239, 111, 108, 0.3);
   background: rgba(239, 111, 108, 0.14);

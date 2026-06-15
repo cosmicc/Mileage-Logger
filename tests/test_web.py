@@ -56,12 +56,14 @@ def _location(
     captured_at: datetime,
     received_at: datetime,
     raw_payload: dict,
+    latitude: str = "42.3314000",
+    longitude: str = "-83.0458000",
 ) -> OwnTracksLocation:
     return OwnTracksLocation(
         captured_at=captured_at,
         received_at=received_at,
-        latitude=Decimal("42.3314000"),
-        longitude=Decimal("-83.0458000"),
+        latitude=Decimal(latitude),
+        longitude=Decimal(longitude),
         raw_payload=raw_payload,
     )
 
@@ -265,6 +267,105 @@ def test_diagnostics_shows_last_received_owntracks_age() -> None:
         assert response.status_code == 200
         assert "Last OwnTracks Received" in response.text
         assert "minutes ago" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_shows_current_waypoint_state() -> None:
+    client, session_factory = _test_client_session()
+    arrived_at = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    try:
+        with session_factory() as db:
+            db.add(
+                Site(
+                    name="Client",
+                    owntracks_region_id="client",
+                    latitude=Decimal("42.3314000"),
+                    longitude=Decimal("-83.0458000"),
+                    radius_m=150,
+                )
+            )
+            db.add_all(
+                [
+                    _location(
+                        arrived_at,
+                        arrived_at,
+                        {"_type": "transition", "event": "enter", "desc": "Client"},
+                    ),
+                    _location(
+                        arrived_at + timedelta(minutes=5),
+                        arrived_at + timedelta(minutes=5),
+                        {"_type": "location", "inregions": ["client"]},
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        assert "OwnTracks State" in response.text
+        assert "Inside waypoint" in response.text
+        assert "Client" in response.text
+        assert "Arrived" in response.text
+        assert "OwnTracks State Changes" in response.text
+        assert "Arrived at waypoint" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_shows_driving_state_change_outside_waypoints(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mileage_logger.services.diagnostics.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            owntracks_driving_speed_mph=Decimal("10.0"),
+            owntracks_driving_window_minutes=10,
+        ),
+    )
+    client, session_factory = _test_client_session()
+    start_at = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    try:
+        with session_factory() as db:
+            db.add(
+                Site(
+                    name="Home",
+                    owntracks_region_id="home",
+                    latitude=Decimal("42.3314000"),
+                    longitude=Decimal("-83.0458000"),
+                    radius_m=150,
+                )
+            )
+            db.add_all(
+                [
+                    _location(
+                        start_at,
+                        start_at,
+                        {"_type": "transition", "event": "enter", "desc": "Home"},
+                    ),
+                    _location(
+                        start_at + timedelta(minutes=10),
+                        start_at + timedelta(minutes=10),
+                        {"_type": "transition", "event": "leave", "desc": "Home"},
+                    ),
+                    _location(
+                        start_at + timedelta(minutes=11),
+                        start_at + timedelta(minutes=11),
+                        {"_type": "location", "vel": 40},
+                        latitude="42.3440000",
+                        longitude="-83.0600000",
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        assert "Driving detected" in response.text
+        assert "Left waypoint" in response.text
+        assert "Home" in response.text
+        assert "24.9 mph" in response.text
     finally:
         app.dependency_overrides.clear()
 
