@@ -9,7 +9,14 @@ from starlette.testclient import TestClient
 from mileage_logger.app import app
 from mileage_logger.config import Settings
 from mileage_logger.database import get_db
-from mileage_logger.models import Base, DeletedTrip, OwnTracksLocation, Site, Trip
+from mileage_logger.models import (
+    Base,
+    DeletedTrip,
+    OwnTracksLocation,
+    Site,
+    SmartcarWebhookEvent,
+    Trip,
+)
 from mileage_logger.services.diagnostics import (
     paginated_owntracks_entries,
     recent_owntracks_entries,
@@ -367,6 +374,45 @@ def test_diagnostics_smartcar_api_test_button_reports_auth_failure(monkeypatch) 
         assert "Smartcar API" in response.text
         assert "Fail" in response.text
         assert "Smartcar authentication failed." in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_manual_odometer_form_saves_reading() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        response = client.post(
+            "/diagnostics/odometer",
+            data={"odometer_miles": "12345.678"},
+        )
+
+        assert response.status_code == 200
+        assert "Manual Odometer" in response.text
+        assert "Pass" in response.text
+        assert "12345.7 miles" in response.text
+        assert "Manual" in response.text
+        with session_factory() as db:
+            event = db.scalar(select(SmartcarWebhookEvent))
+            assert event is not None
+            assert event.event_type == "MANUAL_ODOMETER"
+            assert event.odometer_miles == Decimal("12345.678")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        response = client.post(
+            "/diagnostics/odometer",
+            data={"odometer_miles": "0"},
+        )
+
+        assert response.status_code == 200
+        assert "Fail" in response.text
+        assert "Odometer reading must be greater than zero." in response.text
+        with session_factory() as db:
+            assert db.scalar(select(SmartcarWebhookEvent)) is None
     finally:
         app.dependency_overrides.clear()
 

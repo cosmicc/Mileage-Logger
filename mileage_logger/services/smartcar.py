@@ -9,6 +9,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from threading import Lock
 from typing import Any
 from urllib.parse import quote
+from uuid import uuid4
 
 import httpx
 from sqlalchemy import func, select
@@ -38,6 +39,8 @@ SMARTCAR_ONLINE_SIGNAL_CODE = "connectivitystatus-isonline"
 SMARTCAR_NICKNAME_SIGNAL_CODE = "vehicleidentification-nickname"
 SMARTCAR_VIN_SIGNAL_CODE = "vehicleidentification-vin"
 SMARTCAR_FIRMWARE_SIGNAL_CODE = "connectivitysoftware-currentfirmwareversion"
+MANUAL_ODOMETER_EVENT_TYPE = "MANUAL_ODOMETER"
+MANUAL_ODOMETER_SIGNAL_CODE = "manual-odometer"
 
 
 class SmartcarOdometerError(RuntimeError):
@@ -521,6 +524,75 @@ def store_webhook_payload(
         len(event.signal_rows),
     )
     return SmartcarWebhookProcessResult(event=event, created=True)
+
+
+def create_manual_odometer_event(
+    db: Session,
+    odometer_miles: Decimal,
+    *,
+    recorded_at: datetime | None = None,
+) -> SmartcarWebhookEvent:
+    """Store a user-entered odometer reading in the normal odometer event stream."""
+    recorded_dt = recorded_at or datetime.now(UTC)
+    received_dt = datetime.now(UTC)
+    odometer_value = Decimal(str(odometer_miles)).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    event_id = f"manual-odometer-{received_dt:%Y%m%dT%H%M%S%fZ}-{uuid4().hex[:12]}"
+    payload = {
+        "eventId": event_id,
+        "eventType": MANUAL_ODOMETER_EVENT_TYPE,
+        "source": "manual",
+        "odometer": {
+            "value": str(odometer_value),
+            "unit": "mi",
+            "recordedAt": recorded_dt.isoformat(),
+        },
+    }
+    event = SmartcarWebhookEvent(
+        event_id=event_id,
+        event_type=MANUAL_ODOMETER_EVENT_TYPE,
+        delivered_at=recorded_dt,
+        received_at=received_dt,
+        odometer_miles=odometer_value,
+        odometer_raw_value=odometer_value,
+        odometer_unit="mi",
+        odometer_recorded_at=recorded_dt,
+        raw_payload=payload,
+    )
+    event.signal_rows = [
+        SmartcarWebhookSignal(
+            code=MANUAL_ODOMETER_SIGNAL_CODE,
+            name="ManualOdometer",
+            group="Odometer",
+            status="SUCCESS",
+            value=str(odometer_value),
+            unit="mi",
+            retrieved_at=recorded_dt,
+            body={"value": str(odometer_value), "unit": "mi"},
+            meta={"retrievedAt": recorded_dt.isoformat(), "source": "manual"},
+            raw_signal=payload,
+        )
+    ]
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    logger.info(
+        "Stored manual odometer event id=%s event_id=%s odometer_miles=%s recorded_at=%s",
+        event.id,
+        event.event_id,
+        event.odometer_miles,
+        recorded_dt.isoformat(),
+    )
+    return event
+
+
+def odometer_event_source(event: SmartcarWebhookEvent) -> str:
+    """Return the display/source label for a stored odometer event."""
+    if event.event_type == MANUAL_ODOMETER_EVENT_TYPE:
+        return "manual"
+    return "smartcar"
 
 
 def _latest_webhook_odometer_query(at: datetime | None = None) -> Any:

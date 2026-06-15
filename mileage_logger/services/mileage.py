@@ -20,7 +20,7 @@ from mileage_logger.models import (
 from mileage_logger.services.smartcar import (
     current_odometer_miles,
     latest_webhook_odometer_event,
-    latest_webhook_odometer_miles,
+    odometer_event_source,
 )
 from mileage_logger.services.timezone import datetime_to_local_date, local_day_bounds
 
@@ -30,11 +30,13 @@ AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
 MILEAGE_SOURCE_SMARTCAR_ODOMETER = "smartcar_odometer"
 LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER = "fordpass_odometer"
+MILEAGE_SOURCE_MANUAL_ODOMETER = "manual_odometer"
 MILEAGE_SOURCE_OWNTRACKS_PATH = "owntracks_path"
 MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"
 MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"
 MILEAGE_SOURCE_MANUAL = "manual"
 ODOMETER_SOURCE_SMARTCAR = "smartcar"
+ODOMETER_SOURCE_MANUAL = "manual"
 ODOMETER_SOURCE_ESTIMATED = "estimated"
 ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 HOME_WAYPOINT_NAME = "Home"
@@ -42,6 +44,8 @@ WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
 ODOMETER_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_miles"
 LEGACY_ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
+ODOMETER_SOURCE_PAYLOAD_KEY = "mileage_logger_odometer_source"
+ODOMETER_EVENT_ID_PAYLOAD_KEY = "mileage_logger_odometer_event_id"
 ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_attempted"
 LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_attempted"
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
@@ -63,6 +67,13 @@ class MileageCalculation:
     end_odometer_miles: Decimal | None = None
     start_odometer_source: str | None = None
     end_odometer_source: str | None = None
+
+
+@dataclass(frozen=True)
+class OdometerReading:
+    miles: Decimal
+    source: str
+    event_id: str | None = None
 
 
 def haversine_miles(
@@ -287,11 +298,41 @@ def _payload_odometer_miles(location: OwnTracksLocation) -> Decimal | None:
     return None
 
 
-def _set_payload_odometer_miles(location: OwnTracksLocation, odometer_miles: Decimal) -> None:
+def _payload_odometer_source(location: OwnTracksLocation) -> str:
+    payload = location.raw_payload or {}
+    source = str(payload.get(ODOMETER_SOURCE_PAYLOAD_KEY) or "").strip().casefold()
+    if source == ODOMETER_SOURCE_MANUAL:
+        return ODOMETER_SOURCE_MANUAL
+    return ODOMETER_SOURCE_SMARTCAR
+
+
+def _payload_odometer_reading(location: OwnTracksLocation) -> OdometerReading | None:
+    odometer_miles = _payload_odometer_miles(location)
+    if odometer_miles is None:
+        return None
+    payload = location.raw_payload or {}
+    event_id = str(payload.get(ODOMETER_EVENT_ID_PAYLOAD_KEY) or "").strip() or None
+    return OdometerReading(
+        miles=odometer_miles,
+        source=_payload_odometer_source(location),
+        event_id=event_id,
+    )
+
+
+def _set_payload_odometer_miles(
+    location: OwnTracksLocation,
+    odometer_miles: Decimal,
+    *,
+    source: str,
+    event_id: str | None = None,
+) -> None:
     payload = dict(location.raw_payload or {})
     payload[ODOMETER_PAYLOAD_KEY] = str(
         odometer_miles.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
     )
+    payload[ODOMETER_SOURCE_PAYLOAD_KEY] = source
+    if event_id is not None:
+        payload[ODOMETER_EVENT_ID_PAYLOAD_KEY] = event_id
     payload[ODOMETER_ATTEMPTED_PAYLOAD_KEY] = True
     location.raw_payload = payload
 
@@ -302,26 +343,36 @@ def _set_payload_odometer_attempted(location: OwnTracksLocation) -> None:
     location.raw_payload = payload
 
 
-def _odometer_for_transition(db: Session, transition: WaypointTransition) -> Decimal | None:
-    odometer = _payload_odometer_miles(transition.location)
+def _odometer_for_transition(db: Session, transition: WaypointTransition) -> OdometerReading | None:
+    odometer = _payload_odometer_reading(transition.location)
     if odometer is not None:
         return odometer
 
-    webhook_odometer = latest_webhook_odometer_miles(
+    webhook_event = latest_webhook_odometer_event(
         db,
         at=transition.location.captured_at,
     )
-    if webhook_odometer is not None:
-        _set_payload_odometer_miles(transition.location, webhook_odometer)
+    if webhook_event is not None and webhook_event.odometer_miles is not None:
+        odometer_source = odometer_event_source(webhook_event)
+        _set_payload_odometer_miles(
+            transition.location,
+            webhook_event.odometer_miles,
+            source=odometer_source,
+            event_id=webhook_event.event_id,
+        )
         trip_logger.debug(
-            "Captured stored Smartcar webhook odometer site=%s event=%s odometer=%s "
-            "captured_at=%s",
+            "Captured stored odometer site=%s event=%s odometer=%s source=%s captured_at=%s",
             transition.site.name,
             transition.event,
-            webhook_odometer,
+            webhook_event.odometer_miles,
+            odometer_source,
             transition.location.captured_at.isoformat(),
         )
-        return webhook_odometer
+        return OdometerReading(
+            miles=webhook_event.odometer_miles,
+            source=odometer_source,
+            event_id=webhook_event.event_id,
+        )
 
     payload = transition.location.raw_payload or {}
     if payload.get(ODOMETER_ATTEMPTED_PAYLOAD_KEY) or payload.get(
@@ -343,7 +394,11 @@ def _odometer_for_transition(db: Session, transition: WaypointTransition) -> Dec
         )
         return None
 
-    _set_payload_odometer_miles(transition.location, odometer)
+    _set_payload_odometer_miles(
+        transition.location,
+        odometer,
+        source=ODOMETER_SOURCE_SMARTCAR,
+    )
     trip_logger.debug(
         "Captured odometer site=%s event=%s odometer=%s captured_at=%s",
         transition.site.name,
@@ -351,7 +406,7 @@ def _odometer_for_transition(db: Session, transition: WaypointTransition) -> Dec
         odometer,
         transition.location.captured_at.isoformat(),
     )
-    return odometer
+    return OdometerReading(miles=odometer, source=ODOMETER_SOURCE_SMARTCAR)
 
 
 def _is_home_to_home(origin: Site, destination: Site) -> bool:
@@ -401,6 +456,34 @@ def _odometer_miles(
     return miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _odometer_reading_miles(reading: OdometerReading | None) -> Decimal | None:
+    return reading.miles if reading is not None else None
+
+
+def _odometer_reading_source(reading: OdometerReading | None) -> str | None:
+    return reading.source if reading is not None else None
+
+
+def _same_stored_odometer_event(
+    start_odometer: OdometerReading | None,
+    end_odometer: OdometerReading | None,
+) -> bool:
+    if start_odometer is None or end_odometer is None:
+        return False
+    if start_odometer.event_id is None or end_odometer.event_id is None:
+        return False
+    return start_odometer.event_id == end_odometer.event_id
+
+
+def _odometer_delta_mileage_source(
+    start_odometer_source: str | None,
+    end_odometer_source: str | None,
+) -> str:
+    if ODOMETER_SOURCE_MANUAL in {start_odometer_source, end_odometer_source}:
+        return MILEAGE_SOURCE_MANUAL_ODOMETER
+    return MILEAGE_SOURCE_SMARTCAR_ODOMETER
+
+
 def _distance_estimate_miles(origin: Site, destination: Site) -> Decimal:
     return haversine_miles(
         origin.latitude,
@@ -415,6 +498,8 @@ def _estimated_odometer_calculation(
     *,
     start_odometer_miles: Decimal | None,
     end_odometer_miles: Decimal | None,
+    start_odometer_source: str | None,
+    end_odometer_source: str | None,
     odometer_anchor_miles: Decimal | None,
 ) -> MileageCalculation | None:
     distance = distance_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -428,7 +513,7 @@ def _estimated_odometer_calculation(
             mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=estimated_end,
-            start_odometer_source=ODOMETER_SOURCE_SMARTCAR,
+            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_SMARTCAR,
             end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
         )
 
@@ -443,7 +528,7 @@ def _estimated_odometer_calculation(
             start_odometer_miles=estimated_start,
             end_odometer_miles=end_odometer_miles,
             start_odometer_source=ODOMETER_SOURCE_ESTIMATED,
-            end_odometer_source=ODOMETER_SOURCE_SMARTCAR,
+            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_SMARTCAR,
         )
 
     if odometer_anchor_miles is None:
@@ -469,33 +554,39 @@ def _mileage_calculation(
     destination: Site,
     *,
     path_miles: Decimal | None,
-    start_odometer_miles: Decimal | None,
-    end_odometer_miles: Decimal | None,
+    start_odometer: OdometerReading | None,
+    end_odometer: OdometerReading | None,
     odometer_anchor_miles: Decimal | None,
 ) -> MileageCalculation:
+    start_odometer_miles = _odometer_reading_miles(start_odometer)
+    end_odometer_miles = _odometer_reading_miles(end_odometer)
+    start_odometer_source = _odometer_reading_source(start_odometer)
+    end_odometer_source = _odometer_reading_source(end_odometer)
+
     if path_miles is not None:
         return MileageCalculation(
             miles=path_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=end_odometer_miles,
-            start_odometer_source=(
-                ODOMETER_SOURCE_SMARTCAR if start_odometer_miles is not None else None
-            ),
-            end_odometer_source=(
-                ODOMETER_SOURCE_SMARTCAR if end_odometer_miles is not None else None
-            ),
+            start_odometer_source=start_odometer_source,
+            end_odometer_source=end_odometer_source,
         )
 
-    odometer_miles = _odometer_miles(start_odometer_miles, end_odometer_miles)
+    odometer_miles = None
+    if not _same_stored_odometer_event(start_odometer, end_odometer):
+        odometer_miles = _odometer_miles(start_odometer_miles, end_odometer_miles)
     if odometer_miles is not None:
         return MileageCalculation(
             miles=odometer_miles,
-            mileage_source=MILEAGE_SOURCE_SMARTCAR_ODOMETER,
+            mileage_source=_odometer_delta_mileage_source(
+                start_odometer_source,
+                end_odometer_source,
+            ),
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=end_odometer_miles,
-            start_odometer_source=ODOMETER_SOURCE_SMARTCAR,
-            end_odometer_source=ODOMETER_SOURCE_SMARTCAR,
+            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_SMARTCAR,
+            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_SMARTCAR,
         )
 
     distance_miles = _distance_estimate_miles(origin, destination)
@@ -503,6 +594,8 @@ def _mileage_calculation(
         distance_miles,
         start_odometer_miles=start_odometer_miles,
         end_odometer_miles=end_odometer_miles,
+        start_odometer_source=start_odometer_source,
+        end_odometer_source=end_odometer_source,
         odometer_anchor_miles=odometer_anchor_miles,
     )
     if estimated is not None:
@@ -531,7 +624,11 @@ def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decim
 def _mileage_source_rank(value: str | None) -> int:
     if value == MILEAGE_SOURCE_OWNTRACKS_PATH:
         return 4
-    if value in {MILEAGE_SOURCE_SMARTCAR_ODOMETER, LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER}:
+    if value in {
+        MILEAGE_SOURCE_SMARTCAR_ODOMETER,
+        LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
+        MILEAGE_SOURCE_MANUAL_ODOMETER,
+    }:
         return 3
     if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
         return 2
@@ -613,8 +710,8 @@ def _add_or_update_trip(
     ended_at: datetime,
     inferred_leave: bool,
     path_miles: Decimal | None,
-    start_odometer_miles: Decimal | None,
-    end_odometer_miles: Decimal | None,
+    start_odometer: OdometerReading | None,
+    end_odometer: OdometerReading | None,
     odometer_anchor_miles: Decimal | None,
 ) -> Trip | None:
     if _is_home_to_home(origin, destination):
@@ -658,8 +755,8 @@ def _add_or_update_trip(
         origin,
         destination,
         path_miles=path_miles,
-        start_odometer_miles=start_odometer_miles,
-        end_odometer_miles=end_odometer_miles,
+        start_odometer=start_odometer,
+        end_odometer=end_odometer,
         odometer_anchor_miles=odometer_anchor_miles,
     )
     notes = _trip_notes(inferred_leave=inferred_leave)
@@ -753,6 +850,7 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
                     [
                         MILEAGE_SOURCE_SMARTCAR_ODOMETER,
                         LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
+                        MILEAGE_SOURCE_MANUAL_ODOMETER,
                         MILEAGE_SOURCE_OWNTRACKS_PATH,
                         MILEAGE_SOURCE_ESTIMATED_ODOMETER,
                         MILEAGE_SOURCE_WAYPOINT_DISTANCE,
@@ -858,7 +956,7 @@ def generate_trips(
             pending_leave = transition
             continue
 
-        end_odometer_miles = _odometer_for_transition(db, transition)
+        end_odometer = _odometer_for_transition(db, transition)
         if pending_leave is not None:
             trip = _add_or_update_trip(
                 db,
@@ -876,8 +974,8 @@ def generate_trips(
                     started_at=pending_leave.location.captured_at,
                     ended_at=transition.location.captured_at,
                 ),
-                start_odometer_miles=_odometer_for_transition(db, pending_leave),
-                end_odometer_miles=end_odometer_miles,
+                start_odometer=_odometer_for_transition(db, pending_leave),
+                end_odometer=end_odometer,
                 odometer_anchor_miles=odometer_anchor_miles,
             )
         elif last_arrival is not None and last_arrival.site.id != transition.site.id:
@@ -893,8 +991,8 @@ def generate_trips(
                 ended_at=transition.location.captured_at,
                 inferred_leave=True,
                 path_miles=None,
-                start_odometer_miles=_odometer_for_transition(db, last_arrival),
-                end_odometer_miles=end_odometer_miles,
+                start_odometer=_odometer_for_transition(db, last_arrival),
+                end_odometer=end_odometer,
                 odometer_anchor_miles=odometer_anchor_miles,
             )
         elif last_arrival is None and home_site is not None and home_site.id != transition.site.id:
@@ -910,8 +1008,8 @@ def generate_trips(
                 ended_at=transition.location.captured_at,
                 inferred_leave=True,
                 path_miles=None,
-                start_odometer_miles=None,
-                end_odometer_miles=end_odometer_miles,
+                start_odometer=None,
+                end_odometer=end_odometer,
                 odometer_anchor_miles=odometer_anchor_miles,
             )
         else:

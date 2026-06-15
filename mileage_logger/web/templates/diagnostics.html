@@ -116,6 +116,41 @@
   <div class="panel">
     <div class="panel-toolbar">
       <div>
+        <h2>Manual Odometer</h2>
+        <p class="panel-meta">Current odometer reading.</p>
+      </div>
+    </div>
+    <form method="post" action="/diagnostics/odometer" class="form-row">
+      <label>
+        Miles
+        <input
+          type="number"
+          name="odometer_miles"
+          min="0.001"
+          step="0.001"
+          inputmode="decimal"
+          required
+        >
+      </label>
+      <button type="submit" class="small-button">Save</button>
+    </form>
+    <dl class="diagnostic-list">
+      <dt>Save Result</dt>
+      <dd>
+        {% if manual_odometer_result %}
+        <span class="pill {{ 'good' if manual_odometer_result.passed else 'bad' }}">{{ "Pass" if manual_odometer_result.passed else "Fail" }}</span>
+        {{ manual_odometer_result.message }}
+        {% if manual_odometer_result.value %}<span class="diagnostic-value">{{ manual_odometer_result.value }}</span>{% endif %}
+        {% else %}
+        Not saved
+        {% endif %}
+      </dd>
+    </dl>
+  </div>
+
+  <div class="panel">
+    <div class="panel-toolbar">
+      <div>
         <h2>EIA API</h2>
         <p class="panel-meta">Gas price series connectivity test.</p>
       </div>

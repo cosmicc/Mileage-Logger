@@ -35,8 +35,10 @@ from mileage_logger.services.mileage import delete_trip, update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.smartcar import (
     SmartcarAuthenticationError,
+    create_manual_odometer_event,
     current_odometer_miles,
     latest_webhook_odometer_event,
+    odometer_event_source,
 )
 from mileage_logger.services.timezone import (
     datetime_to_local,
@@ -71,6 +73,7 @@ def _format_odometer_source(value) -> str:
         "estimated": "Estimated",
         "previous_trip": "Previous trip",
         "manual": "Manual",
+        "manual_odometer": "Manual odometer",
         "owntracks_path": "OwnTracks path",
         "smartcar_odometer": "Smartcar",
         "fordpass_odometer": "FordPass",
@@ -284,16 +287,17 @@ def _latest_odometer_reading(db: Session) -> dict | None:
 
     latest_webhook_event = latest_webhook_odometer_event(db)
     if latest_webhook_event is not None:
+        event_source = odometer_event_source(latest_webhook_event)
         candidates.append(
             {
                 "value": latest_webhook_event.odometer_miles,
-                "source": "smartcar",
+                "source": event_source,
                 "recorded_at": latest_webhook_event.odometer_recorded_at
                 or latest_webhook_event.delivered_at
                 or latest_webhook_event.received_at,
                 "trip": None,
                 "database_id": latest_webhook_event.id,
-                "position": "Webhook",
+                "position": "Manual" if event_source == "manual" else "Webhook",
             }
         )
 
@@ -507,6 +511,9 @@ def diagnostics(
     smartcar_test: str | None = Query(default=None),
     smartcar_message: str | None = Query(default=None),
     smartcar_value: str | None = Query(default=None),
+    odometer_test: str | None = Query(default=None),
+    odometer_message: str | None = Query(default=None),
+    odometer_value: str | None = Query(default=None),
     eia_test: str | None = Query(default=None),
     eia_message: str | None = Query(default=None),
     eia_value: str | None = Query(default=None),
@@ -558,6 +565,11 @@ def diagnostics(
                 smartcar_message,
                 smartcar_value,
             ),
+            "manual_odometer_result": _api_test_result(
+                odometer_test,
+                odometer_message,
+                odometer_value,
+            ),
             "eia_test_result": _api_test_result(eia_test, eia_message, eia_value),
         },
     )
@@ -601,6 +613,31 @@ def test_smartcar_api() -> RedirectResponse:
             "smartcar_test": "pass",
             "smartcar_message": "Smartcar returned an odometer reading.",
             "smartcar_value": f"{odometer:.1f} miles",
+        },
+    )
+
+
+@router.post("/diagnostics/odometer")
+def set_manual_odometer(
+    odometer_miles: Decimal = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    if odometer_miles <= 0:
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "odometer_test": "fail",
+                "odometer_message": "Odometer reading must be greater than zero.",
+            },
+        )
+
+    event = create_manual_odometer_event(db, odometer_miles)
+    return _diagnostics_redirect(
+        "api-tests",
+        {
+            "odometer_test": "pass",
+            "odometer_message": "Manual odometer reading saved.",
+            "odometer_value": f"{event.odometer_miles:.1f} miles",
         },
     )
 

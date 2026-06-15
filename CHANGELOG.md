@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a Diagnostics page manual odometer form that stores the current odometer as an audited
+  odometer event for future trip mileage calculations.
 - Added automatic checkpoint-aware OwnTracks location retention so old processed raw location data
   is purged after the configured retention window without deleting trips or other app data.
 - Changed generated trip mileage to prefer summed OwnTracks location path distance between

@@ -15,8 +15,11 @@ from mileage_logger.config import Settings
 from mileage_logger.database import get_db
 from mileage_logger.models import Base, SmartcarWebhookEvent, SmartcarWebhookSignal
 from mileage_logger.services.smartcar import (
+    create_manual_odometer_event,
     hash_webhook_challenge,
+    latest_webhook_odometer_event,
     latest_webhook_odometer_miles,
+    odometer_event_source,
     store_webhook_payload,
     verify_webhook_signature,
 )
@@ -177,6 +180,31 @@ def test_store_webhook_payload_saves_event_and_signal_rows() -> None:
     assert stored_event.odometer_miles == expected_miles
     assert latest_webhook_odometer_miles(db) == expected_miles
     assert len(stored_signals) == 6
+
+
+def test_create_manual_odometer_event_saves_latest_odometer_reading() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    db = sessionmaker(bind=engine, expire_on_commit=False)()
+    recorded_at = datetime(2026, 6, 15, 14, 30, tzinfo=UTC)
+
+    event = create_manual_odometer_event(
+        db,
+        Decimal("12345.6784"),
+        recorded_at=recorded_at,
+    )
+
+    stored_event = latest_webhook_odometer_event(db)
+    stored_signals = list(db.scalars(select(SmartcarWebhookSignal)))
+    assert stored_event is not None
+    assert stored_event.id == event.id
+    assert stored_event.event_type == "MANUAL_ODOMETER"
+    assert stored_event.odometer_miles == Decimal("12345.678")
+    assert stored_event.odometer_recorded_at == recorded_at.replace(tzinfo=None)
+    assert latest_webhook_odometer_miles(db) == Decimal("12345.678")
+    assert odometer_event_source(stored_event) == "manual"
+    assert len(stored_signals) == 1
+    assert stored_signals[0].code == "manual-odometer"
 
 
 def test_store_webhook_payload_is_idempotent_by_event_id() -> None:

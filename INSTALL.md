@@ -284,8 +284,8 @@ Generated mileage uses this order:
 
 1. OwnTracks location path distance from the location updates received between the waypoint
    `leave` and `enter` events.
-2. Verified Smartcar webhook odometer delta when `SMARTCAR_ENABLED=true` and both endpoint
-   readings are available.
+2. Stored odometer delta from Smartcar webhook readings or Diagnostics page manual odometer
+   readings when both endpoint readings are available.
 3. Estimated start/end odometer values using this trip's waypoint distance and any available
    odometer anchor.
 4. Waypoint-to-waypoint distance when no odometer anchor is available.
@@ -326,7 +326,9 @@ webhook metadata, and the full raw payload.
 
 Direct Smartcar API odometer polling is now only an optional automatic fallback. Leave it disabled
 for webhook-only operation. The Diagnostics page test button can still force-test configured API
-credentials. If you explicitly want automatic fallback reads, set:
+credentials. The Diagnostics page can also save the vehicle's current odometer manually; those
+manual readings are stored in the same odometer event stream used by trip generation. If you
+explicitly want automatic fallback reads, set:
 
 ```env
 SMARTCAR_API_POLLING_ENABLED=true
