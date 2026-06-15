@@ -23,6 +23,7 @@ from mileage_logger.services.diagnostics import (
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
 from mileage_logger.services.smartcar import SmartcarAuthenticationError
+from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import _human_duration_since
 
 
@@ -127,6 +128,7 @@ def test_paginated_owntracks_entries_loads_requested_page() -> None:
 
 
 def test_web_login_redirects_browser_pages_when_configured(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
@@ -140,10 +142,12 @@ def test_web_login_redirects_browser_pages_when_configured(monkeypatch) -> None:
         assert response.status_code == 303
         assert response.headers["location"].startswith("/login?next=")
     finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
 def test_web_login_leaves_api_routes_open(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
@@ -157,10 +161,12 @@ def test_web_login_leaves_api_routes_open(monkeypatch) -> None:
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
     finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
 def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
@@ -186,10 +192,12 @@ def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
         assert page_response.status_code == 200
         assert "Monthly Trips" in page_response.text
     finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
 def test_web_login_rejects_invalid_credentials(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
@@ -213,6 +221,69 @@ def test_web_login_rejects_invalid_credentials(monkeypatch) -> None:
         assert "Invalid username or password." in login_response.text
         assert page_response.status_code == 303
     finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/login")
+
+        assert response.status_code == 200
+        assert "Mileage Logger" not in response.text
+        assert ">ML<" not in response.text
+        assert "<title>Sign In</title>" in response.text
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_web_login_temporarily_locks_repeated_failures(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        web_login_max_attempts=2,
+        web_login_lockout_seconds=300,
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        for _ in range(2):
+            response = client.post(
+                "/login",
+                data={
+                    "username": "admin",
+                    "password": "wrong-password",
+                    "next_url": "/trips?year=2026&month=6",
+                },
+            )
+            assert response.status_code == 401
+
+        locked_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/trips?year=2026&month=6",
+            },
+        )
+
+        assert locked_response.status_code == 429
+        assert "Login is temporarily unavailable." in locked_response.text
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 

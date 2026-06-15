@@ -53,8 +53,11 @@ from mileage_logger.services.timezone import (
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 from mileage_logger.web.auth import (
     authenticate_web_credentials,
+    clear_login_failures,
     clear_request_authentication,
+    login_is_locked,
     mark_request_authenticated,
+    record_login_failure,
     valid_next_path,
     web_login_enabled,
 )
@@ -362,12 +365,25 @@ def login_form(
     safe_next = valid_next_path(next_url)
     if not web_login_enabled(settings):
         return RedirectResponse(url=safe_next, status_code=303)
+    if login_is_locked(request):
+        logger.warning("Web login rejected reason=locked_out")
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {
+                "next_url": safe_next,
+                "login_error": "Login is temporarily unavailable.",
+            },
+            status_code=429,
+        )
     if authenticate_web_credentials(username, password, settings):
+        clear_login_failures(request)
         mark_request_authenticated(request)
-        logger.info("Web login succeeded username=%s", username)
+        logger.info("Web login succeeded")
         return RedirectResponse(url=safe_next, status_code=303)
 
-    logger.warning("Web login failed username=%s", username)
+    record_login_failure(request, settings)
+    logger.warning("Web login failed")
     return templates.TemplateResponse(
         request,
         "login.html",

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     web_login_username: str = ""
     web_login_password: str = ""
     web_session_cookie_secure: bool = False
+    web_login_max_attempts: int = Field(default=5, ge=1)
+    web_login_lockout_seconds: int = Field(default=300, ge=1)
 
     owntracks_api_token: str = ""
     owntracks_username: str = ""

@@ -121,12 +121,15 @@ To require a simple username/password login for browser pages, set both web logi
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
+WEB_LOGIN_MAX_ATTEMPTS=5
+WEB_LOGIN_LOCKOUT_SECONDS=300
 ```
 
 The login protects rendered web pages such as `/`, `/trips`, `/waypoints`, and `/diagnostics`.
 Routes under `/api/` stay outside the web login so OwnTracks and Smartcar webhooks can continue
 using their own API authentication. If you access the app over plain HTTP for local testing, set
-`WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie.
+`WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
+not show the app name before authentication and temporarily locks out repeated failed attempts.
 
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
@@ -295,6 +298,8 @@ OWNTRACKS_DRIVING_WINDOW_MINUTES=10
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
+WEB_LOGIN_MAX_ATTEMPTS=5
+WEB_LOGIN_LOCKOUT_SECONDS=300
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
@@ -302,7 +307,8 @@ SMARTCAR_API_POLLING_ENABLED=false
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
-leaving `/api/` outside the web login.
+leaving `/api/` outside the web login. `WEB_LOGIN_MAX_ATTEMPTS` and
+`WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
 Diagnostics marks you as driving when recent OwnTracks movement outside saved waypoints is at or
 above `OWNTRACKS_DRIVING_SPEED_MPH`; computed speeds only compare points within
 `OWNTRACKS_DRIVING_WINDOW_MINUTES`.

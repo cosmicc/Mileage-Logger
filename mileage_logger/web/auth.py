@@ -1,4 +1,6 @@
 import secrets
+import time
+from dataclasses import dataclass
 from urllib.parse import quote, urlsplit
 
 from fastapi import Request
@@ -14,11 +16,61 @@ WEB_AUTH_OPEN_PATHS = {
 }
 
 
+@dataclass
+class LoginAttemptState:
+    """Failed login state for one client address."""
+
+    failed_count: int = 0
+    locked_until: float = 0.0
+
+
+FAILED_LOGIN_ATTEMPTS: dict[str, LoginAttemptState] = {}
+
+
 def web_login_enabled(settings: Settings | None = None) -> bool:
     """Return whether web UI login is enabled by configured username and password."""
 
     active_settings = settings or get_settings()
     return bool(active_settings.web_login_username and active_settings.web_login_password)
+
+
+def login_client_key(request: Request) -> str:
+    """Return the best available client key for throttling web login attempts."""
+
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+    forwarded_for = request.headers.get("x-forwarded-for", "").split(",", maxsplit=1)[0].strip()
+    if forwarded_for:
+        return forwarded_for
+    if request.client is not None:
+        return request.client.host
+    return "unknown"
+
+
+def login_is_locked(request: Request) -> bool:
+    """Return whether the current client is temporarily locked out after failed logins."""
+
+    attempt_state = FAILED_LOGIN_ATTEMPTS.get(login_client_key(request))
+    return bool(attempt_state and attempt_state.locked_until > time.monotonic())
+
+
+def record_login_failure(request: Request, settings: Settings | None = None) -> None:
+    """Record a failed login and lock the client after the configured number of failures."""
+
+    active_settings = settings or get_settings()
+    client_key = login_client_key(request)
+    attempt_state = FAILED_LOGIN_ATTEMPTS.setdefault(client_key, LoginAttemptState())
+    if attempt_state.locked_until <= time.monotonic():
+        attempt_state.failed_count += 1
+    if attempt_state.failed_count >= active_settings.web_login_max_attempts:
+        attempt_state.locked_until = time.monotonic() + active_settings.web_login_lockout_seconds
+
+
+def clear_login_failures(request: Request) -> None:
+    """Clear failed login state after a successful login."""
+
+    FAILED_LOGIN_ATTEMPTS.pop(login_client_key(request), None)
 
 
 def valid_next_path(value: str | None) -> str:
