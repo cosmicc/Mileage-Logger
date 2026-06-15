@@ -246,6 +246,31 @@ def test_smartcar_webhook_verify_route_returns_challenge(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_smartcar_webhook_verify_route_only_requires_management_token(monkeypatch) -> None:
+    token = "management-token"
+    client, _session_factory = _client_session()
+    monkeypatch.setattr(
+        "mileage_logger.api.routes.get_settings",
+        lambda: Settings(smartcar_enabled=False, smartcar_management_token=token),
+    )
+    try:
+        payload = {
+            "eventId": "verify-disabled-flag",
+            "eventType": "VERIFY",
+            "data": {"challenge": "callback-uri-challenge"},
+            "meta": {"version": "4.0"},
+        }
+        response = client.post("/api/smartcar/webhook", json=payload)
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json")
+        assert response.json() == {
+            "challenge": hash_webhook_challenge(token, "callback-uri-challenge")
+        }
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_smartcar_webhook_route_rejects_unsigned_vehicle_state(monkeypatch) -> None:
     client, _session_factory = _client_session()
     monkeypatch.setattr(

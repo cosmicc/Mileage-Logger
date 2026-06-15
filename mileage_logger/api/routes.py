@@ -72,6 +72,11 @@ def _smartcar_webhook_unavailable() -> HTTPException:
     return HTTPException(status_code=503, detail="Smartcar webhook is not configured")
 
 
+def _smartcar_verify_unavailable() -> HTTPException:
+    """Return a generic VERIFY error when the management token needed for HMAC is missing."""
+    return HTTPException(status_code=503, detail="Smartcar webhook verification is not configured")
+
+
 @router.post("/smartcar/webhook")
 @router.post("/smartcar/webhook/")
 @router.post("/webhooks/smartcar")
@@ -96,8 +101,8 @@ async def smartcar_webhook(request: Request, db: Session = Depends(get_db)) -> d
 
     event_type = str(payload.get("eventType") or "").strip().upper()
     if event_type == SMARTCAR_VERIFY_EVENT:
-        if not settings.smartcar_enabled or not settings.smartcar_management_token:
-            raise _smartcar_webhook_unavailable()
+        if not settings.smartcar_management_token:
+            raise _smartcar_verify_unavailable()
 
         try:
             data = payload.get("data")

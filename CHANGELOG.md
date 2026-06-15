@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed Smartcar callback URI verification so `VERIFY` events only require
+  `SMARTCAR_MANAGEMENT_TOKEN`, while normal vehicle deliveries still require `SMARTCAR_ENABLED`.
 - Added a simple session-based web login for rendered pages, configured by Docker environment
   variables while leaving `/api/` routes outside the web login.
 - Removed visible app branding from the login page and added temporary failed-login lockouts.

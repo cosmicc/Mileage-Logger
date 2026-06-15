@@ -213,6 +213,8 @@ The `/api/webhooks/smartcar` alias is also available if you prefer that path. Sm
 `VERIFY` event when the callback URI is created or changed. The app answers that challenge with an
 HMAC-SHA256 hash generated from `SMARTCAR_MANAGEMENT_TOKEN`, then requires the `SC-Signature`
 header on normal vehicle events before storing any data.
+Callback URI verification only needs `SMARTCAR_MANAGEMENT_TOKEN`; normal vehicle deliveries still
+require `SMARTCAR_ENABLED=true`.
 
 Set these in `.env` or Docker when you want webhook-based odometer mileage:
 
