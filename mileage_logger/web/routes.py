@@ -31,7 +31,7 @@ from mileage_logger.services.gas_prices import (
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
-from mileage_logger.services.mileage import delete_trip, update_trip_details
+from mileage_logger.services.mileage import create_manual_trip, delete_trip, update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.smartcar import (
     SmartcarAuthenticationError,
@@ -399,6 +399,7 @@ def trips(
 @router.post("/trips/{trip_id}")
 def update_trip_form(
     trip_id: int,
+    trip_date: date = Form(...),
     origin_name: str = Form(...),
     destination_name: str = Form(...),
     miles: Decimal = Form(...),
@@ -407,11 +408,44 @@ def update_trip_form(
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    update_trip_details(trip, origin_name, destination_name, miles)
+    update_trip_details(trip, origin_name, destination_name, miles, trip_date)
     db.commit()
     logger.info(
-        "Updated trip via web form trip_id=%s origin=%s destination=%s miles=%s",
+        "Updated trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s",
         trip.id,
+        trip.trip_date.isoformat(),
+        trip.origin_display_name,
+        trip.destination_display_name,
+        trip.miles,
+    )
+    return RedirectResponse(
+        url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
+        status_code=303,
+    )
+
+
+@router.post("/trips")
+def create_trip_form(
+    trip_date: date = Form(...),
+    origin_name: str = Form(...),
+    destination_name: str = Form(...),
+    miles: Decimal = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    if miles < 0:
+        raise HTTPException(status_code=400, detail="Miles must be zero or greater")
+    trip = create_manual_trip(
+        db,
+        trip_date=trip_date,
+        origin_name=origin_name,
+        destination_name=destination_name,
+        miles=miles,
+    )
+    db.commit()
+    logger.info(
+        "Created manual trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s",
+        trip.id,
+        trip.trip_date.isoformat(),
         trip.origin_display_name,
         trip.destination_display_name,
         trip.miles,

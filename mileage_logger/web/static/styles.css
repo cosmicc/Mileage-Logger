@@ -325,6 +325,11 @@ input.compact {
   min-width: 92px;
 }
 
+.date-input {
+  width: 142px;
+  min-width: 142px;
+}
+
 .year-input {
   width: 110px;
   min-width: 110px;
@@ -468,6 +473,10 @@ td input[type="text"] {
 .miles-input {
   width: 104px;
   min-width: 104px;
+}
+
+.manual-trip-form {
+  align-items: flex-end;
 }
 
 .odometer-cell {

@@ -436,7 +436,8 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 3. Go to `Waypoints` to review saved waypoints or export an OwnTracks waypoint backup.
 4. Configure OwnTracks to send waypoint transition events and normal location updates.
 5. Review automatically generated trips from the `Trips` page.
-6. Open `Trips`, choose the report month, and correct waypoint names or miles if needed.
+6. Open `Trips`, choose the report month, add manual trips, and correct dates, waypoint names, or
+   miles if needed.
 7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.
 

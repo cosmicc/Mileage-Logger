@@ -42,6 +42,7 @@ ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 HOME_WAYPOINT_NAME = "Home"
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
+MANUAL_TRIP_NOTE = "Manually added from Trips page."
 ODOMETER_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_miles"
 LEGACY_ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
 ODOMETER_SOURCE_PAYLOAD_KEY = "mileage_logger_odometer_source"
@@ -1084,12 +1085,52 @@ def delete_trip(db: Session, trip: Trip) -> DeletedTrip | None:
     return deleted_trip
 
 
+def _manual_trip_datetime(trip_date: date) -> datetime:
+    start_dt, _ = local_day_bounds(trip_date)
+    return start_dt
+
+
+def create_manual_trip(
+    db: Session,
+    *,
+    trip_date: date,
+    origin_name: str,
+    destination_name: str,
+    miles: Decimal,
+) -> Trip:
+    started_at = _manual_trip_datetime(trip_date)
+    trip = Trip(
+        trip_date=trip_date,
+        origin_site_id=None,
+        destination_site_id=None,
+        started_at=started_at,
+        ended_at=started_at,
+        start_latitude=Decimal("0.0000000"),
+        start_longitude=Decimal("0.0000000"),
+        end_latitude=Decimal("0.0000000"),
+        end_longitude=Decimal("0.0000000"),
+        origin_name=normalize_location_name(origin_name),
+        destination_name=normalize_location_name(destination_name),
+        miles=Decimal(miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        mileage_source=MILEAGE_SOURCE_MANUAL,
+        source=MANUAL_TRIP_SOURCE,
+        notes=MANUAL_TRIP_NOTE,
+    )
+    db.add(trip)
+    return trip
+
+
 def update_trip_details(
     trip: Trip,
     origin_name: str,
     destination_name: str,
     miles: Decimal | None = None,
+    trip_date: date | None = None,
 ) -> None:
+    if trip_date is not None:
+        trip.trip_date = trip_date
+        trip.started_at = _manual_trip_datetime(trip_date)
+        trip.ended_at = trip.started_at
     trip.origin_name = normalize_location_name(origin_name)
     trip.destination_name = normalize_location_name(destination_name)
     if miles is not None:

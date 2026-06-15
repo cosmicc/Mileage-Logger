@@ -28,6 +28,7 @@ class LocationRead(BaseModel):
 
 
 class TripUpdate(BaseModel):
+    trip_date: date | None = None
     origin_name: str = Field(min_length=1, max_length=160)
     destination_name: str = Field(min_length=1, max_length=160)
     miles: Decimal | None = Field(default=None, ge=0)

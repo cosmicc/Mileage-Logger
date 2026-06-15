@@ -221,7 +221,13 @@ def update_trip(trip_id: int, update: TripUpdate, db: Session = Depends(get_db))
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    update_trip_details(trip, update.origin_name, update.destination_name, update.miles)
+    update_trip_details(
+        trip,
+        update.origin_name,
+        update.destination_name,
+        update.miles,
+        update.trip_date,
+    )
     db.commit()
     logger.info(
         "Updated trip via API trip_id=%s origin=%s destination=%s miles=%s",

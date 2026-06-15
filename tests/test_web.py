@@ -326,6 +326,85 @@ def test_trips_page_delete_button_removes_trip_and_blocks_regeneration() -> None
         app.dependency_overrides.clear()
 
 
+def test_trips_page_creates_manual_trip() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        page_response = client.get("/trips?year=2026&month=6")
+        create_response = client.post(
+            "/trips",
+            data={
+                "trip_date": "2026-06-15",
+                "origin_name": "Home",
+                "destination_name": "Client",
+                "miles": "12.34",
+            },
+        )
+
+        assert page_response.status_code == 200
+        assert "Add Trip" in page_response.text
+        assert create_response.status_code == 200
+        assert "2026-06-15" in create_response.text
+        assert "Home" in create_response.text
+        assert "Client" in create_response.text
+        with session_factory() as db:
+            trip = db.scalar(select(Trip))
+            assert trip is not None
+            assert trip.trip_date == datetime(2026, 6, 15, tzinfo=UTC).date()
+            assert trip.origin_name == "Home"
+            assert trip.destination_name == "Client"
+            assert trip.miles == Decimal("12.34")
+            assert trip.source == "manual"
+            assert trip.mileage_source == "manual"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_trips_page_updates_existing_trip_date_and_values() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add(
+                Trip(
+                    trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                    started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
+                    start_latitude=Decimal("42.3314"),
+                    start_longitude=Decimal("-83.0458"),
+                    end_latitude=Decimal("42.3440"),
+                    end_longitude=Decimal("-83.0600"),
+                    origin_name="Old Home",
+                    destination_name="Old Client",
+                    miles=Decimal("5.00"),
+                    source="auto",
+                )
+            )
+            db.commit()
+
+        response = client.post(
+            "/trips/1",
+            data={
+                "trip_date": "2026-06-16",
+                "origin_name": "Home",
+                "destination_name": "Client",
+                "miles": "15.50",
+            },
+        )
+
+        assert response.status_code == 200
+        assert "2026-06-16" in response.text
+        with session_factory() as db:
+            trip = db.get(Trip, 1)
+            assert trip is not None
+            assert trip.trip_date == datetime(2026, 6, 16, tzinfo=UTC).date()
+            assert trip.origin_name == "Home"
+            assert trip.destination_name == "Client"
+            assert trip.miles == Decimal("15.50")
+            assert trip.source == "manual"
+            assert trip.mileage_source == "manual"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_diagnostics_smartcar_api_test_button_reports_pass(monkeypatch) -> None:
     monkeypatch.setattr(
         "mileage_logger.web.routes.get_settings",

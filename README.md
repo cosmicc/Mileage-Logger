@@ -15,7 +15,7 @@ monthly reimbursement PDF logs.
   location updates between those events used as the primary trip distance.
 - Optional Smartcar webhook ingestion for real-time vehicle state and odometer mileage.
 - Manual current-odometer entry from the Diagnostics page.
-- Manual review for generated waypoint names and trip mileage.
+- Manual trip entry and review for trip dates, waypoint names, and mileage.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -291,7 +291,8 @@ Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always include
 2. Review or export saved waypoints from the `Waypoints` page.
 3. Configure OwnTracks to send waypoint transition events and normal location updates.
 4. Let the app automatically create trips from incoming OwnTracks transitions.
-5. Review `Trips`, switch to the needed month, and edit waypoint names or miles if needed.
+5. Review `Trips`, switch to the needed month, add manual trips, and edit dates, waypoint names,
+   or miles if needed.
 6. Add or fetch a monthly gas price for that report month.
 7. Download the monthly PDF report from the `Trips` page.
 

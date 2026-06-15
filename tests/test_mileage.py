@@ -25,6 +25,7 @@ from mileage_logger.services.mileage import (
     ODOMETER_SOURCE_MANUAL,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
     ODOMETER_SOURCE_SMARTCAR,
+    create_manual_trip,
     delete_trip,
     generate_trips,
     haversine_miles,
@@ -107,6 +108,28 @@ def test_haversine_miles_returns_expected_short_distance() -> None:
     )
 
     assert Decimal("81.00") < miles < Decimal("83.00")
+
+
+def test_create_manual_trip_saves_editable_manual_values() -> None:
+    db = _session()
+
+    trip = create_manual_trip(
+        db,
+        trip_date=date(2026, 6, 15),
+        origin_name="Home",
+        destination_name="Client",
+        miles=Decimal("12.345"),
+    )
+    db.commit()
+
+    assert trip.trip_date == date(2026, 6, 15)
+    assert trip.origin_display_name == "Home"
+    assert trip.destination_display_name == "Client"
+    assert trip.miles == Decimal("12.35")
+    assert trip.source == MANUAL_TRIP_SOURCE
+    assert trip.mileage_source == MILEAGE_SOURCE_MANUAL
+    assert trip.origin_site_id is None
+    assert trip.destination_site_id is None
 
 
 def test_generate_trips_from_leave_and_enter_transitions() -> None:

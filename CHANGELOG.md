@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a Trips page manual-entry form and trip-date editing so date, origin, destination, and
+  distance can be entered or corrected manually.
 - Added a Diagnostics page manual odometer form that stores the current odometer as an audited
   odometer event for future trip mileage calculations.
 - Added automatic checkpoint-aware OwnTracks location retention so old processed raw location data
