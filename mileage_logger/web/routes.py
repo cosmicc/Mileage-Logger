@@ -51,6 +51,13 @@ from mileage_logger.services.timezone import (
     local_today,
 )
 from mileage_logger.services.waypoints import owntracks_waypoints_json
+from mileage_logger.web.auth import (
+    authenticate_web_credentials,
+    clear_request_authentication,
+    mark_request_authenticated,
+    valid_next_path,
+    web_login_enabled,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -92,6 +99,7 @@ def _format_odometer_source(value) -> str:
 templates.env.filters["local_datetime"] = _format_local_datetime
 templates.env.filters["odometer"] = _format_odometer
 templates.env.filters["odometer_source"] = _format_odometer_source
+templates.env.globals["web_login_enabled"] = web_login_enabled
 WAYPOINT_PAGE_SIZE = 20
 LOG_LINE_LEVEL_RE = re.compile(r"\s(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+\[")
 LOG_LEVEL_VALUES = {
@@ -322,6 +330,59 @@ def _masked_database_url(url: str) -> str:
     port = f":{parts.port}" if parts.port else ""
     netloc = f"{username}:***@{hostname}{port}"
     return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(
+    request: Request,
+    next: str = Query(default="/"),
+) -> Response:
+    settings = get_settings()
+    safe_next = valid_next_path(next)
+    if not web_login_enabled(settings):
+        return RedirectResponse(url=safe_next, status_code=303)
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "next_url": safe_next,
+            "login_error": "",
+        },
+    )
+
+
+@router.post("/login")
+def login_form(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    next_url: str = Form(default="/"),
+) -> Response:
+    settings = get_settings()
+    safe_next = valid_next_path(next_url)
+    if not web_login_enabled(settings):
+        return RedirectResponse(url=safe_next, status_code=303)
+    if authenticate_web_credentials(username, password, settings):
+        mark_request_authenticated(request)
+        logger.info("Web login succeeded username=%s", username)
+        return RedirectResponse(url=safe_next, status_code=303)
+
+    logger.warning("Web login failed username=%s", username)
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "next_url": safe_next,
+            "login_error": "Invalid username or password.",
+        },
+        status_code=401,
+    )
+
+
+@router.post("/logout")
+def logout_form(request: Request) -> RedirectResponse:
+    clear_request_authentication(request)
+    return RedirectResponse(url="/login", status_code=303)
 
 
 @router.get("/", response_class=HTMLResponse)

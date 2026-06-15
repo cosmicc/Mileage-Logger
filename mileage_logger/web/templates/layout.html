@@ -20,6 +20,11 @@
         <a href="/trips">Trips</a>
         <a href="/waypoints">Waypoints</a>
         <a href="/diagnostics">Diagnostics</a>
+        {% if web_login_enabled() %}
+        <form action="/logout" method="post" class="nav-form">
+          <button type="submit" class="nav-logout">Logout</button>
+        </form>
+        {% endif %}
       </nav>
     </header>
     <main class="page">

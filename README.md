@@ -115,6 +115,19 @@ When this is blank, the web UI is open to all clients. When set, `/api/` stays r
 IP, but pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/static/` require a matching
 client IP.
 
+To require a simple username/password login for browser pages, set both web login variables:
+
+```env
+WEB_LOGIN_USERNAME=admin
+WEB_LOGIN_PASSWORD=change-web-login-password
+WEB_SESSION_COOKIE_SECURE=true
+```
+
+The login protects rendered web pages such as `/`, `/trips`, `/waypoints`, and `/diagnostics`.
+Routes under `/api/` stay outside the web login so OwnTracks and Smartcar webhooks can continue
+using their own API authentication. If you access the app over plain HTTP for local testing, set
+`WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie.
+
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
 ## OwnTracks HTTP Setup
@@ -279,12 +292,17 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
 OWNTRACKS_DRIVING_SPEED_MPH=10.0
 OWNTRACKS_DRIVING_WINDOW_MINUTES=10
+WEB_LOGIN_USERNAME=admin
+WEB_LOGIN_PASSWORD=change-web-login-password
+WEB_SESSION_COOKIE_SECURE=true
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
+Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
+leaving `/api/` outside the web login.
 Diagnostics marks you as driving when recent OwnTracks movement outside saved waypoints is at or
 above `OWNTRACKS_DRIVING_SPEED_MPH`; computed speeds only compare points within
 `OWNTRACKS_DRIVING_WINDOW_MINUTES`.

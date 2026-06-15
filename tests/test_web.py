@@ -126,6 +126,96 @@ def test_paginated_owntracks_entries_loads_requested_page() -> None:
     assert page.entries[-1].raw_payload["index"] == 24
 
 
+def test_web_login_redirects_browser_pages_when_configured(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/trips?year=2026&month=6", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"].startswith("/login?next=")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_web_login_leaves_api_routes_open(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/api/health")
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/trips?year=2026&month=6",
+            },
+            follow_redirects=False,
+        )
+        page_response = client.get("/trips?year=2026&month=6")
+
+        assert login_response.status_code == 303
+        assert login_response.headers["location"] == "/trips?year=2026&month=6"
+        assert page_response.status_code == 200
+        assert "Monthly Trips" in page_response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_web_login_rejects_invalid_credentials(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "wrong-password",
+                "next_url": "/trips?year=2026&month=6",
+            },
+        )
+        page_response = client.get("/trips?year=2026&month=6", follow_redirects=False)
+
+        assert login_response.status_code == 401
+        assert "Invalid username or password." in login_response.text
+        assert page_response.status_code == 303
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_waypoints_page_paginates_twenty_per_page() -> None:
     client, session_factory = _test_client_session()
     try:

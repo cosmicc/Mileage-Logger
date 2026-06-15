@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
 from mileage_logger.api.routes import router as api_router
 from mileage_logger.config import get_settings
@@ -14,6 +15,7 @@ from mileage_logger.logging_config import configure_logging
 from mileage_logger.models import Base
 from mileage_logger.services.mqtt import MqttOwnTracksWorker
 from mileage_logger.services.trip_processor import AutomaticTripProcessor
+from mileage_logger.web.auth import enforce_web_login
 from mileage_logger.web.routes import router as web_router
 
 settings = get_settings()
@@ -43,6 +45,11 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 
 @app.middleware("http")
+async def require_web_login(request: Request, call_next):
+    return await enforce_web_login(request, call_next)
+
+
+@app.middleware("http")
 async def log_requests(request: Request, call_next):
     started = time.perf_counter()
     response = await call_next(request)
@@ -57,6 +64,13 @@ async def log_requests(request: Request, call_next):
     return response
 
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    session_cookie="mileage_logger_session",
+    same_site="lax",
+    https_only=settings.web_session_cookie_secure,
+)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(api_router, prefix="/api", tags=["api"])
 app.include_router(web_router, tags=["web"])

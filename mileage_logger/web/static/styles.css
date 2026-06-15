@@ -86,6 +86,7 @@ a {
 nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
@@ -104,6 +105,24 @@ nav a {
 nav a:hover {
   border-color: var(--line);
   background: var(--surface-soft);
+  color: var(--text);
+}
+
+.nav-form {
+  margin: 0;
+}
+
+.nav-logout {
+  min-height: 34px;
+  padding: 7px 12px;
+  border-color: var(--line);
+  background: #15130f;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.nav-logout:hover {
   color: var(--text);
 }
 
@@ -234,6 +253,52 @@ p {
 .panel {
   margin-top: 18px;
   padding: 20px;
+}
+
+.login-page {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-shell {
+  width: min(420px, 100%);
+}
+
+.login-panel {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--surface), var(--surface-soft));
+  box-shadow: var(--shadow);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.login-brand h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+}
+
+.login-form input {
+  width: 100%;
+}
+
+.form-error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .summary-line {

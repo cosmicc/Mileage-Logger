@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     local_timezone: str = "America/Detroit"
     database_url: str = "postgresql+psycopg://mileage:mileage@localhost:5432/mileage_logger"
     create_tables_on_startup: bool = False
+    web_login_username: str = ""
+    web_login_password: str = ""
+    web_session_cookie_secure: bool = False
 
     owntracks_api_token: str = ""
     owntracks_username: str = ""

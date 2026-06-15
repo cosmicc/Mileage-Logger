@@ -80,6 +80,9 @@ Important values:
 ```env
 HTTP_PORT=80
 WEB_ALLOWED_CIDRS=
+WEB_LOGIN_USERNAME=admin
+WEB_LOGIN_PASSWORD=<generated-web-password>
+WEB_SESSION_COOKIE_SECURE=true
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
@@ -398,6 +401,9 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
 OWNTRACKS_DRIVING_SPEED_MPH=10.0
 OWNTRACKS_DRIVING_WINDOW_MINUTES=10
+WEB_LOGIN_USERNAME=admin
+WEB_LOGIN_PASSWORD=change-web-login-password
+WEB_SESSION_COOKIE_SECURE=true
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
@@ -406,6 +412,9 @@ SMARTCAR_API_POLLING_ENABLED=false
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
 waypoints. Location `inregions` values are only used to match already-saved waypoints; they do not
 create new waypoints.
+The web login protects rendered browser pages only. Routes under `/api/` are not placed behind the
+web login so OwnTracks and Smartcar webhooks continue to use their existing API authentication. Set
+`WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP.
 The Diagnostics page marks driving when recent OwnTracks movement outside saved waypoints is at or
 above `OWNTRACKS_DRIVING_SPEED_MPH`; computed speeds only compare points within
 `OWNTRACKS_DRIVING_WINDOW_MINUTES`.

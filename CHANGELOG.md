@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a simple session-based web login for rendered pages, configured by Docker environment
+  variables while leaving `/api/` routes outside the web login.
 - Added an editable trip suppression rules list on the Trips page so mistaken automatic-trip
   suppression records can be removed.
 - Added Diagnostics current OwnTracks state detection for inside-waypoint and driving statuses,

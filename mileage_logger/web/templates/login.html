@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Mileage Logger Login</title>
+    <style>
+      {% include "styles.css" %}
+    </style>
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <section class="login-panel">
+        <div class="login-brand">
+          <span class="brand-mark">ML</span>
+          <h1>Mileage Logger</h1>
+        </div>
+        <form action="/login" method="post" class="login-form">
+          <input type="hidden" name="next_url" value="{{ next_url }}">
+          <label>
+            Username
+            <input type="text" name="username" autocomplete="username" required autofocus>
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" autocomplete="current-password" required>
+          </label>
+          {% if login_error %}
+          <p class="form-error">{{ login_error }}</p>
+          {% endif %}
+          <button type="submit">Log In</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
