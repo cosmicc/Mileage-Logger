@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed generated trip mileage to prefer summed OwnTracks location path distance between
+  waypoint leave/enter events before falling back to Smartcar odometer, estimated odometer, or
+  waypoint distance.
 - Added a Trips page delete button and deleted-trip suppression records so user-deleted automatic
   trips are not recreated from the same OwnTracks transition events.
 - Fixed automatic trip generation so unchanged existing trips are not rewritten and counted as

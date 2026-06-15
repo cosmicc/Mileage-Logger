@@ -11,7 +11,8 @@ monthly reimbursement PDF logs.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
-- OwnTracks waypoint transition model used to turn leave/enter events into trips.
+- OwnTracks waypoint transition model used to turn leave/enter events into trips, with
+  location updates between those events used as the primary trip distance.
 - Optional Smartcar webhook ingestion for real-time vehicle state and odometer mileage.
 - Manual review for generated waypoint names and trip mileage.
 - Monthly gas price cache with a provider layer.
@@ -146,7 +147,7 @@ MQTT_TOPIC=owntracks/#
 ```
 
 Then run the web app normally. The MQTT worker starts with the app. Use `owntracks/#` so MQTT
-ingestion can receive waypoint definitions and transition events.
+ingestion can receive waypoint definitions, transition events, and location updates.
 
 ## Trip Detection
 
@@ -169,17 +170,21 @@ The server can run on UTC; app day/month selection, dashboard time, and gas snap
 
 Generated mileage uses this order:
 
-1. Verified Smartcar webhook odometer delta when `SMARTCAR_ENABLED=true` and both endpoint
+1. OwnTracks location path distance from the location updates received between the waypoint
+   `leave` and `enter` events.
+2. Verified Smartcar webhook odometer delta when `SMARTCAR_ENABLED=true` and both endpoint
    readings are available.
-2. Estimated start/end odometer values using this trip's waypoint distance and any available
+3. Estimated start/end odometer values using this trip's waypoint distance and any available
    odometer anchor.
-3. Waypoint-to-waypoint distance when no odometer anchor is available.
+4. Waypoint-to-waypoint distance when no odometer anchor is available.
 
-Because OwnTracks is only sending waypoint events, there is no full GPS path to measure. Edit a
-trip's miles on the `Trips` page when the generated mileage needs correction. Manual corrections
-apply only to that trip because the same waypoint pair can have different real-world mileage.
-Deleting a trip from the `Trips` page also saves a suppression record so the same OwnTracks
-transition pair is not generated again.
+Keep OwnTracks location reporting enabled so the app can sum the actual path between waypoint
+events. If a trip window has only transition events and no location updates between them, the app
+falls back to odometer, estimated odometer, then waypoint distance. Edit a trip's miles on the
+`Trips` page when the generated mileage needs correction. Manual corrections apply only to that
+trip because the same waypoint pair can have different real-world mileage. Deleting a trip from
+the `Trips` page also saves a suppression record so the same OwnTracks transition pair is not
+generated again.
 
 Smartcar setup uses a webhook callback for vehicle state data. Set the Smartcar callback URI to:
 

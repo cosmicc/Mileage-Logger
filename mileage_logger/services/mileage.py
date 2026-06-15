@@ -30,6 +30,7 @@ AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
 MILEAGE_SOURCE_SMARTCAR_ODOMETER = "smartcar_odometer"
 LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER = "fordpass_odometer"
+MILEAGE_SOURCE_OWNTRACKS_PATH = "owntracks_path"
 MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"
 MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"
 MILEAGE_SOURCE_MANUAL = "manual"
@@ -200,6 +201,57 @@ def _waypoint_transitions(
         transitions.append(WaypointTransition(event=event, site=site, location=location))
 
     return transitions
+
+
+def _is_location_update(location: OwnTracksLocation) -> bool:
+    payload = location.raw_payload or {}
+    return payload.get("_type") == "location"
+
+
+def _trip_path_locations(
+    locations: list[OwnTracksLocation],
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+) -> list[OwnTracksLocation]:
+    if ended_at < started_at:
+        return []
+    return [
+        location
+        for location in locations
+        if started_at <= location.captured_at <= ended_at
+    ]
+
+
+def _path_distance_miles(path_locations: list[OwnTracksLocation]) -> Decimal | None:
+    has_location_update = any(
+        _is_location_update(location) for location in path_locations
+    )
+    if len(path_locations) < 2 or not has_location_update:
+        return None
+
+    total = Decimal("0.00")
+    previous_location = path_locations[0]
+    for location in path_locations[1:]:
+        total += haversine_miles(
+            previous_location.latitude,
+            previous_location.longitude,
+            location.latitude,
+            location.longitude,
+        )
+        previous_location = location
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _trip_path_miles(
+    locations: list[OwnTracksLocation],
+    *,
+    started_at: datetime,
+    ended_at: datetime,
+) -> Decimal | None:
+    return _path_distance_miles(
+        _trip_path_locations(locations, started_at=started_at, ended_at=ended_at)
+    )
 
 
 def _home_site(sites: list[Site]) -> Site | None:
@@ -416,10 +468,25 @@ def _mileage_calculation(
     origin: Site,
     destination: Site,
     *,
+    path_miles: Decimal | None,
     start_odometer_miles: Decimal | None,
     end_odometer_miles: Decimal | None,
     odometer_anchor_miles: Decimal | None,
 ) -> MileageCalculation:
+    if path_miles is not None:
+        return MileageCalculation(
+            miles=path_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
+            start_odometer_miles=start_odometer_miles,
+            end_odometer_miles=end_odometer_miles,
+            start_odometer_source=(
+                ODOMETER_SOURCE_SMARTCAR if start_odometer_miles is not None else None
+            ),
+            end_odometer_source=(
+                ODOMETER_SOURCE_SMARTCAR if end_odometer_miles is not None else None
+            ),
+        )
+
     odometer_miles = _odometer_miles(start_odometer_miles, end_odometer_miles)
     if odometer_miles is not None:
         return MileageCalculation(
@@ -462,6 +529,8 @@ def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decim
 
 
 def _mileage_source_rank(value: str | None) -> int:
+    if value == MILEAGE_SOURCE_OWNTRACKS_PATH:
+        return 4
     if value in {MILEAGE_SOURCE_SMARTCAR_ODOMETER, LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER}:
         return 3
     if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
@@ -477,9 +546,15 @@ def _calculation_improves_existing_trip(
 ) -> bool:
     existing_rank = _mileage_source_rank(existing_trip.mileage_source)
     new_rank = _mileage_source_rank(calculation.mileage_source)
-    if new_rank <= existing_rank:
-        return False
-    return True
+    if new_rank > existing_rank:
+        return True
+    if (
+        new_rank == existing_rank
+        and calculation.mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
+        and existing_trip.miles != calculation.miles
+    ):
+        return True
+    return False
 
 
 def _trip_generation_key(
@@ -537,6 +612,7 @@ def _add_or_update_trip(
     started_at: datetime,
     ended_at: datetime,
     inferred_leave: bool,
+    path_miles: Decimal | None,
     start_odometer_miles: Decimal | None,
     end_odometer_miles: Decimal | None,
     odometer_anchor_miles: Decimal | None,
@@ -581,6 +657,7 @@ def _add_or_update_trip(
     calculation = _mileage_calculation(
         origin,
         destination,
+        path_miles=path_miles,
         start_odometer_miles=start_odometer_miles,
         end_odometer_miles=end_odometer_miles,
         odometer_anchor_miles=odometer_anchor_miles,
@@ -603,6 +680,8 @@ def _add_or_update_trip(
 
     if calculation.mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
         notes = _append_note(notes, "Estimated odometer from waypoint distance.")
+    elif calculation.mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH:
+        notes = _append_note(notes, "Used OwnTracks location path between waypoint events.")
     elif calculation.mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE:
         notes = _append_note(notes, "Used waypoint distance because odometer data was unavailable.")
 
@@ -674,6 +753,7 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
                     [
                         MILEAGE_SOURCE_SMARTCAR_ODOMETER,
                         LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
+                        MILEAGE_SOURCE_OWNTRACKS_PATH,
                         MILEAGE_SOURCE_ESTIMATED_ODOMETER,
                         MILEAGE_SOURCE_WAYPOINT_DISTANCE,
                     ]
@@ -791,6 +871,11 @@ def generate_trips(
                 started_at=pending_leave.location.captured_at,
                 ended_at=transition.location.captured_at,
                 inferred_leave=False,
+                path_miles=_trip_path_miles(
+                    locations,
+                    started_at=pending_leave.location.captured_at,
+                    ended_at=transition.location.captured_at,
+                ),
                 start_odometer_miles=_odometer_for_transition(db, pending_leave),
                 end_odometer_miles=end_odometer_miles,
                 odometer_anchor_miles=odometer_anchor_miles,
@@ -807,6 +892,7 @@ def generate_trips(
                 started_at=transition.location.captured_at,
                 ended_at=transition.location.captured_at,
                 inferred_leave=True,
+                path_miles=None,
                 start_odometer_miles=_odometer_for_transition(db, last_arrival),
                 end_odometer_miles=end_odometer_miles,
                 odometer_anchor_miles=odometer_anchor_miles,
@@ -823,6 +909,7 @@ def generate_trips(
                 started_at=transition.location.captured_at,
                 ended_at=transition.location.captured_at,
                 inferred_leave=True,
+                path_miles=None,
                 start_odometer_miles=None,
                 end_odometer_miles=end_odometer_miles,
                 odometer_anchor_miles=odometer_anchor_miles,

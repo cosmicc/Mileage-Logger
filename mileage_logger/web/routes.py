@@ -71,6 +71,7 @@ def _format_odometer_source(value) -> str:
         "estimated": "Estimated",
         "previous_trip": "Previous trip",
         "manual": "Manual",
+        "owntracks_path": "OwnTracks path",
         "smartcar_odometer": "Smartcar",
         "fordpass_odometer": "FordPass",
         "estimated_odometer": "Estimated",
