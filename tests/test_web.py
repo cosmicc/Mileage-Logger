@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
@@ -9,7 +9,7 @@ from starlette.testclient import TestClient
 from mileage_logger.app import app
 from mileage_logger.config import Settings
 from mileage_logger.database import get_db
-from mileage_logger.models import Base, OwnTracksLocation, Site
+from mileage_logger.models import Base, DeletedTrip, OwnTracksLocation, Site, Trip
 from mileage_logger.services.diagnostics import (
     paginated_owntracks_entries,
     recent_owntracks_entries,
@@ -258,6 +258,63 @@ def test_diagnostics_shows_last_received_owntracks_age() -> None:
         assert response.status_code == 200
         assert "Last OwnTracks Received" in response.text
         assert "minutes ago" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_trips_page_delete_button_removes_trip_and_blocks_regeneration() -> None:
+    client, session_factory = _test_client_session()
+    trip_date = datetime(2026, 6, 11, 12, 0, tzinfo=UTC).date()
+    try:
+        with session_factory() as db:
+            home = Site(
+                name="Home",
+                latitude=Decimal("42.3314000"),
+                longitude=Decimal("-83.0458000"),
+                radius_m=150,
+            )
+            client_site = Site(
+                name="Client",
+                latitude=Decimal("42.3440000"),
+                longitude=Decimal("-83.0600000"),
+                radius_m=150,
+            )
+            db.add_all([home, client_site])
+            db.flush()
+            db.add(
+                Trip(
+                    trip_date=trip_date,
+                    origin_site_id=home.id,
+                    destination_site_id=client_site.id,
+                    started_at=datetime(2026, 6, 11, 12, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 6, 11, 12, 30, tzinfo=UTC),
+                    start_latitude=home.latitude,
+                    start_longitude=home.longitude,
+                    end_latitude=client_site.latitude,
+                    end_longitude=client_site.longitude,
+                    origin_name="Home",
+                    destination_name="Client",
+                    miles=Decimal("4.25"),
+                    mileage_source="waypoint_distance",
+                    source="auto",
+                )
+            )
+            db.commit()
+
+        page_response = client.get("/trips?year=2026&month=6")
+        delete_response = client.post("/trips/1/delete")
+
+        assert page_response.status_code == 200
+        assert "Delete" in page_response.text
+        assert delete_response.status_code == 200
+        assert "No trips for this month." in delete_response.text
+        with session_factory() as db:
+            assert db.get(Trip, 1) is None
+            deleted_trip = db.scalar(select(DeletedTrip))
+            assert deleted_trip is not None
+            assert deleted_trip.origin_name == "Home"
+            assert deleted_trip.destination_name == "Client"
+            assert deleted_trip.reason == "user_deleted"
     finally:
         app.dependency_overrides.clear()
 

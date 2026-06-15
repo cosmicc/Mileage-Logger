@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from mileage_logger.config import get_settings
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+    DeletedTrip,
     OwnTracksLocation,
     Site,
     Trip,
@@ -43,6 +44,7 @@ LEGACY_ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
 ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_attempted"
 LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_attempted"
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
+TripGenerationKey = tuple[int, int, datetime, datetime]
 
 
 @dataclass(frozen=True)
@@ -459,6 +461,38 @@ def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decim
     return miles < get_settings().min_trip_miles
 
 
+def _mileage_source_rank(value: str | None) -> int:
+    if value in {MILEAGE_SOURCE_SMARTCAR_ODOMETER, LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER}:
+        return 3
+    if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
+        return 2
+    if value == MILEAGE_SOURCE_WAYPOINT_DISTANCE:
+        return 1
+    return 0
+
+
+def _calculation_improves_existing_trip(
+    existing_trip: Trip,
+    calculation: MileageCalculation,
+) -> bool:
+    existing_rank = _mileage_source_rank(existing_trip.mileage_source)
+    new_rank = _mileage_source_rank(calculation.mileage_source)
+    if new_rank <= existing_rank:
+        return False
+    return True
+
+
+def _trip_generation_key(
+    origin_site_id: int | None,
+    destination_site_id: int | None,
+    started_at: datetime,
+    ended_at: datetime,
+) -> TripGenerationKey | None:
+    if origin_site_id is None or destination_site_id is None:
+        return None
+    return (origin_site_id, destination_site_id, started_at, ended_at)
+
+
 def _apply_trip_values(
     trip: Trip,
     *,
@@ -495,7 +529,8 @@ def _add_or_update_trip(
     db: Session,
     generated: list[Trip],
     preserved_trips: list[Trip],
-    existing_auto_trips: dict[tuple[int, int, datetime, datetime], Trip],
+    existing_auto_trips: dict[TripGenerationKey, Trip],
+    deleted_trip_keys: set[TripGenerationKey],
     *,
     origin: Site,
     destination: Site,
@@ -532,33 +567,39 @@ def _add_or_update_trip(
         return None
 
     trip_key = (origin.id, destination.id, started_at, ended_at)
+    if trip_key in deleted_trip_keys:
+        trip_logger.info(
+            "trip skipped reason=user_deleted origin=%s destination=%s started_at=%s ended_at=%s",
+            origin.name,
+            destination.name,
+            started_at.isoformat(),
+            ended_at.isoformat(),
+        )
+        return None
+
     existing_auto_trip = existing_auto_trips.get(trip_key)
-    if existing_auto_trip is not None and existing_auto_trip.mileage_source in {
-        MILEAGE_SOURCE_SMARTCAR_ODOMETER,
-        LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
-        MILEAGE_SOURCE_ESTIMATED_ODOMETER,
-    }:
-        calculation = MileageCalculation(
-            miles=Decimal(existing_auto_trip.miles).quantize(
-                Decimal("0.01"),
-                rounding=ROUND_HALF_UP,
-            ),
-            mileage_source=existing_auto_trip.mileage_source,
-            start_odometer_miles=existing_auto_trip.start_odometer_miles,
-            end_odometer_miles=existing_auto_trip.end_odometer_miles,
-            start_odometer_source=existing_auto_trip.start_odometer_source,
-            end_odometer_source=existing_auto_trip.end_odometer_source,
+    calculation = _mileage_calculation(
+        origin,
+        destination,
+        start_odometer_miles=start_odometer_miles,
+        end_odometer_miles=end_odometer_miles,
+        odometer_anchor_miles=odometer_anchor_miles,
+    )
+    notes = _trip_notes(inferred_leave=inferred_leave)
+
+    if existing_auto_trip is not None and not _calculation_improves_existing_trip(
+        existing_auto_trip,
+        calculation,
+    ):
+        trip_logger.debug(
+            "trip unchanged origin=%s destination=%s started_at=%s ended_at=%s source=%s",
+            origin.name,
+            destination.name,
+            started_at.isoformat(),
+            ended_at.isoformat(),
+            existing_auto_trip.mileage_source,
         )
-        notes = existing_auto_trip.notes
-    else:
-        calculation = _mileage_calculation(
-            origin,
-            destination,
-            start_odometer_miles=start_odometer_miles,
-            end_odometer_miles=end_odometer_miles,
-            odometer_anchor_miles=odometer_anchor_miles,
-        )
-        notes = _trip_notes(inferred_leave=inferred_leave)
+        return existing_auto_trip
 
     if calculation.mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
         notes = _append_note(notes, "Estimated odometer from waypoint distance.")
@@ -620,7 +661,7 @@ def _add_or_update_trip(
 
 
 def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dict[
-    tuple[int, int, datetime, datetime],
+    TripGenerationKey,
     Trip,
 ]:
     trips = list(
@@ -644,6 +685,27 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
         (trip.origin_site_id, trip.destination_site_id, trip.started_at, trip.ended_at): trip
         for trip in trips
         if trip.origin_site_id is not None and trip.destination_site_id is not None
+    }
+
+
+def _deleted_trip_keys_for_dates(db: Session, source_dates: list[date]) -> set[TripGenerationKey]:
+    deleted_trips = list(
+        db.scalars(
+            select(DeletedTrip)
+            .where(DeletedTrip.trip_date.in_(source_dates))
+            .where(DeletedTrip.origin_site_id.is_not(None))
+            .where(DeletedTrip.destination_site_id.is_not(None))
+        )
+    )
+    return {
+        (
+            deleted_trip.origin_site_id,
+            deleted_trip.destination_site_id,
+            deleted_trip.started_at,
+            deleted_trip.ended_at,
+        )
+        for deleted_trip in deleted_trips
+        if deleted_trip.origin_site_id is not None and deleted_trip.destination_site_id is not None
     }
 
 
@@ -703,6 +765,7 @@ def generate_trips(
         {datetime_to_local_date(event.location.captured_at) for event in transitions}
     )
     existing_auto_trips = _existing_auto_trips_for_dates(db, source_dates)
+    deleted_trip_keys = _deleted_trip_keys_for_dates(db, source_dates)
     home_site = _home_site(sites)
     pending_leave: WaypointTransition | None = None
     last_arrival: WaypointTransition | None = None
@@ -722,6 +785,7 @@ def generate_trips(
                 generated,
                 preserved_trips,
                 existing_auto_trips,
+                deleted_trip_keys,
                 origin=pending_leave.site,
                 destination=transition.site,
                 started_at=pending_leave.location.captured_at,
@@ -737,6 +801,7 @@ def generate_trips(
                 generated,
                 preserved_trips,
                 existing_auto_trips,
+                deleted_trip_keys,
                 origin=last_arrival.site,
                 destination=transition.site,
                 started_at=transition.location.captured_at,
@@ -752,6 +817,7 @@ def generate_trips(
                 generated,
                 preserved_trips,
                 existing_auto_trips,
+                deleted_trip_keys,
                 origin=home_site,
                 destination=transition.site,
                 started_at=transition.location.captured_at,
@@ -786,6 +852,51 @@ def generate_trips(
 def mark_trip_manually_reviewed(trip: Trip) -> None:
     if trip.source == AUTO_TRIP_SOURCE:
         trip.source = MANUAL_TRIP_SOURCE
+
+
+def suppress_trip_generation_for_deleted_trip(db: Session, trip: Trip) -> DeletedTrip | None:
+    trip_key = _trip_generation_key(
+        trip.origin_site_id,
+        trip.destination_site_id,
+        trip.started_at,
+        trip.ended_at,
+    )
+    if trip_key is None:
+        return None
+
+    origin_site_id, destination_site_id, started_at, ended_at = trip_key
+    deleted_trip = db.scalar(
+        select(DeletedTrip)
+        .where(DeletedTrip.origin_site_id == origin_site_id)
+        .where(DeletedTrip.destination_site_id == destination_site_id)
+        .where(DeletedTrip.started_at == started_at)
+        .where(DeletedTrip.ended_at == ended_at)
+    )
+    if deleted_trip is None:
+        deleted_trip = DeletedTrip(
+            deleted_trip_id=trip.id,
+            trip_date=trip.trip_date,
+            origin_site_id=origin_site_id,
+            destination_site_id=destination_site_id,
+            started_at=started_at,
+            ended_at=ended_at,
+        )
+        db.add(deleted_trip)
+
+    deleted_trip.origin_name = trip.origin_display_name
+    deleted_trip.destination_name = trip.destination_display_name
+    deleted_trip.miles = trip.miles
+    deleted_trip.source = trip.source
+    deleted_trip.mileage_source = trip.mileage_source
+    deleted_trip.reason = "user_deleted"
+    deleted_trip.notes = trip.notes or ""
+    return deleted_trip
+
+
+def delete_trip(db: Session, trip: Trip) -> DeletedTrip | None:
+    deleted_trip = suppress_trip_generation_for_deleted_trip(db, trip)
+    db.delete(trip)
+    return deleted_trip
 
 
 def update_trip_details(

@@ -178,6 +178,8 @@ Generated mileage uses this order:
 Because OwnTracks is only sending waypoint events, there is no full GPS path to measure. Edit a
 trip's miles on the `Trips` page when the generated mileage needs correction. Manual corrections
 apply only to that trip because the same waypoint pair can have different real-world mileage.
+Deleting a trip from the `Trips` page also saves a suppression record so the same OwnTracks
+transition pair is not generated again.
 
 Smartcar setup uses a webhook callback for vehicle state data. Set the Smartcar callback URI to:
 

@@ -1,7 +1,18 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 UNKNOWN_LOCATION_NAME = "Unknown"
@@ -111,6 +122,93 @@ class Trip(Base):
         if self.destination_site is not None:
             return self.destination_site.name
         return UNKNOWN_LOCATION_NAME
+
+
+class DeletedTrip(Base):
+    """Trip deletion tombstone that blocks automatic recreation from source events."""
+
+    __tablename__ = "deleted_trips"
+    __table_args__ = (
+        UniqueConstraint(
+            "origin_site_id",
+            "destination_site_id",
+            "started_at",
+            "ended_at",
+            name="uq_deleted_trip_generation_signature",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    deleted_trip_id: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Original trips.id value for operator audit after the visible row is deleted.",
+    )
+    trip_date: Mapped[date] = mapped_column(
+        Date,
+        index=True,
+        comment="Local trip date for the deleted trip.",
+    )
+    origin_site_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sites.id"),
+        nullable=True,
+        comment="Origin waypoint id used in the automatic generation signature.",
+    )
+    destination_site_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sites.id"),
+        nullable=True,
+        comment="Destination waypoint id used in the automatic generation signature.",
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        comment="Trip start timestamp used in the automatic generation signature.",
+    )
+    ended_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        comment="Trip end timestamp used in the automatic generation signature.",
+    )
+    origin_name: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        comment="Displayed origin name at deletion time.",
+    )
+    destination_name: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        comment="Displayed destination name at deletion time.",
+    )
+    miles: Mapped[Decimal | None] = mapped_column(
+        Numeric(9, 2),
+        nullable=True,
+        comment="Displayed trip miles at deletion time.",
+    )
+    source: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Trip source at deletion time.",
+    )
+    mileage_source: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Mileage source at deletion time.",
+    )
+    reason: Mapped[str] = mapped_column(
+        String(80),
+        default="user_deleted",
+        comment="Reason this automatic trip signature should stay suppressed.",
+    )
+    deleted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        comment="Timestamp the visible trip row was deleted.",
+    )
+    notes: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        comment="Trip notes copied at deletion time.",
+    )
 
 
 class TripProcessingCheckpoint(Base):

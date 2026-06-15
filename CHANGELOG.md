@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added a Trips page delete button and deleted-trip suppression records so user-deleted automatic
+  trips are not recreated from the same OwnTracks transition events.
+- Fixed automatic trip generation so unchanged existing trips are not rewritten and counted as
+  generated on every processing pass.
 - Added signed Smartcar webhook ingestion with VERIFY challenge handling, raw-body
   `SC-Signature` validation, event deduplication, vehicle state storage, signal row storage, and
   webhook-first odometer readings for trip mileage.

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import (
     Base,
+    DeletedTrip,
     GasPriceSnapshot,
     OwnTracksLocation,
     Site,
@@ -21,6 +22,7 @@ from mileage_logger.services.mileage import (
     ODOMETER_SOURCE_ESTIMATED,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
     ODOMETER_SOURCE_SMARTCAR,
+    delete_trip,
     generate_trips,
     haversine_miles,
     update_trip_details,
@@ -193,13 +195,68 @@ def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
     regenerated = generate_trips(db, day.date(), day.date())
     all_trips = list(db.scalars(select(Trip).order_by(Trip.id.asc())))
 
-    assert len(regenerated) == 1
-    assert regenerated[0].id == first_trip_id
+    assert regenerated == []
     assert [trip.id for trip in all_trips] == [first_trip_id]
-    assert regenerated[0].miles == Decimal("6.50")
-    assert regenerated[0].start_odometer_miles == Decimal("1000.000")
-    assert regenerated[0].end_odometer_miles == Decimal("1006.500")
-    assert regenerated[0].mileage_source == MILEAGE_SOURCE_SMARTCAR_ODOMETER
+    assert all_trips[0].miles == Decimal("6.50")
+    assert all_trips[0].start_odometer_miles == Decimal("1000.000")
+    assert all_trips[0].end_odometer_miles == Decimal("1006.500")
+    assert all_trips[0].mileage_source == MILEAGE_SOURCE_SMARTCAR_ODOMETER
+
+
+def test_generate_trips_does_not_rewrite_existing_waypoint_distance_trip() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _transition(day + timedelta(minutes=24), client, "enter"),
+        ]
+    )
+    db.commit()
+    first_generation = generate_trips(db, day.date(), day.date())
+    first_trip_id = first_generation[0].id
+
+    regenerated = generate_trips(db, day.date(), day.date())
+    all_trips = list(db.scalars(select(Trip).order_by(Trip.id.asc())))
+
+    assert regenerated == []
+    assert [trip.id for trip in all_trips] == [first_trip_id]
+    assert all_trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
+
+
+def test_deleted_generated_trip_is_not_recreated_from_same_transitions() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _transition(day + timedelta(minutes=24), client, "enter"),
+        ]
+    )
+    db.commit()
+    trip = generate_trips(db, day.date(), day.date())[0]
+
+    deleted_trip = delete_trip(db, trip)
+    db.commit()
+    regenerated = generate_trips(db, day.date(), day.date())
+
+    assert deleted_trip is not None
+    assert regenerated == []
+    assert db.scalar(select(Trip)) is None
+    stored_deleted_trip = db.scalar(select(DeletedTrip))
+    assert stored_deleted_trip is not None
+    assert stored_deleted_trip.origin_site_id == home.id
+    assert stored_deleted_trip.destination_site_id == client.id
+    assert stored_deleted_trip.started_at == _naive(day)
+    assert stored_deleted_trip.ended_at == _naive(day + timedelta(minutes=24))
 
 
 def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypatch) -> None:

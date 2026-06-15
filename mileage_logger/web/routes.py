@@ -31,7 +31,7 @@ from mileage_logger.services.gas_prices import (
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
-from mileage_logger.services.mileage import update_trip_details
+from mileage_logger.services.mileage import delete_trip, update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.smartcar import (
     SmartcarAuthenticationError,
@@ -413,6 +413,32 @@ def update_trip_form(
     )
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
+        status_code=303,
+    )
+
+
+@router.post("/trips/{trip_id}/delete")
+def delete_trip_form(trip_id: int, db: Session = Depends(get_db)) -> RedirectResponse:
+    trip = db.get(Trip, trip_id)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+
+    redirect_year = trip.trip_date.year
+    redirect_month = trip.trip_date.month
+    deleted_trip = delete_trip(db, trip)
+    db.commit()
+    logger.info(
+        "Deleted trip via web form trip_id=%s suppressed=%s origin=%s destination=%s "
+        "started_at=%s ended_at=%s",
+        trip_id,
+        deleted_trip is not None,
+        deleted_trip.origin_name if deleted_trip is not None else "",
+        deleted_trip.destination_name if deleted_trip is not None else "",
+        deleted_trip.started_at.isoformat() if deleted_trip is not None else "",
+        deleted_trip.ended_at.isoformat() if deleted_trip is not None else "",
+    )
+    return RedirectResponse(
+        url=f"/trips?year={redirect_year}&month={redirect_month}",
         status_code=303,
     )
 

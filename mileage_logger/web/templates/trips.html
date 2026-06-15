@@ -63,6 +63,9 @@
         <td>
           <div class="trip-actions">
             <button class="small-button" form="{{ form_id }}" type="submit">Save</button>
+            <form action="/trips/{{ trip.id }}/delete" method="post">
+              <button class="small-button danger" type="submit">Delete</button>
+            </form>
           </div>
         </td>
       </tr>

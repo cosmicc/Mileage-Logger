@@ -396,6 +396,12 @@ button.small-button.secondary {
   color: var(--text-soft);
 }
 
+button.small-button.danger {
+  border-color: rgba(239, 111, 108, 0.5);
+  background: linear-gradient(180deg, #ef6f6c, #b91c1c);
+  color: #fff7ed;
+}
+
 .button-link {
   display: inline-flex;
   align-items: center;
