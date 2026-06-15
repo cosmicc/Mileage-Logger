@@ -332,8 +332,8 @@ odometer, fuel level, lock state, online state, nickname, VIN, firmware version,
 webhook metadata, and the full raw payload.
 
 Direct Smartcar API odometer polling is now only an optional automatic fallback. Leave it disabled
-for webhook-only operation. The Diagnostics page test button can still force-test configured API
-credentials. The Diagnostics page can also save the vehicle's current odometer manually; those
+for webhook-only operation. The Diagnostics page shows the latest received Smartcar webhook data
+and can also save the vehicle's current odometer manually; those
 manual readings are stored in the same odometer event stream used by trip generation. If you
 explicitly want automatic fallback reads, set:
 

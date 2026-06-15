@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replaced the Diagnostics Smartcar API test card with the latest received Smartcar webhook data,
+  including received time, age, summary fields, and signal details.
 - Changed Smartcar callback URI verification so `VERIFY` events only require
   `SMARTCAR_MANAGEMENT_TOKEN`, while normal vehicle deliveries still require `SMARTCAR_ENABLED`.
 - Added a simple session-based web login for rendered pages, configured by Docker environment

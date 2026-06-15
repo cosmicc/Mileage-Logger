@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
@@ -23,6 +23,7 @@ from mileage_logger.models import (
     MonthlyGasPrice,
     OwnTracksLocation,
     Site,
+    SmartcarWebhookEvent,
     Trip,
 )
 from mileage_logger.services.diagnostics import (
@@ -38,9 +39,8 @@ from mileage_logger.services.gas_prices import (
 from mileage_logger.services.mileage import create_manual_trip, delete_trip, update_trip_details
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.smartcar import (
-    SmartcarAuthenticationError,
+    MANUAL_ODOMETER_EVENT_TYPE,
     create_manual_odometer_event,
-    current_odometer_miles,
     latest_webhook_odometer_event,
     odometer_event_source,
 )
@@ -137,6 +137,16 @@ class ApiTestResult:
         return self.status == "pass"
 
 
+@dataclass(frozen=True)
+class SmartcarWebhookDiagnostics:
+    """Latest non-manual Smartcar webhook delivery details for Diagnostics."""
+
+    event: SmartcarWebhookEvent | None
+    age: str
+    data_rows: list[tuple[str, str]]
+    signal_rows: list[tuple[str, str, str, str]]
+
+
 def _current_year_month() -> tuple[int, int]:
     today = local_today()
     return today.year, today.month
@@ -207,6 +217,119 @@ def _api_test_result(
     cleaned_message = (message or "").strip()[:300]
     cleaned_value = (value or "").strip()[:120]
     return ApiTestResult(status=status, message=cleaned_message, value=cleaned_value)
+
+
+def _display_text(value: object | None) -> str:
+    """Return a compact display value for optional diagnostic fields."""
+
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    if isinstance(value, Decimal):
+        return f"{value.normalize():f}"
+    return str(value)
+
+
+def _masked_vin(vin: str | None) -> str:
+    """Display only the VIN suffix because full VINs are sensitive diagnostics data."""
+
+    cleaned_vin = (vin or "").strip()
+    if not cleaned_vin:
+        return "-"
+    return f"Ending {cleaned_vin[-4:]}"
+
+
+def _vehicle_description(event: SmartcarWebhookEvent) -> str:
+    """Build a human-readable vehicle label from the latest Smartcar webhook."""
+
+    parts = [
+        str(event.vehicle_year) if event.vehicle_year is not None else "",
+        event.vehicle_make or "",
+        event.vehicle_model or "",
+    ]
+    description = " ".join(part for part in parts if part).strip()
+    return description or "-"
+
+
+def _miles_text(value: Decimal | None) -> str:
+    """Format a mileage value for webhook diagnostics."""
+
+    return f"{value:.1f} miles" if value is not None else "-"
+
+
+def _percent_text(value: Decimal | None) -> str:
+    """Format a percent value for webhook diagnostics."""
+
+    return f"{value:.1f}%" if value is not None else "-"
+
+
+def _smartcar_signal_display_rows(event: SmartcarWebhookEvent) -> list[tuple[str, str, str, str]]:
+    """Return sorted signal rows with safe display values for the latest webhook card."""
+
+    signals = sorted(
+        event.signal_rows,
+        key=lambda signal: (
+            signal.group or "",
+            signal.name or "",
+            signal.code or "",
+        ),
+    )
+    return [
+        (
+            signal.group or "-",
+            signal.name or signal.code or "-",
+            _display_text(signal.value),
+            signal.unit or signal.status or "-",
+        )
+        for signal in signals
+    ]
+
+
+def _smartcar_webhook_diagnostics(db: Session) -> SmartcarWebhookDiagnostics:
+    """Load the latest real Smartcar webhook and summarize the received vehicle data."""
+
+    latest_event = db.scalar(
+        select(SmartcarWebhookEvent)
+        .options(selectinload(SmartcarWebhookEvent.signal_rows))
+        .where(SmartcarWebhookEvent.event_type != MANUAL_ODOMETER_EVENT_TYPE)
+        .order_by(SmartcarWebhookEvent.received_at.desc(), SmartcarWebhookEvent.id.desc())
+        .limit(1)
+    )
+    if latest_event is None:
+        return SmartcarWebhookDiagnostics(
+            event=None,
+            age="Never",
+            data_rows=[],
+            signal_rows=[],
+        )
+
+    data_rows = [
+        ("Event Type", latest_event.event_type),
+        ("Event ID", latest_event.event_id),
+        ("Delivery ID", latest_event.delivery_id or "-"),
+        ("Webhook", latest_event.webhook_name or latest_event.webhook_id or "-"),
+        ("Vehicle", _vehicle_description(latest_event)),
+        ("Vehicle ID", latest_event.vehicle_id or "-"),
+        ("Mode", latest_event.vehicle_mode or "-"),
+        ("Powertrain", latest_event.vehicle_powertrain_type or "-"),
+        ("Odometer", _miles_text(latest_event.odometer_miles)),
+        ("Odometer Recorded", _format_local_datetime(latest_event.odometer_recorded_at) or "-"),
+        ("Fuel", _percent_text(latest_event.fuel_percent)),
+        ("Locked", _display_text(latest_event.is_locked)),
+        ("Online", _display_text(latest_event.is_online)),
+        ("Nickname", latest_event.nickname or "-"),
+        ("VIN", _masked_vin(latest_event.vin)),
+        ("Firmware", latest_event.firmware_version or "-"),
+        ("Signals", str(len(latest_event.signal_rows))),
+        ("Triggers", str(len(latest_event.triggers or []))),
+    ]
+    return SmartcarWebhookDiagnostics(
+        event=latest_event,
+        age=_human_duration_since(latest_event.received_at),
+        data_rows=data_rows,
+        signal_rows=_smartcar_signal_display_rows(latest_event),
+    )
 
 
 def _diagnostics_redirect(fragment: str, params: dict[str, str]) -> RedirectResponse:
@@ -661,9 +784,6 @@ def refresh_gas_price_form(
 def diagnostics(
     request: Request,
     owntracks_page: int = Query(default=1, ge=1),
-    smartcar_test: str | None = Query(default=None),
-    smartcar_message: str | None = Query(default=None),
-    smartcar_value: str | None = Query(default=None),
     odometer_test: str | None = Query(default=None),
     odometer_message: str | None = Query(default=None),
     odometer_value: str | None = Query(default=None),
@@ -691,6 +811,7 @@ def diagnostics(
     latest_odometer = _latest_odometer_reading(db)
     owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
     movement_diagnostics = owntracks_movement_diagnostics(db)
+    smartcar_webhook_diagnostics = _smartcar_webhook_diagnostics(db)
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
@@ -715,60 +836,14 @@ def diagnostics(
             "owntracks_entries_page": owntracks_entries_page,
             "movement_state": movement_diagnostics.current_state,
             "movement_state_changes": movement_diagnostics.state_changes,
+            "smartcar_webhook": smartcar_webhook_diagnostics,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
-            "smartcar_test_result": _api_test_result(
-                smartcar_test,
-                smartcar_message,
-                smartcar_value,
-            ),
             "manual_odometer_result": _api_test_result(
                 odometer_test,
                 odometer_message,
                 odometer_value,
             ),
             "eia_test_result": _api_test_result(eia_test, eia_message, eia_value),
-        },
-    )
-
-
-@router.post("/diagnostics/test/smartcar")
-def test_smartcar_api() -> RedirectResponse:
-    settings = get_settings()
-    try:
-        odometer = current_odometer_miles(settings, force=True, raise_on_auth_error=True)
-    except SmartcarAuthenticationError as exc:
-        return _diagnostics_redirect(
-            "api-tests",
-            {
-                "smartcar_test": "fail",
-                "smartcar_message": str(exc),
-            },
-        )
-    except Exception:
-        logger.warning("Smartcar diagnostic test failed with an unexpected provider error")
-        return _diagnostics_redirect(
-            "api-tests",
-            {
-                "smartcar_test": "fail",
-                "smartcar_message": "Smartcar test failed. Check the app log for provider details.",
-            },
-        )
-
-    if odometer is None:
-        return _diagnostics_redirect(
-            "api-tests",
-            {
-                "smartcar_test": "fail",
-                "smartcar_message": "Smartcar did not return an odometer reading.",
-            },
-        )
-
-    return _diagnostics_redirect(
-        "api-tests",
-        {
-            "smartcar_test": "pass",
-            "smartcar_message": "Smartcar returned an odometer reading.",
-            "smartcar_value": f"{odometer:.1f} miles",
         },
     )
 

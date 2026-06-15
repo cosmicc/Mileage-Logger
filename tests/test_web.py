@@ -15,6 +15,7 @@ from mileage_logger.models import (
     OwnTracksLocation,
     Site,
     SmartcarWebhookEvent,
+    SmartcarWebhookSignal,
     Trip,
 )
 from mileage_logger.services.diagnostics import (
@@ -22,7 +23,6 @@ from mileage_logger.services.diagnostics import (
     recent_owntracks_entries,
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
-from mileage_logger.services.smartcar import SmartcarAuthenticationError
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import _human_duration_since
 
@@ -722,54 +722,100 @@ def test_trips_page_updates_existing_trip_date_and_values() -> None:
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_smartcar_api_test_button_reports_pass(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "mileage_logger.web.routes.get_settings",
-        lambda: Settings(
-            database_url="sqlite://",
-            smartcar_enabled=True,
-            smartcar_access_token="configured",
-            smartcar_vehicle_id="configured",
-        ),
-    )
-    monkeypatch.setattr(
-        "mileage_logger.web.routes.current_odometer_miles",
-        lambda settings, **_: Decimal("12345.600"),
-    )
+def test_diagnostics_smartcar_webhook_card_shows_no_data() -> None:
     client, _ = _test_client_session()
     try:
-        response = client.post("/diagnostics/test/smartcar")
+        response = client.get("/diagnostics")
 
         assert response.status_code == 200
-        assert "Smartcar API" in response.text
-        assert "Pass" in response.text
-        assert "12345.6 miles" in response.text
+        assert "Smartcar Webhook" in response.text
+        assert "No Data" in response.text
+        assert "Never" in response.text
+        assert "Odometer connectivity test" not in response.text
     finally:
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_smartcar_api_test_button_reports_auth_failure(monkeypatch) -> None:
-    def raise_auth_failure(_settings: Settings, **_: object) -> Decimal:
-        raise SmartcarAuthenticationError("Smartcar authentication failed.")
-
-    monkeypatch.setattr(
-        "mileage_logger.web.routes.get_settings",
-        lambda: Settings(
-            database_url="sqlite://",
-            smartcar_enabled=True,
-            smartcar_access_token="configured",
-            smartcar_vehicle_id="configured",
-        ),
-    )
-    monkeypatch.setattr("mileage_logger.web.routes.current_odometer_miles", raise_auth_failure)
-    client, _ = _test_client_session()
+def test_diagnostics_smartcar_webhook_card_shows_latest_received_data() -> None:
+    client, session_factory = _test_client_session()
+    received_at = datetime.now(UTC) - timedelta(minutes=5)
     try:
-        response = client.post("/diagnostics/test/smartcar")
+        with session_factory() as db:
+            event = SmartcarWebhookEvent(
+                event_id="event-1",
+                event_type="VEHICLE_STATE",
+                user_id="user-1",
+                vehicle_id="vehicle-1",
+                vehicle_make="Tesla",
+                vehicle_model="Model 3",
+                vehicle_year=2020,
+                vehicle_mode="test",
+                vehicle_powertrain_type="BEV",
+                webhook_id="webhook-1",
+                webhook_name="Mileage Webhook",
+                delivery_id="delivery-1",
+                delivered_at=received_at - timedelta(seconds=30),
+                received_at=received_at,
+                odometer_miles=Decimal("12345.678"),
+                odometer_raw_value=Decimal("19868.905"),
+                odometer_unit="km",
+                odometer_recorded_at=received_at - timedelta(minutes=1),
+                fuel_percent=Decimal("65.00"),
+                fuel_unit="percent",
+                is_locked=True,
+                is_online=True,
+                nickname="Test Vehicle",
+                vin="5YJSA1CN5DFP00101",
+                firmware_version="2026.1",
+                triggers=[{"type": "SIGNAL_UPDATED"}],
+                raw_payload={"eventType": "VEHICLE_STATE"},
+            )
+            event.signal_rows = [
+                SmartcarWebhookSignal(
+                    code="odometer-traveleddistance",
+                    name="TraveledDistance",
+                    group="Odometer",
+                    status="SUCCESS",
+                    value=19868.905,
+                    unit="km",
+                    body={"value": 19868.905, "unit": "km"},
+                    meta={},
+                    raw_signal={
+                        "code": "odometer-traveleddistance",
+                        "name": "TraveledDistance",
+                    },
+                ),
+                SmartcarWebhookSignal(
+                    code="connectivitystatus-isonline",
+                    name="IsOnline",
+                    group="ConnectivityStatus",
+                    status="SUCCESS",
+                    value=True,
+                    body={"value": True},
+                    meta={},
+                    raw_signal={
+                        "code": "connectivitystatus-isonline",
+                        "name": "IsOnline",
+                    },
+                ),
+            ]
+            db.add(event)
+            db.commit()
+
+        response = client.get("/diagnostics")
 
         assert response.status_code == 200
-        assert "Smartcar API" in response.text
-        assert "Fail" in response.text
-        assert "Smartcar authentication failed." in response.text
+        assert "Smartcar Webhook" in response.text
+        assert "Received" in response.text
+        assert "minutes ago" in response.text
+        assert "VEHICLE_STATE" in response.text
+        assert "Mileage Webhook" in response.text
+        assert "2020 Tesla Model 3" in response.text
+        assert "12345.7 miles" in response.text
+        assert "65.0%" in response.text
+        assert "Ending 0101" in response.text
+        assert "TraveledDistance" in response.text
+        assert "IsOnline" in response.text
     finally:
         app.dependency_overrides.clear()
 
