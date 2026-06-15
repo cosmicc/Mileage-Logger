@@ -17,7 +17,7 @@ from mileage_logger.models import (
 from mileage_logger.services.mileage import (
     generate_trips,
 )
-from mileage_logger.services.retention import MonthlyResetResult, reset_previous_month_data
+from mileage_logger.services.retention import RetentionResult, purge_processed_owntracks_locations
 from mileage_logger.services.smartcar import current_odometer_miles
 from mileage_logger.services.timezone import datetime_to_local_date
 
@@ -29,10 +29,14 @@ _PROCESSING_LOCK = Lock()
 @dataclass(frozen=True)
 class TripProcessingResult:
     generated: int
-    monthly_reset: MonthlyResetResult
+    retention: RetentionResult
     processed_dates: tuple[date, ...]
     processed_location_count: int = 0
     checkpoint_location_id: int | None = None
+
+    @property
+    def monthly_reset(self) -> RetentionResult:
+        return self.retention
 
 
 def _ensure_checkpoint_table(db: Session) -> None:
@@ -132,7 +136,7 @@ def run_automatic_trip_processing(
     current_dt = now or datetime.now(UTC)
     today = datetime_to_local_date(current_dt)
     generated = 0
-    monthly_reset = MonthlyResetResult(location_points=0, trips=0, gas_snapshots=0)
+    retention = RetentionResult(location_points=0, trips=0, gas_snapshots=0)
     processed_dates: list[date] = []
     processed_location_count = 0
     checkpoint_location_id: int | None = None
@@ -166,23 +170,27 @@ def run_automatic_trip_processing(
             processed_location_count = len(new_locations)
             db.commit()
 
-        monthly_reset = reset_previous_month_data(db, now=current_dt)
+        retention = purge_processed_owntracks_locations(
+            db,
+            checkpoint_location_id=checkpoint.last_owntracks_location_id,
+            now=current_dt,
+        )
 
     result = TripProcessingResult(
         generated=generated,
-        monthly_reset=monthly_reset,
+        retention=retention,
         processed_dates=tuple(processed_dates),
         processed_location_count=processed_location_count,
         checkpoint_location_id=checkpoint_location_id,
     )
     trip_logger.info(
-        "automatic trip processing complete generated=%s reset_location_points=%s "
-        "reset_trips=%s reset_gas_snapshots=%s processed_locations=%s checkpoint_location_id=%s "
+        "automatic trip processing complete generated=%s purged_location_points=%s "
+        "purged_trips=%s purged_gas_snapshots=%s processed_locations=%s checkpoint_location_id=%s "
         "dates=%s",
         result.generated,
-        result.monthly_reset.location_points,
-        result.monthly_reset.trips,
-        result.monthly_reset.gas_snapshots,
+        result.retention.location_points,
+        result.retention.trips,
+        result.retention.gas_snapshots,
         result.processed_location_count,
         result.checkpoint_location_id or "",
         ",".join(day.isoformat() for day in result.processed_dates),
@@ -231,13 +239,13 @@ class AutomaticTripProcessor:
                 logger.exception("Automatic trip processing failed")
                 return
 
-        if result.generated or result.monthly_reset.total:
+        if result.generated or result.retention.total:
             logger.info(
                 "Automatic trip processing complete generated=%s "
-                "reset_location_points=%s reset_trips=%s reset_gas_snapshots=%s dates=%s",
+                "purged_location_points=%s purged_trips=%s purged_gas_snapshots=%s dates=%s",
                 result.generated,
-                result.monthly_reset.location_points,
-                result.monthly_reset.trips,
-                result.monthly_reset.gas_snapshots,
+                result.retention.location_points,
+                result.retention.trips,
+                result.retention.gas_snapshots,
                 ",".join(day.isoformat() for day in result.processed_dates),
             )

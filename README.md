@@ -162,8 +162,8 @@ The app generates trips directly from OwnTracks waypoint transitions:
   from the previous waypoint. If there is no previous waypoint and the destination is not `Home`,
   the app assumes the missed origin was `Home`.
 
-Trip data is calculated automatically. Every incoming OwnTracks transition payload is stored in
-`owntracks_locations` and immediately triggers trip recalculation for that payload's
+Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
+stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
 `LOCAL_TIMEZONE` day. When the app sees a qualifying trip, it writes the generated row to `trips`.
 The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
 `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
@@ -260,9 +260,9 @@ CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 Then start the normal stack with `docker compose up -d --build`.
 
 A background processor also runs while the web app is up. It recalculates the current local day on a
-short interval and finalizes completed local days. At the start of each new month, old location
-points and raw gas snapshots are removed so only the current month remains. Trips and waypoints are
-not reset.
+short interval and finalizes completed local days. After trip processing updates its checkpoint,
+processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged automatically.
+Trips, waypoints, reports, and Smartcar data are not removed by this purge.
 
 Useful Docker environment options:
 
@@ -272,6 +272,8 @@ OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
+OWNTRACKS_PURGE_ENABLED=true
+OWNTRACKS_LOCATION_RETENTION_DAYS=14
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
@@ -284,7 +286,7 @@ Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always include
 
 1. Create work waypoints in OwnTracks and publish/export them to the server.
 2. Review or export saved waypoints from the `Waypoints` page.
-3. Configure OwnTracks to send waypoint transition events.
+3. Configure OwnTracks to send waypoint transition events and normal location updates.
 4. Let the app automatically create trips from incoming OwnTracks transitions.
 5. Review `Trips`, switch to the needed month, and edit waypoint names or miles if needed.
 6. Add or fetch a monthly gas price for that report month.

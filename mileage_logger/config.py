@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     owntracks_default_site_radius_m: int = 150
     automatic_trip_processing_enabled: bool = True
     automatic_trip_processing_interval_seconds: int = Field(default=60, ge=5)
+    owntracks_purge_enabled: bool = True
+    owntracks_location_retention_days: int = Field(default=14, ge=1)
 
     mqtt_enabled: bool = False
     mqtt_host: str = "localhost"

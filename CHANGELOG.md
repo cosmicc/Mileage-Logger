@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added automatic checkpoint-aware OwnTracks location retention so old processed raw location data
+  is purged after the configured retention window without deleting trips or other app data.
 - Changed generated trip mileage to prefer summed OwnTracks location path distance between
   waypoint leave/enter events before falling back to Smartcar odometer, estimated odometer, or
   waypoint distance.

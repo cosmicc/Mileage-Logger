@@ -85,6 +85,8 @@ OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
+OWNTRACKS_PURGE_ENABLED=true
+OWNTRACKS_LOCATION_RETENTION_DAYS=14
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
@@ -272,7 +274,7 @@ Default behavior:
   previous waypoint. If there is no previous waypoint and the destination is not `Home`, the app
   assumes the missed origin was `Home`.
 
-Trip generation is automatic. Every incoming OwnTracks transition payload is stored in
+Trip generation is automatic. Every incoming OwnTracks location or transition payload is stored in
 `owntracks_locations` and immediately triggers trip recalculation for that payload's
 `LOCAL_TIMEZONE` day. Generated trip rows are stored in `trips`.
 The server can run on UTC; app day/month selection, dashboard time, and gas
@@ -378,9 +380,9 @@ https://mileage.example.com/api/smartcar/webhook
 ```
 
 The web app also starts a background processor. It recalculates the current local day on a short
-interval and finalizes completed local days. At the start of each new month, old location points
-and raw gas snapshots are removed so only the current month remains. Trips and waypoints are not
-reset.
+interval and finalizes completed local days. After trip processing updates its checkpoint,
+processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged automatically.
+Trips, waypoints, reports, Smartcar data, and gas price records are not removed by this purge.
 
 Configuration:
 
@@ -390,6 +392,8 @@ OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
+OWNTRACKS_PURGE_ENABLED=true
+OWNTRACKS_LOCATION_RETENTION_DAYS=14
 SMARTCAR_ENABLED=false
 SMARTCAR_MANAGEMENT_TOKEN=
 SMARTCAR_API_POLLING_ENABLED=false
@@ -435,8 +439,8 @@ curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
 8. Click `Download PDF Report` to generate and download the PDF.
 
 The PDF can be generated for any retained month that has trips and a saved monthly gas price or
-daily gas snapshots for that month. The app removes old location points and raw gas snapshots at
-the start of each new month, but keeps trips.
+daily gas snapshots for that month. The automatic OwnTracks purge removes only processed raw
+OwnTracks rows after the retention window and keeps generated trips locked in.
 
 Reimbursement is calculated as:
 
