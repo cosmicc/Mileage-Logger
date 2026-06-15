@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added an editable trip suppression rules list on the Trips page so mistaken automatic-trip
+  suppression records can be removed.
 - Added Diagnostics current OwnTracks state detection for inside-waypoint and driving statuses,
   plus a state-change log limited to waypoint arrivals, waypoint departures, and driving detected.
 - Added a Trips page manual-entry form and trip-date editing so date, origin, destination, and

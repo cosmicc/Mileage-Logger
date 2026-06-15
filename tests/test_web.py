@@ -427,6 +427,61 @@ def test_trips_page_delete_button_removes_trip_and_blocks_regeneration() -> None
         app.dependency_overrides.clear()
 
 
+def test_trips_page_removes_trip_suppression_rule() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            home = Site(
+                name="Home",
+                latitude=Decimal("42.3314000"),
+                longitude=Decimal("-83.0458000"),
+                radius_m=150,
+            )
+            client_site = Site(
+                name="Client",
+                latitude=Decimal("42.3440000"),
+                longitude=Decimal("-83.0600000"),
+                radius_m=150,
+            )
+            db.add_all([home, client_site])
+            db.flush()
+            db.add(
+                DeletedTrip(
+                    deleted_trip_id=42,
+                    trip_date=datetime(2026, 6, 15, tzinfo=UTC).date(),
+                    origin_site_id=home.id,
+                    destination_site_id=client_site.id,
+                    started_at=datetime(2026, 6, 15, 12, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 6, 15, 12, 30, tzinfo=UTC),
+                    origin_name="Home",
+                    destination_name="Client",
+                    miles=Decimal("12.50"),
+                    source="auto",
+                    mileage_source="owntracks_path",
+                    reason="user_deleted",
+                )
+            )
+            db.commit()
+
+        page_response = client.get("/trips?year=2026&month=6")
+        delete_response = client.post(
+            "/trips/suppression/1/delete",
+            data={"redirect_year": "2026", "redirect_month": "6"},
+        )
+
+        assert page_response.status_code == 200
+        assert "Trip Suppression Rules" in page_response.text
+        assert "Remove Rule" in page_response.text
+        assert "Home" in page_response.text
+        assert "Client" in page_response.text
+        assert delete_response.status_code == 200
+        assert "No trip suppression rules for this month." in delete_response.text
+        with session_factory() as db:
+            assert db.get(DeletedTrip, 1) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_trips_page_creates_manual_trip() -> None:
     client, session_factory = _test_client_session()
     try:

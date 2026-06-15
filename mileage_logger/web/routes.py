@@ -18,6 +18,7 @@ from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
 from mileage_logger.logging_config import redact_sensitive_text
 from mileage_logger.models import (
+    DeletedTrip,
     GasPriceSnapshot,
     MonthlyGasPrice,
     OwnTracksLocation,
@@ -383,6 +384,14 @@ def trips(
         .order_by(Trip.trip_date.desc(), Trip.started_at.desc())
     )
     all_trips = list(db.scalars(stmt))
+    suppressed_trips = list(
+        db.scalars(
+            select(DeletedTrip)
+            .where(DeletedTrip.trip_date >= start)
+            .where(DeletedTrip.trip_date < end)
+            .order_by(DeletedTrip.trip_date.desc(), DeletedTrip.started_at.desc())
+        )
+    )
     return templates.TemplateResponse(
         request,
         "trips.html",
@@ -395,6 +404,7 @@ def trips(
             "previous_month": previous_month,
             "next_year": next_year,
             "next_month": next_month,
+            "suppressed_trips": suppressed_trips,
         },
     )
 
@@ -479,6 +489,35 @@ def delete_trip_form(trip_id: int, db: Session = Depends(get_db)) -> RedirectRes
         deleted_trip.started_at.isoformat() if deleted_trip is not None else "",
         deleted_trip.ended_at.isoformat() if deleted_trip is not None else "",
     )
+    return RedirectResponse(
+        url=f"/trips?year={redirect_year}&month={redirect_month}",
+        status_code=303,
+    )
+
+
+@router.post("/trips/suppression/{deleted_trip_id}/delete")
+def delete_trip_suppression_form(
+    deleted_trip_id: int,
+    redirect_year: int = Form(...),
+    redirect_month: int = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    _validate_month(redirect_month)
+    deleted_trip = db.get(DeletedTrip, deleted_trip_id)
+    if deleted_trip is None:
+        raise HTTPException(status_code=404, detail="Trip suppression rule not found")
+
+    logger.info(
+        "Removed trip suppression rule deleted_trip_id=%s origin=%s destination=%s "
+        "started_at=%s ended_at=%s",
+        deleted_trip.id,
+        deleted_trip.origin_name or "",
+        deleted_trip.destination_name or "",
+        deleted_trip.started_at.isoformat(),
+        deleted_trip.ended_at.isoformat(),
+    )
+    db.delete(deleted_trip)
+    db.commit()
     return RedirectResponse(
         url=f"/trips?year={redirect_year}&month={redirect_month}",
         status_code=303,
