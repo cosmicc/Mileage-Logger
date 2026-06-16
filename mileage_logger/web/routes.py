@@ -90,6 +90,7 @@ def _format_odometer_source(value) -> str:
         "manual": "Manual",
         "manual_odometer": "Manual odometer",
         "owntracks_path": "OwnTracks path",
+        "owntracks_rolling": "OwnTracks rolling",
         "owntracks_estimate": "OwnTracks estimate",
         "estimated_odometer": "Estimated",
         "waypoint_distance": "Waypoint distance",

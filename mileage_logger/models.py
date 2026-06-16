@@ -44,6 +44,16 @@ class OwnTracksLocation(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    odometer_miles: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 1),
+        nullable=True,
+        comment="Rolling OwnTracks-derived odometer value after this location row is processed.",
+    )
+    odometer_source: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Source label for the rolling odometer value stored on this location row.",
+    )
     accuracy_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
     battery_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
     raw_payload: Mapped[dict] = mapped_column(JSON)

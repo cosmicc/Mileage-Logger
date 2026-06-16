@@ -21,6 +21,7 @@ from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_OWNTRACKS_PATH,
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
     ODOMETER_SOURCE_ESTIMATED,
+    ODOMETER_SOURCE_OWNTRACKS_ROLLING,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
     create_manual_trip,
     delete_trip,
@@ -1024,6 +1025,54 @@ def test_automatic_trip_processing_advances_odometer_without_trip() -> None:
     assert checkpoint is not None
     assert checkpoint.odometer_anchor_miles == Decimal("1000.0") + expected_distance
     assert checkpoint.odometer_anchor_recorded_at == _naive(end_location.captured_at)
+    assert start_location.odometer_miles == Decimal("1000.0")
+    assert start_location.odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert end_location.odometer_miles == Decimal("1000.0") + expected_distance
+    assert end_location.odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+
+
+def test_automatic_trip_processing_uses_rolling_odometer_for_trip_values() -> None:
+    db = _session()
+    day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    first_route_point = _location(day + timedelta(minutes=5), "42.3314", "-83.0600")
+    second_route_point = _location(day + timedelta(minutes=10), "42.3380", "-83.0700")
+    db.add_all(
+        [
+            home,
+            client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.000"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
+            _transition(day, home, "leave"),
+            first_route_point,
+            second_route_point,
+            _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
+        ]
+    )
+    db.commit()
+
+    result = run_automatic_trip_processing(db, now=day + timedelta(hours=1))
+
+    trip = db.scalar(select(Trip))
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert result.generated == 1
+    assert trip is not None
+    assert checkpoint is not None
+    assert trip.mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
+    assert trip.start_odometer_miles == Decimal("1000.0")
+    assert trip.end_odometer_miles == (trip.start_odometer_miles + trip.miles).quantize(
+        Decimal("0.1")
+    )
+    assert trip.start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert trip.end_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert checkpoint.odometer_anchor_miles >= trip.end_odometer_miles
+    assert first_route_point.odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert second_route_point.odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
 
 
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:

@@ -17,9 +17,10 @@ from mileage_logger.models import (
     TripProcessingCheckpoint,
 )
 from mileage_logger.services.mileage import (
+    ODOMETER_SOURCE_OWNTRACKS_ROLLING,
     generate_trips,
-    haversine_miles,
-    site_for_location,
+    owntracks_segment_miles,
+    site_indexes,
 )
 from mileage_logger.services.retention import RetentionResult, purge_processed_owntracks_locations
 from mileage_logger.services.timezone import datetime_to_local_date, datetime_to_utc
@@ -189,57 +190,6 @@ def _location_sort_key(location: OwnTracksLocation) -> tuple[datetime, int]:
     return datetime_to_utc(location.captured_at), location.id or 0
 
 
-def _site_indexes(sites: list[Site]) -> tuple[dict[str, Site], dict[str, Site]]:
-    """Build waypoint indexes for matching stored OwnTracks rows to saved sites."""
-
-    sites_by_name = {site.name.casefold(): site for site in sites}
-    sites_by_region_id = {
-        site.owntracks_region_id: site
-        for site in sites
-        if site.owntracks_region_id is not None
-    }
-    return sites_by_name, sites_by_region_id
-
-
-def _same_saved_waypoint(
-    first_location: OwnTracksLocation,
-    second_location: OwnTracksLocation,
-    sites: list[Site],
-    sites_by_name: dict[str, Site],
-    sites_by_region_id: dict[str, Site],
-) -> bool:
-    """Return true when both points are inside the same saved OwnTracks waypoint."""
-
-    first_site = site_for_location(first_location, sites, sites_by_name, sites_by_region_id)
-    second_site = site_for_location(second_location, sites, sites_by_name, sites_by_region_id)
-    return first_site is not None and second_site is not None and first_site.id == second_site.id
-
-
-def _odometer_segment_miles(
-    first_location: OwnTracksLocation,
-    second_location: OwnTracksLocation,
-    sites: list[Site],
-    sites_by_name: dict[str, Site],
-    sites_by_region_id: dict[str, Site],
-) -> Decimal:
-    """Return distance for one OwnTracks segment while ignoring same-waypoint drift."""
-
-    if _same_saved_waypoint(
-        first_location,
-        second_location,
-        sites,
-        sites_by_name,
-        sites_by_region_id,
-    ):
-        return Decimal("0.0")
-    return haversine_miles(
-        first_location.latitude,
-        first_location.longitude,
-        second_location.latitude,
-        second_location.longitude,
-    )
-
-
 def _owntracks_odometer_advance(
     db: Session,
     checkpoint: TripProcessingCheckpoint,
@@ -251,7 +201,7 @@ def _owntracks_odometer_advance(
         return OdometerAdvance(miles=Decimal("0.0"), recorded_at=None)
 
     sites = list(db.scalars(select(Site).where(Site.active.is_(True)).order_by(Site.name.asc())))
-    sites_by_name, sites_by_region_id = _site_indexes(sites)
+    sites_by_name, sites_by_region_id = site_indexes(sites)
     new_location_ids = {location.id for location in new_locations}
     path_locations = list(new_locations)
     anchor_recorded_at = (
@@ -269,6 +219,10 @@ def _owntracks_odometer_advance(
             path_locations.append(previous_checkpoint_location)
 
     total_miles = Decimal("0.0")
+    current_odometer = Decimal(checkpoint.odometer_anchor_miles or Decimal("0.0")).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
     latest_counted_at: datetime | None = None
     previous_location: OwnTracksLocation | None = None
 
@@ -278,19 +232,24 @@ def _owntracks_odometer_advance(
         location_is_after_anchor = anchor_recorded_at is None or location_time > anchor_recorded_at
 
         if location_is_new and location_is_after_anchor:
+            segment_miles = Decimal("0.0")
             latest_counted_at = (
                 location_time
                 if latest_counted_at is None
                 else max(latest_counted_at, location_time)
             )
             if previous_location is not None:
-                total_miles += _odometer_segment_miles(
+                segment_miles = owntracks_segment_miles(
                     previous_location,
                     location,
                     sites,
                     sites_by_name,
                     sites_by_region_id,
                 )
+                total_miles += segment_miles
+            current_odometer = _quantize_odometer(current_odometer + segment_miles)
+            location.odometer_miles = current_odometer
+            location.odometer_source = ODOMETER_SOURCE_OWNTRACKS_ROLLING
 
         previous_location = location
 
@@ -381,6 +340,12 @@ def run_automatic_trip_processing(
             current_dt=current_dt,
             new_locations=new_locations,
         )
+        _advance_odometer_anchor_from_owntracks(db, checkpoint, new_locations)
+        if new_locations:
+            checkpoint.last_owntracks_location_id = max(location.id for location in new_locations)
+            checkpoint_location_id = checkpoint.last_owntracks_location_id
+            processed_location_count = len(new_locations)
+
         dates_to_process = _dates_touched_by_new_locations(new_locations)
         if touched_date is not None:
             dates_to_process.add(touched_date)
@@ -392,11 +357,7 @@ def run_automatic_trip_processing(
         for day in sorted(dates_to_process):
             generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
 
-        _advance_odometer_anchor_from_owntracks(db, checkpoint, new_locations)
         if new_locations:
-            checkpoint.last_owntracks_location_id = max(location.id for location in new_locations)
-            checkpoint_location_id = checkpoint.last_owntracks_location_id
-            processed_location_count = len(new_locations)
             db.commit()
 
         retention = purge_processed_owntracks_locations(

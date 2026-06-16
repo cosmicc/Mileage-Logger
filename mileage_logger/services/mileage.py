@@ -36,6 +36,7 @@ MILEAGE_SOURCE_MANUAL = "manual"
 ODOMETER_SOURCE_MANUAL = "manual"
 ODOMETER_SOURCE_ESTIMATED = "estimated"
 ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
+ODOMETER_SOURCE_OWNTRACKS_ROLLING = "owntracks_rolling"
 HOME_WAYPOINT_NAME = "Home"
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
@@ -175,6 +176,18 @@ def _location_sort_key(location: OwnTracksLocation) -> tuple[datetime, int]:
     return datetime_to_utc(location.captured_at), location.id or 0
 
 
+def site_indexes(sites: list[Site]) -> tuple[dict[str, Site], dict[str, Site]]:
+    """Build saved-waypoint lookup maps for OwnTracks region and name matching."""
+
+    sites_by_name = {site.name.casefold(): site for site in sites}
+    sites_by_region_id = {
+        site.owntracks_region_id: site
+        for site in sites
+        if site.owntracks_region_id is not None
+    }
+    return sites_by_name, sites_by_region_id
+
+
 def site_for_location(
     location: OwnTracksLocation,
     sites: list[Site],
@@ -190,6 +203,45 @@ def site_for_location(
         if site is not None:
             return site
     return nearest_site(location, sites)
+
+
+def same_saved_waypoint(
+    first_location: OwnTracksLocation,
+    second_location: OwnTracksLocation,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> bool:
+    """Return true when two OwnTracks rows are inside the same saved waypoint."""
+
+    first_site = site_for_location(first_location, sites, sites_by_name, sites_by_region_id)
+    second_site = site_for_location(second_location, sites, sites_by_name, sites_by_region_id)
+    return first_site is not None and second_site is not None and first_site.id == second_site.id
+
+
+def owntracks_segment_miles(
+    first_location: OwnTracksLocation,
+    second_location: OwnTracksLocation,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> Decimal:
+    """Return one OwnTracks movement segment while ignoring same-waypoint GPS drift."""
+
+    if same_saved_waypoint(
+        first_location,
+        second_location,
+        sites,
+        sites_by_name,
+        sites_by_region_id,
+    ):
+        return Decimal("0.0")
+    return haversine_miles(
+        first_location.latitude,
+        first_location.longitude,
+        second_location.latitude,
+        second_location.longitude,
+    )
 
 
 def _site_matches_location(
@@ -260,10 +312,7 @@ def _waypoint_transitions(
     locations: list[OwnTracksLocation],
     sites: list[Site],
 ) -> list[WaypointTransition]:
-    sites_by_name = {site.name.casefold(): site for site in sites}
-    sites_by_region_id = {
-        site.owntracks_region_id: site for site in sites if site.owntracks_region_id is not None
-    }
+    sites_by_name, sites_by_region_id = site_indexes(sites)
     transitions: list[WaypointTransition] = []
     seen: set[tuple[str, int, datetime]] = set()
 
@@ -312,16 +361,25 @@ def _trip_path_locations(
     started_at: datetime,
     ended_at: datetime,
 ) -> list[OwnTracksLocation]:
-    if ended_at < started_at:
+    start_dt = datetime_to_utc(started_at)
+    end_dt = datetime_to_utc(ended_at)
+    if end_dt < start_dt:
         return []
     return [
         location
         for location in locations
-        if started_at <= location.captured_at <= ended_at
+        if start_dt <= datetime_to_utc(location.captured_at) <= end_dt
     ]
 
 
-def _path_distance_miles(path_locations: list[OwnTracksLocation]) -> Decimal | None:
+def _path_distance_miles(
+    path_locations: list[OwnTracksLocation],
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> Decimal | None:
+    """Return trip path distance using the same movement rule as the rolling odometer."""
+
     has_location_update = any(
         _is_location_update(location) for location in path_locations
     )
@@ -331,11 +389,12 @@ def _path_distance_miles(path_locations: list[OwnTracksLocation]) -> Decimal | N
     total = Decimal("0.0")
     previous_location = path_locations[0]
     for location in path_locations[1:]:
-        total += haversine_miles(
-            previous_location.latitude,
-            previous_location.longitude,
-            location.latitude,
-            location.longitude,
+        total += owntracks_segment_miles(
+            previous_location,
+            location,
+            sites,
+            sites_by_name,
+            sites_by_region_id,
         )
         previous_location = location
     return total.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
@@ -346,9 +405,15 @@ def _trip_path_miles(
     *,
     started_at: datetime,
     ended_at: datetime,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
 ) -> Decimal | None:
     return _path_distance_miles(
-        _trip_path_locations(locations, started_at=started_at, ended_at=ended_at)
+        _trip_path_locations(locations, started_at=started_at, ended_at=ended_at),
+        sites,
+        sites_by_name,
+        sites_by_region_id,
     )
 
 
@@ -374,11 +439,19 @@ def _append_note(existing_notes: str | None, note: str) -> str:
 
 def _odometer_for_transition(
     _db: Session,
-    _transition: WaypointTransition,
+    transition: WaypointTransition,
 ) -> OdometerReading | None:
-    """Return no external odometer reading because OwnTracks distance is the odometer source."""
+    """Return the rolling OwnTracks odometer stamped onto a transition row."""
 
-    return None
+    if transition.location.odometer_miles is None:
+        return None
+    return OdometerReading(
+        miles=Decimal(transition.location.odometer_miles).quantize(
+            ODOMETER_PRECISION,
+            rounding=ROUND_HALF_UP,
+        ),
+        source=transition.location.odometer_source or ODOMETER_SOURCE_OWNTRACKS_ROLLING,
+    )
 
 
 def _is_home_to_home(origin: Site, destination: Site) -> bool:
@@ -539,37 +612,52 @@ def _mileage_calculation(
     end_odometer_source = _odometer_reading_source(end_odometer)
 
     if path_miles is not None:
-        estimated_odometer = None
-        if start_odometer_miles is None or end_odometer_miles is None:
-            estimated_odometer = _estimated_odometer_calculation(
-                path_miles,
-                start_odometer_miles=start_odometer_miles,
-                end_odometer_miles=end_odometer_miles,
-                start_odometer_source=start_odometer_source,
-                end_odometer_source=end_odometer_source,
-                odometer_anchor_miles=odometer_anchor_miles,
+        path_odometer = _estimated_odometer_calculation(
+            path_miles,
+            start_odometer_miles=start_odometer_miles,
+            end_odometer_miles=end_odometer_miles,
+            start_odometer_source=start_odometer_source,
+            end_odometer_source=end_odometer_source,
+            odometer_anchor_miles=odometer_anchor_miles,
+        )
+        if (
+            path_odometer is not None
+            and (
+                start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+                or end_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+            )
+        ):
+            path_odometer = MileageCalculation(
+                miles=path_odometer.miles,
+                mileage_source=path_odometer.mileage_source,
+                start_odometer_miles=path_odometer.start_odometer_miles,
+                end_odometer_miles=path_odometer.end_odometer_miles,
+                start_odometer_source=(
+                    path_odometer.start_odometer_source or ODOMETER_SOURCE_OWNTRACKS_ROLLING
+                ),
+                end_odometer_source=ODOMETER_SOURCE_OWNTRACKS_ROLLING,
             )
         return MileageCalculation(
             miles=path_miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP),
             mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
             start_odometer_miles=(
-                estimated_odometer.start_odometer_miles
-                if estimated_odometer is not None
+                path_odometer.start_odometer_miles
+                if path_odometer is not None
                 else start_odometer_miles
             ),
             end_odometer_miles=(
-                estimated_odometer.end_odometer_miles
-                if estimated_odometer is not None
+                path_odometer.end_odometer_miles
+                if path_odometer is not None
                 else end_odometer_miles
             ),
             start_odometer_source=(
-                estimated_odometer.start_odometer_source
-                if estimated_odometer is not None
+                path_odometer.start_odometer_source
+                if path_odometer is not None
                 else start_odometer_source
             ),
             end_odometer_source=(
-                estimated_odometer.end_odometer_source
-                if estimated_odometer is not None
+                path_odometer.end_odometer_source
+                if path_odometer is not None
                 else end_odometer_source
             ),
         )
@@ -1040,6 +1128,7 @@ def generate_trips(
     generation_start_dt, generation_end_dt = _date_range_bounds(start_date, end_date)
     dwell_padding = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
     sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    sites_by_name, sites_by_region_id = site_indexes(sites)
     locations = _locations_for_range(db, start_date, end_date, end_padding=dwell_padding)
     if not locations:
         trip_logger.debug(
@@ -1100,6 +1189,9 @@ def generate_trips(
                     locations,
                     started_at=pending_leave.location.captured_at,
                     ended_at=transition.location.captured_at,
+                    sites=sites,
+                    sites_by_name=sites_by_name,
+                    sites_by_region_id=sites_by_region_id,
                 ),
                 start_odometer=_odometer_for_transition(db, pending_leave),
                 end_odometer=end_odometer,

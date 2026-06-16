@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a stored OwnTracks odometer timeline so every processed location row records the rolling
+  odometer value used by later trip generation.
+- Changed automatic trip processing to advance the rolling OwnTracks odometer before generating
+  trips, ensuring generated trip start/end odometers come from the rolling odometer and the
+  odometer difference always matches trip distance.
 - Changed automatic trip generation so waypoint arrivals require a five-minute OwnTracks dwell
   confirmation before a trip is created, preventing drive-through waypoint trips.
 - Added rolling checkpoint odometer updates from OwnTracks path distance outside generated trips,

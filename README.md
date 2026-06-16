@@ -204,10 +204,13 @@ falls back to estimated odometer, then waypoint distance. Edit a trip's miles on
 when the generated mileage needs correction. A distance correction resequences that month's
 displayed start and end odometers in chronological trip order. Deleting a trip from the `Trips`
 page also saves a suppression record so the same OwnTracks transition pair is not generated again.
-The checkpoint odometer is also advanced from OwnTracks path distance between received points even
-when those points do not become a trip. Segments fully inside the same saved waypoint are ignored
-to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset the checkpoint to the
-entered value and OwnTracks distance continues from that new rolling value.
+The checkpoint odometer is advanced from OwnTracks path distance between received points even when
+those points do not become a trip. Each processed OwnTracks location row stores the rolling
+odometer value for that point, and generated trips use those rolling values for start and end
+odometers. The trip end odometer is always advanced from the start odometer by the stored trip
+distance so the odometer difference matches the trip miles. Segments fully inside the same saved
+waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
+the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
 
 ## Cloudflare Tunnel
 
