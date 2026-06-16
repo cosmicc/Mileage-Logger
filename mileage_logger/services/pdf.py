@@ -148,7 +148,7 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         Spacer(1, 16),
     ]
 
-    trip_rows = [["Date", "From", "To", "Start Odo", "End Odo", "Trip Mi"]]
+    trip_rows = [["Date", "From", "To", "Start Odometer", "End Odometer", "Trip Mi"]]
     for row in report_rows:
         trip_rows.append(
             [

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed PDF trip table headers to spell out Start Odometer and End Odometer instead of
+  abbreviating odometer.
 - Added Dashboard distance cards for today's total driven miles, today's trip miles, this month's
   total driven miles, and this month's trip miles.
 - Changed trip deletion records to be documented and displayed as exact deleted-trip records, not
