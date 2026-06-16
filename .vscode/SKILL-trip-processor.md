@@ -1,0 +1,249 @@
+# Skill: Understanding Trip Processor and Automatic Trip Generation
+
+**Purpose**: Guide AI agents through the automatic trip generation system, trip processor behavior, debugging, and extending trip detection logic.
+
+## Overview
+
+The trip processor (`mileage_logger/services/trip_processor.py`) is the core engine that:
+1. Monitors incoming OwnTracks location and transition events
+2. Detects qualifying waypoint transition pairs (leave + enter)
+3. Generates `Trip` records with calculated mileage
+4. Maintains a rolling odometer checkpoint
+5. Purges old OwnTracks location records
+
+---
+
+## Trip Generation Logic
+
+### How Trips Are Created
+
+A trip is created when:
+```
+waypoint_leave_event (at time T1) 
+  + waypoint_enter_event (at time T2) 
+  + T2 > T1 
+  + destination has ≥ OWNTRACKS_WAYPOINT_DWELL_MINUTES of location data inside it
+  + NOT (origin == "Home" AND destination == "Home")
+```
+
+### Key Entry Point
+
+[`generate_trips(db, day, checkpoint)`](mileage_logger/services/mileage.py) in `mileage.py`:
+- Called once per local calendar day by the trip processor
+- Returns list of newly created `Trip` records
+- Uses a `TripProcessingCheckpoint` to avoid re-processing old data
+
+### Event Sequence Example
+
+```
+1. OwnTracks sends: transition event { "event": "leave", "desc": "Home", ... }
+   → Stored in owntracks_locations as raw_payload
+
+2. OwnTracks sends: 20 location updates inside "Work" waypoint
+   → Each stored in owntracks_locations
+
+3. OwnTracks sends: transition event { "event": "enter", "desc": "Work", ... }
+   → Stored in owntracks_locations
+   → Minimum dwell (5 min default) verified
+   → Trip auto-created from Home→Work
+
+4. Trip processor updates checkpoint.last_owntracks_location_id
+   → Next run skips already-processed locations
+```
+
+---
+
+## Odometer Checkpoint System
+
+### Rolling Odometer Calculation
+
+The checkpoint maintains:
+- `odometer_anchor_miles` — Last known absolute odometer value
+- `odometer_anchor_recorded_at` — When that value was recorded
+- `last_owntracks_location_id` — Position in location stream (prevents re-processing)
+
+### Odometer Advancement
+
+When trip processor runs:
+1. Fetch new locations since last checkpoint
+2. Sum point-to-point distances using Haversine formula
+3. Advance rolling checkpoint: `new_checkpoint = anchor + distance_sum`
+4. Use checkpoint for estimated start/end odometers on trips
+5. When user manually enters odometer, reset anchor to exact value
+
+### Example
+
+```
+Initial state:
+  odometer_anchor_miles = 50000.0
+  
+Location 1→2 distance: 5.2 mi
+  → checkpoint becomes 50005.2
+  
+Location 2→3 distance: 3.1 mi
+  → checkpoint becomes 50008.3
+
+If user then enters "manual odometer: 50010.0":
+  → anchor resets to 50010.0
+  → next distances calculate from 50010.0
+```
+
+---
+
+## Debugging Trip Generation
+
+### Common Issues
+
+**1. No trips being generated**
+- Check `AUTOMATIC_TRIP_PROCESSING_ENABLED=true` in `.env`
+- Verify OwnTracks is sending transition events (not just locations)
+- Check minimum dwell time: 5 minutes of location data inside destination required
+- Confirm waypoint names match exactly (case-sensitive)
+
+**2. Trips generated but with wrong mileage**
+- Check mileage priority:
+  1. OwnTracks path distance (preferred)
+  2. Estimated odometer (if path sparse)
+  3. Waypoint-to-waypoint distance (fallback)
+- Manual edit on `/trips` page overrides calculation
+
+**3. Trip dwell time not met**
+- Default: `OWNTRACKS_WAYPOINT_DWELL_MINUTES=5`
+- If user drives through a waypoint quickly, trip won't generate
+- Check OwnTracks event timestamps: `tst` field must show 5+ min of data
+
+### Diagnostics Page
+
+Visit `/diagnostics` to see:
+- Current OwnTracks state (at waypoint, traveling, etc.)
+- Recent events (transitions and location updates)
+- Recent app logs
+- Recent trip calculation logs
+
+### Trip Calculation Logger
+
+Enable debug logging to see trip calculation details:
+```env
+LOG_LEVEL=debug
+```
+
+Logs go to `mileage_logger.trip_calculation` logger. Check file at `LOG_DIR/logs/`.
+
+---
+
+## Code Structure
+
+### Main Classes
+
+**`AutomaticTripProcessor`** — Background thread that runs trip generation on interval
+- `start()` — Begin background thread
+- `stop()` — Stop gracefully
+- Runs every `AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS` (default 60)
+
+**`TripProcessingCheckpoint`** — Database model tracking processing state
+- `name` — Always `"automatic_trip_processing"`
+- `last_owntracks_location_id` — Prevents re-processing
+- `odometer_anchor_miles` — Rolling odometer value
+- `odometer_anchor_recorded_at` — When anchor was recorded
+
+**`TripGenerationKey`** — Tuple identifying a unique trip: `(origin_id, dest_id, started_at, ended_at)`
+
+### Key Functions
+
+**`_new_locations_after_checkpoint(db, checkpoint)`**
+- Returns list of unprocessed OwnTracks location rows since last checkpoint
+- Used to detect new events
+
+**`_latest_trip_odometer(db)`**
+- Finds most recent odometer value from any trip record
+- Used to initialize checkpoint on first run
+
+**`update_odometer_anchor_from_reading(db, odometer_miles, recorded_at, source)`**
+- Called when user manually enters odometer on `/diagnostics` page
+- Resets rolling checkpoint to exact value
+
+---
+
+## Extending Trip Generation
+
+### Adding Custom Trip Detection Logic
+
+If you need to generate trips from sources other than OwnTracks:
+
+1. **For manual trips**: Use [`create_manual_trip()`](mileage_logger/services/mileage.py#L400) in mileage.py
+   ```python
+   trip = create_manual_trip(
+       db,
+       trip_date,
+       origin_name,
+       destination_name,
+       start_lat, start_lon,
+       end_lat, end_lon,
+       miles
+   )
+   ```
+
+2. **To skip a trip**: Use [`delete_trip()`](mileage_logger/services/mileage.py#L450) to create a deletion tombstone
+   - Prevents auto-regeneration from same OwnTracks events
+
+3. **To edit a trip**: Use [`update_trip_details()`](mileage_logger/services/mileage.py#L480)
+   - Updates trip date, names, or miles
+   - Re-sequences month's odometer chain when miles change
+
+### Modifying Waypoint Matching
+
+Edit `site_for_location()` in [mileage.py](mileage_logger/services/mileage.py#L250) to customize how OwnTracks events match to saved waypoints:
+- Currently matches by: region ID → name → distance (within radius)
+- Can add custom rules (e.g., time-of-day, frequency bias)
+
+### Adding Custom Odometer Source
+
+The mileage calculation supports custom odometer sources. Add a new source type:
+1. Edit mileage calculation in `_calculate_mileage_for_trip()`
+2. Set `start_odometer_source` and `end_odometer_source` accordingly
+3. Odometer display will use the source name in web UI
+
+---
+
+## Configuration
+
+Key settings for trip processing:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AUTOMATIC_TRIP_PROCESSING_ENABLED` | `true` | Enable/disable background processor |
+| `AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS` | `60` | How often to run trip generation |
+| `OWNTRACKS_WAYPOINT_DWELL_MINUTES` | `5` | Minimum time inside destination before trip confirmed |
+| `OWNTRACKS_LOCATION_RETENTION_DAYS` | `14` | Days to keep location records before purging |
+| `OWNTRACKS_PURGE_ENABLED` | `true` | Enable/disable automatic purge |
+| `LOCAL_TIMEZONE` | `America/Detroit` | Timezone for trip date selection |
+
+---
+
+## Testing
+
+See [test_mileage.py](tests/test_mileage.py) for comprehensive trip generation tests:
+- Trip detection from waypoint transitions
+- Odometer calculation and advancement
+- Manual trip entry
+- Trip deletion and suppression records
+- Mileage fallback priority system
+
+Key test patterns:
+```python
+# Create mock locations and transitions
+# Call generate_trips(db, day, checkpoint)
+# Assert Trip records created with correct mileage
+# Verify checkpoint advanced correctly
+```
+
+---
+
+## Performance Considerations
+
+- **Database queries**: Trip processor runs once per minute (configurable), one query per unprocessed location
+- **OwnTracks retention**: Purge keeps only last 14 days (configurable) to avoid table bloat
+- **Checkpoint**: One row in database, updated once per processor run
+- **Lock**: Single thread processing to prevent concurrent modification conflicts
+
+See [trip_processor.py](mileage_logger/services/trip_processor.py#L1) `_PROCESSING_LOCK` for concurrency guard.

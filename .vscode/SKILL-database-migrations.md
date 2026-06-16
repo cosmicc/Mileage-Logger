@@ -1,0 +1,300 @@
+# Skill: Database Migrations and Schema Changes
+
+**Purpose**: Guide AI agents through adding database fields, creating migrations, and maintaining the PostgreSQL schema safely.
+
+## Overview
+
+Mileage Logger uses [Alembic](https://alembic.sqlalchemy.org/) for database migrations:
+- Migrations live in [`alembic/versions/`](alembic/versions/)
+- SQLAlchemy models in [mileage_logger/models.py](mileage_logger/models.py)
+- Migrations run automatically on app startup via Docker
+- Local dev: Run with `alembic upgrade head`
+
+---
+
+## Adding a New Database Field
+
+### Step 1: Update the SQLAlchemy Model
+
+Edit [mileage_logger/models.py](mileage_logger/models.py):
+
+```python
+class Trip(Base):
+    __tablename__ = "trips"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # ... existing fields ...
+    
+    # ADD NEW FIELD HERE
+    custom_field: Mapped[str] = mapped_column(String(255), nullable=True)
+```
+
+**Type mapping guide**:
+- String: `Mapped[str]` → `String(length)`
+- Integer: `Mapped[int]` → `Integer`
+- Decimal: `Mapped[Decimal]` → `Numeric(precision, scale)`
+- Date: `Mapped[date]` → `Date`
+- DateTime: `Mapped[datetime]` → `DateTime(timezone=True)`
+- Boolean: `Mapped[bool]` → `Boolean`
+- Optional: `Mapped[str | None]` → add `nullable=True`
+
+### Step 2: Create a Migration
+
+In the project root:
+```bash
+alembic revision -m "add custom_field to trips"
+```
+
+This creates a new file in `alembic/versions/` with timestamp (e.g., `20260615_0015_add_custom_field_to_trips.py`).
+
+### Step 3: Write the Migration Script
+
+Open the generated file and edit the `upgrade()` and `downgrade()` functions:
+
+```python
+def upgrade() -> None:
+    op.add_column('trips', sa.Column('custom_field', sa.String(255), nullable=True))
+
+def downgrade() -> None:
+    op.drop_column('trips', 'custom_field')
+```
+
+**Operation reference**:
+- `op.add_column(table_name, column)` — Add field
+- `op.drop_column(table_name, column_name)` — Remove field
+- `op.alter_column()` — Modify field type/constraints
+- `op.create_index()` — Add index
+- `op.create_table()` — Create new table
+- `op.drop_table()` — Remove table
+
+### Step 4: Test Locally
+
+```bash
+# Apply the migration
+alembic upgrade head
+
+# Verify the field exists
+psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\d trips"
+```
+
+### Step 5: Rollback if Needed
+
+```bash
+# Revert to previous migration
+alembic downgrade -1
+
+# List migration history
+alembic current
+alembic history
+```
+
+---
+
+## Migration Workflow
+
+### Best Practices
+
+1. **One concept per migration**
+   - Don't combine unrelated changes in one migration
+   - Makes rollback easier and history clearer
+
+2. **Make fields nullable initially**
+   ```python
+   custom_field: Mapped[str | None] = mapped_column(String(255), nullable=True)
+   ```
+   - Allows migration on existing data without data loss
+   - Later: Add default or backfill before removing nullable
+
+3. **Index foreign keys and frequently queried fields**
+   ```python
+   op.create_index('idx_trips_trip_date', 'trips', ['trip_date'])
+   ```
+
+4. **Test both directions**
+   - `alembic upgrade head` — Apply forward
+   - `alembic downgrade -1` — Verify rollback works
+
+5. **Avoid data transformations in migration**
+   - Migrations should handle schema only
+   - Write a separate script for data cleanup/backfill if needed
+
+### Common Migration Patterns
+
+**Adding a required field with default value**:
+```python
+def upgrade() -> None:
+    op.add_column('trips', sa.Column('status', sa.String(20), nullable=False, server_default='active'))
+    op.alter_column('trips', 'status', server_default=None)
+
+def downgrade() -> None:
+    op.drop_column('trips', 'status')
+```
+
+**Renaming a column**:
+```python
+def upgrade() -> None:
+    op.alter_column('trips', 'old_name', new_column_name='new_name')
+
+def downgrade() -> None:
+    op.alter_column('trips', 'new_name', new_column_name='old_name')
+```
+
+**Creating a unique constraint**:
+```python
+def upgrade() -> None:
+    op.create_unique_constraint('uq_trips_external_id', 'trips', ['external_id'])
+
+def downgrade() -> None:
+    op.drop_constraint('uq_trips_external_id', 'trips')
+```
+
+**Adding a foreign key**:
+```python
+def upgrade() -> None:
+    op.create_foreign_key('fk_trips_vehicle_id', 'trips', 'vehicles', ['vehicle_id'], ['id'])
+
+def downgrade() -> None:
+    op.drop_constraint('fk_trips_vehicle_id', 'trips')
+```
+
+---
+
+## Existing Models Reference
+
+### Core Models
+
+**Trip** (`trips` table)
+- Primary trip record with mileage, locations, dates
+- Links to origin/destination `Site` via foreign keys
+- Stores odometer values and mileage source
+
+**Site** (`sites` table)
+- Saved waypoint/location with lat/lon
+- Stores OwnTracks sync metadata (`owntracks_region_id`)
+- Tracks `last_visited_at` for sorting/display
+
+**OwnTracksLocation** (`owntracks_locations` table)
+- Raw event from OwnTracks (location or transition)
+- Stores full JSON payload in `raw_payload`
+- Indexed by `captured_at` for quick queries
+
+**TripProcessingCheckpoint** (`trip_processing_checkpoints` table)
+- Single row tracking automatic processor state
+- `last_owntracks_location_id` — Prevents re-processing
+- `odometer_anchor_*` — Rolling odometer value/timestamp
+
+**GasPriceSnapshot** (`gas_price_snapshots` table)
+- Daily gas price observation from provider (AAA, EIA)
+- Used to calculate monthly averages
+
+**MonthlyGasPrice** (`monthly_gas_prices` table)
+- Cached monthly average for a specific month/state
+- Used in PDF report calculations
+
+**DeletedTrip** (`deleted_trips` table)
+- Tombstone record preventing auto-recreation
+- Indexes the `(origin, destination, started_at, ended_at)` tuple
+
+---
+
+## Schema Inspection
+
+### View Table Structure
+
+Local development (PostgreSQL):
+```bash
+# List all tables
+psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\dt"
+
+# Describe a specific table
+psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\d trips"
+
+# View indexes
+psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\di"
+```
+
+### From Python (SQLAlchemy)
+
+```python
+from mileage_logger.database import engine
+from mileage_logger.models import Trip, Base
+
+# Inspect table columns
+table = Trip.__table__
+for col in table.columns:
+    print(f"{col.name}: {col.type}")
+```
+
+---
+
+## Docker Deployment
+
+Migrations run automatically on container startup via the app's `docker-entrypoint.sh`:
+
+```bash
+alembic upgrade head
+```
+
+**To add a new migration for deployment**:
+1. Create migration locally
+2. Test with `alembic upgrade head` / `downgrade -1`
+3. Commit to git
+4. On server: `docker compose up -d --build` applies migration automatically
+
+**To manually run migration on deployed container**:
+```bash
+docker compose exec app alembic upgrade head
+docker compose exec app alembic downgrade -1  # Rollback
+```
+
+---
+
+## Common Pitfalls
+
+1. **Forgetting `nullable=True` on new fields**
+   - Migration fails because existing rows have no value for required field
+   - Solution: Always use `nullable=True` initially, then remove after backfill
+
+2. **Not testing rollback**
+   - Always run `alembic downgrade -1` to verify it works
+   - Prevents being stuck in an unrecoverable state
+
+3. **Schema divergence**
+   - Model and migration don't match
+   - Solution: Check both files match before committing
+
+4. **Large data migrations in alembic**
+   - Very slow for big tables
+   - Solution: Write separate Python script, run before/after migration
+
+5. **Forgetting to commit migration file**
+   - Migration exists locally but not in git
+   - Solution: Check `git status` before deploying
+
+---
+
+## Testing Migrations
+
+### In Unit Tests
+
+Tests use SQLite in-memory database. Alembic applies migrations on test session startup:
+
+```python
+def test_with_migrations(db: Session):
+    # SQLite is already at latest schema via test fixture
+    trip = Trip(...)
+    db.add(trip)
+    db.commit()
+    assert trip.custom_field is None  # New field works
+```
+
+See [tests/](tests/) for examples of database-dependent tests.
+
+---
+
+## References
+
+- [Alembic Documentation](https://alembic.sqlalchemy.org/)
+- [SQLAlchemy Column Types](https://docs.sqlalchemy.org/en/20/core/types.html)
+- [Existing migrations](alembic/versions/) as reference
+- [models.py](mileage_logger/models.py) for field definitions

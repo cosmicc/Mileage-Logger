@@ -1,0 +1,455 @@
+# Skill: Mileage Calculation and Odometer Management
+
+**Purpose**: Guide AI agents through the mileage calculation system, odometer checkpoint management, and trip editing logic.
+
+## Overview
+
+The mileage calculation system in [mileage_logger/services/mileage.py](mileage_logger/services/mileage.py) is responsible for:
+1. Calculating trip distance from multiple data sources
+2. Estimating start/end odometer values
+3. Managing the rolling odometer checkpoint
+4. Handling manual trip edits and suppression records
+
+---
+
+## Mileage Calculation Priority
+
+When a trip is generated, mileage is determined by this priority order:
+
+### 1. OwnTracks Path Distance (Primary)
+- **Source**: Location updates between waypoint leave/enter events
+- **Calculation**: Sum of point-to-point distances (Haversine formula)
+- **Advantage**: Most accurate; reflects actual path taken
+- **Fallback**: If fewer than 2 location updates, use next priority
+
+### 2. Estimated Odometer (Secondary)
+- **Source**: Rolling checkpoint odometer advanced by OwnTracks distances
+- **Calculation**: `end_odometer = checkpoint_at_trip_start + path_sum`
+- **Advantage**: Works when location updates are sparse
+- **Fallback**: If no checkpoint or path data, use next priority
+
+### 3. Waypoint Distance (Fallback)
+- **Source**: Direct distance between waypoint coordinates
+- **Calculation**: Haversine distance between origin/destination sites
+- **Advantage**: Always available; simple calculation
+- **Limitation**: Doesn't reflect actual travel path
+
+### Mileage Source Constants
+
+```python
+MILEAGE_SOURCE_OWNTRACKS_PATH = "owntracks_path"           # Primary
+MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"   # Secondary
+MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"     # Fallback
+MILEAGE_SOURCE_MANUAL = "manual"                            # User override
+```
+
+---
+
+## Haversine Distance Calculation
+
+The `haversine_miles()` function calculates great-circle distance:
+
+```python
+def haversine_miles(lat1, lon1, lat2, lon2) -> Decimal:
+    """Calculate distance between two GPS points in miles."""
+    # Uses Earth radius 6371008.8 meters
+    # Returns Decimal to 0.1 mile precision
+```
+
+**Precision**: All distances quantized to 0.1 miles
+
+**Example**:
+```python
+miles = haversine_miles(42.3314, -83.0458, 42.3314, -83.0417)
+# Returns Decimal("5.2") (5.2 miles)
+```
+
+---
+
+## Odometer Checkpoint System
+
+### Data Stored
+
+The `TripProcessingCheckpoint` maintains:
+
+```python
+class TripProcessingCheckpoint(Base):
+    name = "automatic_trip_processing"              # Singleton key
+    last_owntracks_location_id: int                 # Position in stream
+    odometer_anchor_miles: Decimal                  # Last known odometer
+    odometer_anchor_recorded_at: datetime           # When recorded (UTC)
+    
+    checkpoint_updated_at: datetime                 # Last checkpoint update
+    last_trip_id: int | None                        # Last generated trip
+```
+
+### How Advancement Works
+
+1. **Trip processor runs** (every 60 seconds by default)
+2. **Fetch new OwnTracks locations** since `last_owntracks_location_id`
+3. **For each location**, if inside a saved waypoint, ignore it (stationary noise)
+4. **Sum point-to-point distances** for all other locations
+5. **Advance checkpoint**: `new_odometer = anchor + distance_sum`
+6. **Update `last_owntracks_location_id`** to latest processed location
+
+### Resetting the Anchor
+
+When user manually enters odometer on `/diagnostics` page:
+
+```python
+update_odometer_anchor_from_reading(
+    db,
+    odometer_miles=Decimal("50123.5"),
+    recorded_at=datetime.now(UTC),
+    source="manual"
+)
+```
+
+Effect:
+- `odometer_anchor_miles` = 50123.5
+- `odometer_anchor_recorded_at` = now
+- Next distances calculate from 50123.5
+
+---
+
+## Trip Generation with Mileage
+
+### Main Entry Point
+
+```python
+def generate_trips(
+    db: Session,
+    day: date,
+    checkpoint: TripProcessingCheckpoint
+) -> list[Trip]:
+    """Generate all trips for a specific local date."""
+```
+
+### Generation Algorithm
+
+1. **Load OwnTracks transitions** for the day (leave/enter events)
+2. **Match transition pairs**:
+   - `leave` at time T1 + `enter` at time T2 = potential trip
+   - Verify destination dwell time ≥ 5 min
+   - Skip if both are "Home" waypoint
+3. **For each valid pair**:
+   - Load location updates between T1 and T2
+   - Calculate mileage using priority system
+   - Estimate start/end odometers
+   - Create Trip record
+
+### Mileage Calculation Function
+
+```python
+def _calculate_mileage_for_trip(
+    db: Session,
+    locations_between: list[OwnTracksLocation],
+    origin_site: Site | None,
+    destination_site: Site | None,
+    checkpoint: TripProcessingCheckpoint,
+) -> MileageCalculation:
+    """Return miles, source, and odometer values for a trip."""
+```
+
+Returns:
+```python
+MileageCalculation(
+    miles=Decimal("5.2"),
+    mileage_source="owntracks_path",
+    start_odometer_miles=Decimal("50000.0"),
+    end_odometer_miles=Decimal("50005.2"),
+    start_odometer_source="previous_trip",
+    end_odometer_source="owntracks_path",
+)
+```
+
+---
+
+## Odometer Source Tracking
+
+Each trip stores how the odometer values were determined:
+
+```python
+class Trip:
+    start_odometer_miles: Decimal | None
+    end_odometer_miles: Decimal | None
+    start_odometer_source: str                 # How it was calculated
+    end_odometer_source: str                   # How it was calculated
+```
+
+### Odometer Source Constants
+
+```python
+ODOMETER_SOURCE_MANUAL = "manual"                      # User entered
+ODOMETER_SOURCE_ESTIMATED = "estimated"                # From checkpoint
+ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"        # From prior trip
+# Plus path/calculation sources...
+```
+
+### Display Format
+
+On `/trips` page, odometer source is formatted using these labels:
+
+```python
+labels = {
+    "estimated": "Estimated",
+    "previous_trip": "Previous trip",
+    "manual": "Manual",
+    "owntracks_path": "OwnTracks path",
+}
+```
+
+---
+
+## Manual Trip Entry
+
+### Create a Manual Trip
+
+```python
+from mileage_logger.services.mileage import create_manual_trip
+
+trip = create_manual_trip(
+    db,
+    trip_date=date(2026, 6, 15),
+    origin_name="Home",
+    destination_name="Work",
+    start_latitude=Decimal("42.3314"),
+    start_longitude=Decimal("-83.0458"),
+    end_latitude=Decimal("42.3314"),
+    end_longitude=Decimal("-83.0417"),
+    miles=Decimal("5.2"),
+)
+```
+
+Creates a `Trip` with:
+- `source="manual"`
+- `mileage_source="manual"`
+- Odometer values: `None` (user can edit later)
+- Auto-calculates `start_odometer`/`end_odometer` based on checkpoint if available
+
+---
+
+## Editing Trip Mileage
+
+### Update Trip Details
+
+```python
+from mileage_logger.services.mileage import update_trip_details
+
+update_trip_details(
+    trip,
+    origin_name="Home",
+    destination_name="Work",
+    miles=Decimal("5.5"),  # Changed from 5.2
+    trip_date=date(2026, 6, 15),
+)
+db.commit()
+```
+
+Effects:
+- Updates trip fields
+- Sets `mileage_source="manual"`
+- **Re-sequences month's trips**: Recalculates all odometer chains for that month
+
+### Resequencing Logic
+
+When trip miles change, all trips in that month are reordered by date/time, then odometer values are recalculated to maintain consistency:
+
+```python
+resequence_month_trip_odometers(db, trip.trip_date)
+```
+
+This ensures:
+1. Trip chains are chronologically ordered
+2. Start odometer = previous trip's end odometer
+3. End odometer = start odometer + trip miles
+
+---
+
+## Trip Deletion and Suppression
+
+### Delete a Trip
+
+```python
+from mileage_logger.services.mileage import delete_trip
+
+delete_trip(db, trip)
+```
+
+Creates a `DeletedTrip` tombstone record that prevents the same OwnTracks events from auto-recreating the trip.
+
+### Tombstone Structure
+
+```python
+class DeletedTrip(Base):
+    __table_args__ = (
+        UniqueConstraint(
+            "origin_site_id",
+            "destination_site_id",
+            "started_at",
+            "ended_at",
+            name="uq_deleted_trip_generation_signature",
+        ),
+    )
+```
+
+**Why**: Prevents duplicate trips if:
+- User deletes a trip
+- Later, OwnTracks resends the same events (offline buffer)
+- Trip processor re-detects the same transition pair
+
+---
+
+## Waypoint Matching
+
+### site_for_location()
+
+Matches an OwnTracks location to a saved waypoint using this priority:
+
+1. **OwnTracks region ID** (`rid` field)
+   - Most specific; if OwnTracks sends this, use it
+2. **Waypoint name match** (exact, case-insensitive)
+   - From OwnTracks `desc` or `inregions` field
+3. **Distance radius** (Haversine ≤ `radius_m`)
+   - If location is within saved waypoint's radius, match it
+4. **Closest waypoint** (if multiple match)
+   - Pick the nearest one
+
+**Example**:
+```
+OwnTracks location: lat=42.33, lon=-83.05
+Saved sites:
+  - "Home": lat=42.3314, lon=-83.0458, radius=150m → matches (5m away)
+  - "Work": lat=42.33, lon=-83.00, radius=100m → no match (5.6km away)
+
+Result: Matched to "Home"
+```
+
+---
+
+## Constants and Precision
+
+```python
+METERS_PER_MILE = Decimal("1609.344")      # Conversion factor
+EARTH_RADIUS_M = Decimal("6371008.8")      # WGS84 ellipsoid
+DISTANCE_PRECISION = Decimal("0.1")        # All distances → 0.1 mile precision
+ODOMETER_PRECISION = Decimal("0.1")        # All odometers → 0.1 mile precision
+ROUNDING = ROUND_HALF_UP                   # Standard rounding
+```
+
+---
+
+## Common Tasks
+
+### Calculate Trip Mileage Manually
+
+```python
+from mileage_logger.services.mileage import haversine_miles
+
+miles = haversine_miles(
+    lat1=Decimal("42.3314"),
+    lon1=Decimal("-83.0458"),
+    lat2=Decimal("42.3314"),
+    lon2=Decimal("-83.0417"),
+)
+print(f"Distance: {miles} miles")
+```
+
+### Find All Trips for a Month
+
+```python
+from mileage_logger.services.pdf import trips_for_month
+
+trips = trips_for_month(db, year=2026, month=6)
+total_miles = sum(trip.miles for trip in trips)
+print(f"June 2026: {total_miles} miles across {len(trips)} trips")
+```
+
+### Get Monthly Mileage Total
+
+```python
+from mileage_logger.services.mileage import monthly_miles
+
+total = monthly_miles(db, year=2026, month=6)
+print(f"June 2026 total: {total} miles")
+```
+
+### Calculate Reimbursement
+
+```python
+from mileage_logger.services.pdf import calculate_reimbursement
+from mileage_logger.config import get_settings
+
+settings = get_settings()
+reimbursement = calculate_reimbursement(
+    total_miles=Decimal("500.0"),
+    monthly_gas_price=Decimal("3.45"),
+    vehicle_mpg=settings.vehicle_mpg,
+)
+print(f"Reimbursement: ${reimbursement}")
+```
+
+---
+
+## Debugging Mileage Issues
+
+### Check Trip Mileage Source
+
+On `/trips` page, hover over the "Trip Mi" column or check `trip.mileage_source`:
+- `"owntracks_path"` — Based on location path (best)
+- `"estimated_odometer"` — Estimated from checkpoint (good)
+- `"waypoint_distance"` — Direct waypoint distance (fallback)
+- `"manual"` — User manually edited
+
+### Inspect Odometer Chain
+
+```python
+# Get all trips for a month, in order
+trips = trips_for_month(db, 2026, 6)
+
+for i, trip in enumerate(trips, 1):
+    print(f"{i}. {trip.trip_date} {trip.origin_display_name} → {trip.destination_display_name}")
+    print(f"   Start: {trip.start_odometer_miles} ({trip.start_odometer_source})")
+    print(f"   End: {trip.end_odometer_miles} ({trip.end_odometer_source})")
+    print(f"   Miles: {trip.miles} ({trip.mileage_source})")
+```
+
+### Check Checkpoint State
+
+```python
+from mileage_logger.services.trip_processor import _get_or_create_checkpoint
+
+checkpoint = _get_or_create_checkpoint(db)
+print(f"Odometer anchor: {checkpoint.odometer_anchor_miles} miles")
+print(f"Recorded at: {checkpoint.odometer_anchor_recorded_at}")
+print(f"Last processed location: {checkpoint.last_owntracks_location_id}")
+```
+
+---
+
+## Testing Mileage Calculations
+
+See [tests/test_mileage.py](tests/test_mileage.py) for comprehensive tests:
+
+```python
+def test_trip_mileage_from_owntracks_path():
+    """Trip mileage uses location path when available."""
+    # Create mock locations between two waypoints
+    # Call generate_trips()
+    # Assert mileage_source == "owntracks_path"
+
+def test_trip_mileage_fallback_to_waypoint_distance():
+    """Falls back to waypoint distance when path unavailable."""
+    # Create waypoints but no locations between
+    # Call generate_trips()
+    # Assert mileage_source == "waypoint_distance"
+```
+
+---
+
+## References
+
+- [mileage.py](mileage_logger/services/mileage.py) — Core implementation
+- [trip_processor.py](mileage_logger/services/trip_processor.py) — Checkpoint management
+- [models.py](mileage_logger/models.py) — Trip, Site, TripProcessingCheckpoint models
+- [README.md](README.md#Trip-Detection) — Trip generation overview
