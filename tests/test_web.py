@@ -750,6 +750,10 @@ def test_trips_page_updates_existing_trip_date_and_values() -> None:
                     origin_name="Old Home",
                     destination_name="Old Client",
                     miles=Decimal("5.00"),
+                    start_odometer_miles=Decimal("1000.000"),
+                    end_odometer_miles=Decimal("1005.000"),
+                    start_odometer_source="estimated",
+                    end_odometer_source="estimated",
                     source="auto",
                 )
             )
@@ -759,23 +763,87 @@ def test_trips_page_updates_existing_trip_date_and_values() -> None:
             "/trips/1",
             data={
                 "trip_date": "2026-06-16",
-                "origin_name": "Home",
-                "destination_name": "Client",
                 "miles": "15.50",
+                "start_odometer_miles": "2000.1234",
+                "end_odometer_miles": "2015.9876",
             },
         )
 
         assert response.status_code == 200
         assert "2026-06-16" in response.text
+        assert "Old Home" in response.text
+        assert "Old Client" in response.text
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
             assert trip.trip_date == datetime(2026, 6, 16, tzinfo=UTC).date()
-            assert trip.origin_name == "Home"
-            assert trip.destination_name == "Client"
+            assert trip.origin_name == "Old Home"
+            assert trip.destination_name == "Old Client"
             assert trip.miles == Decimal("15.50")
+            assert trip.start_odometer_miles == Decimal("2000.123")
+            assert trip.end_odometer_miles == Decimal("2015.988")
+            assert trip.start_odometer_source == "estimated"
+            assert trip.end_odometer_source == "estimated"
             assert trip.source == "manual"
             assert trip.mileage_source == "manual"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_trips_page_odometer_only_edit_does_not_change_trip_mileage_or_source() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add(
+                Trip(
+                    trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                    started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
+                    start_latitude=Decimal("42.3314"),
+                    start_longitude=Decimal("-83.0458"),
+                    end_latitude=Decimal("42.3440"),
+                    end_longitude=Decimal("-83.0600"),
+                    origin_name="Home",
+                    destination_name="Client",
+                    miles=Decimal("5.00"),
+                    mileage_source="owntracks_path",
+                    source="auto",
+                )
+            )
+            db.commit()
+
+        page_response = client.get("/trips?year=2026&month=6")
+        response = client.post(
+            "/trips/1",
+            data={
+                "trip_date": "2026-06-10",
+                "miles": "5.00",
+                "start_odometer_miles": "3000.111",
+                "end_odometer_miles": "",
+            },
+        )
+
+        assert page_response.status_code == 200
+        assert '<td class="trip-name">Home</td>' in page_response.text
+        assert '<td class="trip-name">Client</td>' in page_response.text
+        assert 'name="origin_name" maxlength="160" required value="Home"' not in page_response.text
+        assert (
+            'name="destination_name" maxlength="160" required value="Client"'
+            not in page_response.text
+        )
+        assert 'name="start_odometer_miles"' in page_response.text
+        assert 'name="end_odometer_miles"' in page_response.text
+        assert response.status_code == 200
+        with session_factory() as db:
+            trip = db.get(Trip, 1)
+            assert trip is not None
+            assert trip.origin_name == "Home"
+            assert trip.destination_name == "Client"
+            assert trip.miles == Decimal("5.00")
+            assert trip.start_odometer_miles == Decimal("3000.111")
+            assert trip.end_odometer_miles is None
+            assert trip.source == "auto"
+            assert trip.mileage_source == "owntracks_path"
     finally:
         app.dependency_overrides.clear()
 

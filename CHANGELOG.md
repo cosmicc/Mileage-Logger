@@ -9,6 +9,8 @@
 - Removed speed-based Diagnostics movement handling in favor of distance-based travel detection.
 - Added Waypoints page delete buttons that remove stale app waypoints while preserving historical
   trip details.
+- Changed Trips page row editing so trip names are read-only and start/end odometer values can be
+  edited directly without recalculating mileage.
 - Replaced the Diagnostics Smartcar API test card with the latest received Smartcar webhook data,
   including received time, age, summary fields, and signal details.
 - Changed Smartcar callback URI verification so `VERIFY` events only require

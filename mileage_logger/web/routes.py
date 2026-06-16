@@ -3,7 +3,7 @@ import re
 from calendar import month_name
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from math import ceil
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -38,7 +38,12 @@ from mileage_logger.services.gas_prices import (
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
-from mileage_logger.services.mileage import create_manual_trip, delete_trip, update_trip_details
+from mileage_logger.services.mileage import (
+    MILEAGE_SOURCE_MANUAL,
+    create_manual_trip,
+    delete_trip,
+    mark_trip_manually_reviewed,
+)
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.smartcar import (
     MANUAL_ODOMETER_EVENT_TYPE,
@@ -49,6 +54,7 @@ from mileage_logger.services.smartcar import (
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
+    local_day_bounds,
     local_now,
     local_today,
 )
@@ -221,6 +227,58 @@ def _api_test_result(
     cleaned_message = (message or "").strip()[:300]
     cleaned_value = (value or "").strip()[:120]
     return ApiTestResult(status=status, message=cleaned_message, value=cleaned_value)
+
+
+def _optional_odometer_form_value(value: str, field_name: str) -> Decimal | None:
+    """Parse an optional odometer input without deriving or recalculating mileage."""
+
+    cleaned_value = (value or "").strip()
+    if not cleaned_value:
+        return None
+    try:
+        odometer_value = Decimal(cleaned_value)
+    except (InvalidOperation, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a number") from exc
+    if odometer_value < 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be zero or greater")
+    return odometer_value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+
+
+def _manual_trip_datetime(trip_date: date) -> datetime:
+    """Return the local-day start used for web edits that manually move a trip date."""
+
+    start_dt, _ = local_day_bounds(trip_date)
+    return start_dt
+
+
+def _update_trip_row_values(
+    trip: Trip,
+    *,
+    trip_date: date,
+    miles: Decimal,
+    start_odometer_miles: Decimal | None,
+    end_odometer_miles: Decimal | None,
+) -> None:
+    """Apply only the editable Trips-page fields to one trip row."""
+
+    manual_review_needed = False
+    if trip.trip_date != trip_date:
+        trip.trip_date = trip_date
+        trip.started_at = _manual_trip_datetime(trip_date)
+        trip.ended_at = trip.started_at
+        manual_review_needed = True
+
+    rounded_miles = Decimal(str(miles)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if trip.miles != rounded_miles:
+        trip.miles = rounded_miles
+        trip.mileage_source = MILEAGE_SOURCE_MANUAL
+        manual_review_needed = True
+
+    trip.start_odometer_miles = start_odometer_miles
+    trip.end_odometer_miles = end_odometer_miles
+
+    if manual_review_needed:
+        mark_trip_manually_reviewed(trip)
 
 
 def _display_text(value: object | None) -> str:
@@ -636,23 +694,43 @@ def trips(
 def update_trip_form(
     trip_id: int,
     trip_date: date = Form(...),
-    origin_name: str = Form(...),
-    destination_name: str = Form(...),
     miles: Decimal = Form(...),
+    start_odometer_miles: str = Form(default=""),
+    end_odometer_miles: str = Form(default=""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    update_trip_details(trip, origin_name, destination_name, miles, trip_date)
+    if miles < 0:
+        raise HTTPException(status_code=400, detail="Miles must be zero or greater")
+
+    parsed_start_odometer = _optional_odometer_form_value(
+        start_odometer_miles,
+        "Start odometer",
+    )
+    parsed_end_odometer = _optional_odometer_form_value(
+        end_odometer_miles,
+        "End odometer",
+    )
+    _update_trip_row_values(
+        trip,
+        trip_date=trip_date,
+        miles=miles,
+        start_odometer_miles=parsed_start_odometer,
+        end_odometer_miles=parsed_end_odometer,
+    )
     db.commit()
     logger.info(
-        "Updated trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s",
+        "Updated trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s "
+        "start_odometer=%s end_odometer=%s",
         trip.id,
         trip.trip_date.isoformat(),
         trip.origin_display_name,
         trip.destination_display_name,
         trip.miles,
+        trip.start_odometer_miles,
+        trip.end_odometer_miles,
     )
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
