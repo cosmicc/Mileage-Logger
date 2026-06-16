@@ -85,11 +85,11 @@ class Trip(Base):
     end_longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     origin_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     destination_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    miles: Mapped[Decimal] = mapped_column(Numeric(9, 2))
+    miles: Mapped[Decimal] = mapped_column(Numeric(9, 1))
     start_odometer_miles: Mapped[Decimal | None] = mapped_column(
-        Numeric(12, 3), nullable=True
+        Numeric(12, 1), nullable=True
     )
-    end_odometer_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    end_odometer_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 1), nullable=True)
     start_odometer_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
     end_odometer_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
     mileage_source: Mapped[str] = mapped_column(String(40), default="waypoint_distance")
@@ -180,7 +180,7 @@ class DeletedTrip(Base):
         comment="Displayed destination name at deletion time.",
     )
     miles: Mapped[Decimal | None] = mapped_column(
-        Numeric(9, 2),
+        Numeric(9, 1),
         nullable=True,
         comment="Displayed trip miles at deletion time.",
     )
@@ -217,7 +217,7 @@ class TripProcessingCheckpoint(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True)
     last_owntracks_location_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    odometer_anchor_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 3), nullable=True)
+    odometer_anchor_miles: Mapped[Decimal | None] = mapped_column(Numeric(12, 1), nullable=True)
     odometer_anchor_recorded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

@@ -25,6 +25,8 @@ from mileage_logger.services.timezone import (
 
 METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
+DISTANCE_PRECISION = Decimal("0.1")
+ODOMETER_PRECISION = Decimal("0.1")
 AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
 MILEAGE_SOURCE_OWNTRACKS_PATH = "owntracks_path"
@@ -78,7 +80,7 @@ def haversine_miles(
     a = sin(dlat / 2) ** 2 + cos(lat1_f) * cos(lat2_f) * sin(dlon / 2) ** 2
     meters = float(EARTH_RADIUS_M) * 2 * asin(sqrt(a))
     miles = Decimal(str(meters)) / METERS_PER_MILE
-    return miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
 
 
 def distance_meters(site: Site, location: OwnTracksLocation) -> Decimal:
@@ -326,7 +328,7 @@ def _path_distance_miles(path_locations: list[OwnTracksLocation]) -> Decimal | N
     if len(path_locations) < 2 or not has_location_update:
         return None
 
-    total = Decimal("0.00")
+    total = Decimal("0.0")
     previous_location = path_locations[0]
     for location in path_locations[1:]:
         total += haversine_miles(
@@ -336,7 +338,7 @@ def _path_distance_miles(path_locations: list[OwnTracksLocation]) -> Decimal | N
             location.longitude,
         )
         previous_location = location
-    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return total.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
 
 
 def _trip_path_miles(
@@ -423,7 +425,7 @@ def _odometer_miles(
     miles = end_odometer_miles - start_odometer_miles
     if miles < 0:
         return None
-    return miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
 
 
 def _odometer_reading_miles(reading: OdometerReading | None) -> Decimal | None:
@@ -475,10 +477,10 @@ def _estimated_odometer_calculation(
     end_odometer_source: str | None,
     odometer_anchor_miles: Decimal | None,
 ) -> MileageCalculation | None:
-    distance = distance_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    distance = distance_miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
     if start_odometer_miles is not None:
         estimated_end = (start_odometer_miles + distance).quantize(
-            Decimal("0.001"),
+            ODOMETER_PRECISION,
             rounding=ROUND_HALF_UP,
         )
         return MileageCalculation(
@@ -491,8 +493,8 @@ def _estimated_odometer_calculation(
         )
 
     if end_odometer_miles is not None:
-        estimated_start = max(end_odometer_miles - distance, Decimal("0.000")).quantize(
-            Decimal("0.001"),
+        estimated_start = max(end_odometer_miles - distance, Decimal("0.0")).quantize(
+            ODOMETER_PRECISION,
             rounding=ROUND_HALF_UP,
         )
         return MileageCalculation(
@@ -507,9 +509,9 @@ def _estimated_odometer_calculation(
     if odometer_anchor_miles is None:
         return None
 
-    estimated_start = odometer_anchor_miles.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    estimated_start = odometer_anchor_miles.quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
     estimated_end = (estimated_start + distance).quantize(
-        Decimal("0.001"),
+        ODOMETER_PRECISION,
         rounding=ROUND_HALF_UP,
     )
     return MileageCalculation(
@@ -548,7 +550,7 @@ def _mileage_calculation(
                 odometer_anchor_miles=odometer_anchor_miles,
             )
         return MileageCalculation(
-            miles=path_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+            miles=path_miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP),
             mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
             start_odometer_miles=(
                 estimated_odometer.start_odometer_miles
@@ -951,20 +953,20 @@ def _month_resequence_anchor(db: Session, first_trip: Trip) -> Decimal:
 
     prior_odometer = _latest_odometer_before(db, first_trip.started_at)
     if prior_odometer is not None:
-        return Decimal(prior_odometer).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        return Decimal(prior_odometer).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
     if first_trip.start_odometer_miles is not None:
         return Decimal(first_trip.start_odometer_miles).quantize(
-            Decimal("0.001"),
+            ODOMETER_PRECISION,
             rounding=ROUND_HALF_UP,
         )
 
     checkpoint = _latest_checkpoint(db)
     if checkpoint is not None and checkpoint.odometer_anchor_miles is not None:
         return Decimal(checkpoint.odometer_anchor_miles).quantize(
-            Decimal("0.001"),
+            ODOMETER_PRECISION,
             rounding=ROUND_HALF_UP,
         )
-    return Decimal("0.000")
+    return Decimal("0.0")
 
 
 def _update_checkpoint_after_resequence(db: Session, last_trip: Trip) -> None:
@@ -989,7 +991,7 @@ def _update_checkpoint_after_resequence(db: Session, last_trip: Trip) -> None:
         return
 
     checkpoint.odometer_anchor_miles = Decimal(last_trip.end_odometer_miles).quantize(
-        Decimal("0.001"),
+        ODOMETER_PRECISION,
         rounding=ROUND_HALF_UP,
     )
     checkpoint.odometer_anchor_recorded_at = last_trip_ended_at
@@ -1004,10 +1006,10 @@ def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
 
     current_odometer = _month_resequence_anchor(db, month_trips[0])
     for trip in month_trips:
-        trip_distance = Decimal(trip.miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        start_odometer = current_odometer.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        trip_distance = Decimal(trip.miles).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
+        start_odometer = current_odometer.quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
         end_odometer = (start_odometer + trip_distance).quantize(
-            Decimal("0.001"),
+            ODOMETER_PRECISION,
             rounding=ROUND_HALF_UP,
         )
         trip.start_odometer_miles = start_odometer
@@ -1235,7 +1237,7 @@ def create_manual_trip(
         end_longitude=Decimal("0.0000000"),
         origin_name=normalize_location_name(origin_name),
         destination_name=normalize_location_name(destination_name),
-        miles=Decimal(miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
+        miles=Decimal(miles).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP),
         mileage_source=MILEAGE_SOURCE_MANUAL,
         source=MANUAL_TRIP_SOURCE,
         notes=MANUAL_TRIP_NOTE,
@@ -1258,7 +1260,7 @@ def update_trip_details(
     trip.origin_name = normalize_location_name(origin_name)
     trip.destination_name = normalize_location_name(destination_name)
     if miles is not None:
-        trip.miles = Decimal(miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        trip.miles = Decimal(miles).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
         trip.mileage_source = MILEAGE_SOURCE_MANUAL
     mark_trip_manually_reviewed(trip)
 
@@ -1275,5 +1277,5 @@ def monthly_miles(db: Session, year: int, month: int) -> Decimal:
         .where(Trip.trip_date < end_date)
         .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
     )
-    total = sum((trip.miles for trip in db.scalars(stmt)), Decimal("0.00"))
-    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total = sum((trip.miles for trip in db.scalars(stmt)), Decimal("0.0"))
+    return total.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)

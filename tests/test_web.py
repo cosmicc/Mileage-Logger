@@ -388,7 +388,7 @@ def test_waypoints_page_deletes_waypoint_and_preserves_trip_history() -> None:
             assert trip is not None
             assert trip.destination_site_id is None
             assert trip.destination_name == "Client"
-            assert trip.miles == Decimal("12.34")
+            assert trip.miles == Decimal("12.3")
     finally:
         app.dependency_overrides.clear()
 
@@ -584,7 +584,7 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
         assert "Travel detected" in response.text
         assert "Left waypoint" in response.text
         assert "Home" in response.text
-        assert "1.13 miles" in response.text
+        assert "1.1 miles" in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -727,7 +727,7 @@ def test_trips_page_creates_manual_trip() -> None:
             assert trip.trip_date == datetime(2026, 6, 15, tzinfo=UTC).date()
             assert trip.origin_name == "Home"
             assert trip.destination_name == "Client"
-            assert trip.miles == Decimal("12.34")
+            assert trip.miles == Decimal("12.3")
             assert trip.source == "manual"
             assert trip.mileage_source == "manual"
     finally:
@@ -899,10 +899,10 @@ def test_trips_page_distance_edit_resequences_month_odometers() -> None:
         assert response.status_code == 200
         with session_factory() as db:
             trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
-            assert trips[0].start_odometer_miles == Decimal("1000.000")
-            assert trips[0].end_odometer_miles == Decimal("1006.250")
-            assert trips[1].start_odometer_miles == Decimal("1006.250")
-            assert trips[1].end_odometer_miles == Decimal("1013.250")
+            assert trips[0].start_odometer_miles == Decimal("1000.0")
+            assert trips[0].end_odometer_miles == Decimal("1006.3")
+            assert trips[1].start_odometer_miles == Decimal("1006.3")
+            assert trips[1].end_odometer_miles == Decimal("1013.3")
     finally:
         app.dependency_overrides.clear()
 
@@ -927,7 +927,7 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
                 )
             )
             assert checkpoint is not None
-            assert checkpoint.odometer_anchor_miles == Decimal("12345.678")
+            assert checkpoint.odometer_anchor_miles == Decimal("12345.7")
     finally:
         app.dependency_overrides.clear()
 

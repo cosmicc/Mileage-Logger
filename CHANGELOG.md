@@ -8,6 +8,7 @@
   while Diagnostics manual odometer readings reset the checkpoint to a new rolling value.
 - Removed external vehicle odometer integration and now derives odometer movement from OwnTracks
   path distance plus optional manual checkpoint corrections.
+- Changed trip distances and odometer values to store and display one decimal place.
 - Removed speed-based Diagnostics movement handling in favor of distance-based travel detection.
 - Added Waypoints page delete buttons that remove stale app waypoints while preserving historical
   trip details.

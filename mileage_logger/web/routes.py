@@ -234,7 +234,7 @@ def _update_trip_row_values(
         resequence_months.add((trip.trip_date.year, trip.trip_date.month))
         manual_review_needed = True
 
-    rounded_miles = Decimal(str(miles)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    rounded_miles = Decimal(str(miles)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
     if trip.miles != rounded_miles:
         trip.miles = rounded_miles
         trip.mileage_source = MILEAGE_SOURCE_MANUAL

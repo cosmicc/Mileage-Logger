@@ -77,7 +77,7 @@
           <span>{{ trip.end_odometer_miles|odometer }}</span>
           <small>{% if trip.end_odometer_miles is not none %}{{ (trip.end_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
         </td>
-        <td>{{ "%.2f"|format(trip.miles) }}</td>
+        <td>{{ "%.1f"|format(trip.miles) }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6">No trips generated yet.</td></tr>

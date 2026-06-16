@@ -98,7 +98,7 @@ def _format_odometer(value: Decimal | None) -> str:
 def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
     rows: list[TripReportRow] = []
     for trip in trips:
-        trip_miles = Decimal(trip.miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        trip_miles = Decimal(trip.miles).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
         rows.append(
             TripReportRow(
                 trip_date=trip.trip_date,
@@ -157,12 +157,12 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
                 Paragraph(row.to_location, table_cell),
                 _format_odometer(row.start_odometer),
                 _format_odometer(row.end_odometer),
-                f"{row.trip_miles:.2f}",
+                f"{row.trip_miles:.1f}",
             ]
         )
 
     if len(trip_rows) == 1:
-        trip_rows.append(["", "No trips", "", "", "", "0.00"])
+        trip_rows.append(["", "No trips", "", "", "", "0.0"])
 
     table = Table(trip_rows, repeatRows=1, colWidths=[70, 180, 180, 90, 90, 70])
     table.setStyle(
@@ -185,7 +185,7 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
     summary_data = [
         ["Michigan Avg Monthly Gas Price", f"${gas_price.average_price_per_gallon:.3f}"],
         ["Vehicle MPG", f"{settings.vehicle_mpg:.1f}"],
-        ["Total trip miles for month", f"{total_miles:.2f}"],
+        ["Total trip miles for month", f"{total_miles:.1f}"],
         ["Reimbursement gallons", f"{reimbursement_gallons:.3f}"],
         ["Total reimbursement", f"${reimbursement_total:.2f}"],
     ]

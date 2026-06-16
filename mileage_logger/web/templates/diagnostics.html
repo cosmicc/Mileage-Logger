@@ -94,7 +94,7 @@
     {% endif %}
     {% if movement_state.distance_miles is not none %}
     <dt>Distance</dt>
-    <dd>{{ "%.2f"|format(movement_state.distance_miles) }} miles</dd>
+    <dd>{{ "%.1f"|format(movement_state.distance_miles) }} miles</dd>
     {% endif %}
   </dl>
 </section>
@@ -113,8 +113,8 @@
         <input
           type="number"
           name="odometer_miles"
-          min="0.001"
-          step="0.001"
+          min="0.1"
+          step="0.1"
           inputmode="decimal"
           required
         >
@@ -192,7 +192,7 @@
           </span>
         </td>
         <td>{{ state_change.site_name or "-" }}</td>
-        <td>{% if state_change.distance_miles is not none %}{{ "%.2f"|format(state_change.distance_miles) }} miles{% else %}-{% endif %}</td>
+        <td>{% if state_change.distance_miles is not none %}{{ "%.1f"|format(state_change.distance_miles) }} miles{% else %}-{% endif %}</td>
       </tr>
       {% else %}
       <tr><td colspan="4">No OwnTracks state changes found.</td></tr>

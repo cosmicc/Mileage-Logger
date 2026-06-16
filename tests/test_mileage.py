@@ -130,7 +130,7 @@ def test_create_manual_trip_saves_editable_manual_values() -> None:
     assert trip.trip_date == date(2026, 6, 15)
     assert trip.origin_display_name == "Home"
     assert trip.destination_display_name == "Client"
-    assert trip.miles == Decimal("12.35")
+    assert trip.miles == Decimal("12.3")
     assert trip.source == MANUAL_TRIP_SOURCE
     assert trip.mileage_source == MILEAGE_SOURCE_MANUAL
     assert trip.origin_site_id is None
@@ -219,9 +219,9 @@ def test_generate_trips_estimates_odometer_from_checkpoint_anchor() -> None:
 
     assert len(trips) == 1
     assert trips[0].miles == distance
-    assert trips[0].start_odometer_miles == Decimal("1000.250")
-    assert trips[0].end_odometer_miles == (Decimal("1000.250") + distance).quantize(
-        Decimal("0.001")
+    assert trips[0].start_odometer_miles == Decimal("1000.2")
+    assert trips[0].end_odometer_miles == (Decimal("1000.2") + distance).quantize(
+        Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
@@ -283,13 +283,13 @@ def test_generate_trips_uses_owntracks_path_with_checkpoint_odometer() -> None:
             client.latitude,
             client.longitude,
         )
-    ).quantize(Decimal("0.01"))
+    ).quantize(Decimal("0.1"))
 
     assert len(trips) == 1
     assert trips[0].miles == expected_path_miles
-    assert trips[0].start_odometer_miles == Decimal("1000.000")
-    assert trips[0].end_odometer_miles == (Decimal("1000.000") + expected_path_miles).quantize(
-        Decimal("0.001")
+    assert trips[0].start_odometer_miles == Decimal("1000.0")
+    assert trips[0].end_odometer_miles == (Decimal("1000.0") + expected_path_miles).quantize(
+        Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
@@ -323,9 +323,9 @@ def test_generate_trips_uses_manual_checkpoint_as_anchor() -> None:
     assert len(trips) == 1
     assert trips[0].miles == distance
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
-    assert trips[0].start_odometer_miles == Decimal("1000.000")
-    assert trips[0].end_odometer_miles == (Decimal("1000.000") + distance).quantize(
-        Decimal("0.001")
+    assert trips[0].start_odometer_miles == Decimal("1000.0")
+    assert trips[0].end_odometer_miles == (Decimal("1000.0") + distance).quantize(
+        Decimal("0.1")
     )
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
@@ -386,14 +386,14 @@ def test_generate_trips_uses_owntracks_path_before_waypoint_distance() -> None:
             client.latitude,
             client.longitude,
         )
-    ).quantize(Decimal("0.01"))
+    ).quantize(Decimal("0.1"))
 
     assert len(trips) == 1
     assert trips[0].miles == expected_path_miles
     assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
-    assert trips[0].start_odometer_miles == Decimal("1000.250")
-    assert trips[0].end_odometer_miles == (Decimal("1000.250") + expected_path_miles).quantize(
-        Decimal("0.001")
+    assert trips[0].start_odometer_miles == Decimal("1000.2")
+    assert trips[0].end_odometer_miles == (Decimal("1000.2") + expected_path_miles).quantize(
+        Decimal("0.1")
     )
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
@@ -474,7 +474,7 @@ def test_generate_trips_reuses_existing_auto_estimated_trip() -> None:
         client.latitude,
         client.longitude,
     )
-    assert all_trips[0].start_odometer_miles == Decimal("1000.000")
+    assert all_trips[0].start_odometer_miles == Decimal("1000.0")
     assert all_trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
 
 
@@ -562,9 +562,9 @@ def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None
 
     assert len(trips) == 1
     assert trips[0].miles == distance
-    assert trips[0].start_odometer_miles == Decimal("1012.875")
-    assert trips[0].end_odometer_miles == (Decimal("1012.875") + distance).quantize(
-        Decimal("0.001")
+    assert trips[0].start_odometer_miles == Decimal("1012.9")
+    assert trips[0].end_odometer_miles == (Decimal("1012.9") + distance).quantize(
+        Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
@@ -591,8 +591,8 @@ def test_generate_trips_estimates_from_prior_odometer_anchor() -> None:
             start_longitude=client.longitude,
             end_latitude=home.latitude,
             end_longitude=home.longitude,
-            miles=Decimal("20.00"),
-            end_odometer_miles=Decimal("2000.000"),
+            miles=Decimal("20.0"),
+            end_odometer_miles=Decimal("2000.0"),
             mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
             source="auto",
         )
@@ -611,9 +611,9 @@ def test_generate_trips_estimates_from_prior_odometer_anchor() -> None:
 
     assert len(trips) == 1
     assert trips[0].miles == distance
-    assert trips[0].start_odometer_miles == Decimal("2000.000")
-    assert trips[0].end_odometer_miles == (Decimal("2000.000") + distance).quantize(
-        Decimal("0.001")
+    assert trips[0].start_odometer_miles == Decimal("2000.0")
+    assert trips[0].end_odometer_miles == (Decimal("2000.0") + distance).quantize(
+        Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
@@ -644,7 +644,7 @@ def test_generate_trips_ignores_home_to_home_but_allows_same_work_waypoint() -> 
     assert len(trips) == 1
     assert trips[0].origin_site_id == client.id
     assert trips[0].destination_site_id == client.id
-    assert trips[0].miles == Decimal("0.00")
+    assert trips[0].miles == Decimal("0.0")
 
 
 def test_generate_trips_assumes_missing_first_leave_was_from_home() -> None:
@@ -989,7 +989,7 @@ def test_automatic_trip_processing_saves_initial_zero_odometer_anchor() -> None:
     checkpoint = db.scalar(select(TripProcessingCheckpoint))
     assert result.generated == 0
     assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("0.000")
+    assert checkpoint.odometer_anchor_miles == Decimal("0.0")
     assert checkpoint.odometer_anchor_recorded_at == _naive(current_time)
 
 
@@ -1018,11 +1018,11 @@ def test_automatic_trip_processing_advances_odometer_without_trip() -> None:
         start_location.longitude,
         end_location.latitude,
         end_location.longitude,
-    ).quantize(Decimal("0.001"))
+    ).quantize(Decimal("0.1"))
     checkpoint = db.scalar(select(TripProcessingCheckpoint))
     assert result.generated == 0
     assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("1000.000") + expected_distance
+    assert checkpoint.odometer_anchor_miles == Decimal("1000.0") + expected_distance
     assert checkpoint.odometer_anchor_recorded_at == _naive(end_location.captured_at)
 
 

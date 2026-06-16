@@ -27,7 +27,7 @@ from mileage_logger.services.timezone import datetime_to_local_date, datetime_to
 logger = logging.getLogger(__name__)
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 _PROCESSING_LOCK = Lock()
-ODOMETER_PRECISION = Decimal("0.001")
+ODOMETER_PRECISION = Decimal("0.1")
 
 
 @dataclass(frozen=True)
@@ -170,7 +170,7 @@ def _ensure_initial_odometer_anchor(
         return
 
     earliest_new_location = min(new_locations, key=_location_sort_key) if new_locations else None
-    checkpoint.odometer_anchor_miles = Decimal("0.000")
+    checkpoint.odometer_anchor_miles = Decimal("0.0")
     checkpoint.odometer_anchor_recorded_at = (
         datetime_to_utc(earliest_new_location.captured_at) - timedelta(microseconds=1)
         if earliest_new_location is not None
@@ -231,7 +231,7 @@ def _odometer_segment_miles(
         sites_by_name,
         sites_by_region_id,
     ):
-        return Decimal("0.000")
+        return Decimal("0.0")
     return haversine_miles(
         first_location.latitude,
         first_location.longitude,
@@ -248,7 +248,7 @@ def _owntracks_odometer_advance(
     """Calculate uncounted OwnTracks path distance after the current odometer anchor."""
 
     if not new_locations:
-        return OdometerAdvance(miles=Decimal("0.000"), recorded_at=None)
+        return OdometerAdvance(miles=Decimal("0.0"), recorded_at=None)
 
     sites = list(db.scalars(select(Site).where(Site.active.is_(True)).order_by(Site.name.asc())))
     sites_by_name, sites_by_region_id = _site_indexes(sites)
@@ -268,7 +268,7 @@ def _owntracks_odometer_advance(
         if previous_checkpoint_location is not None:
             path_locations.append(previous_checkpoint_location)
 
-    total_miles = Decimal("0.000")
+    total_miles = Decimal("0.0")
     latest_counted_at: datetime | None = None
     previous_location: OwnTracksLocation | None = None
 

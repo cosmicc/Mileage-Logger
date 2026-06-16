@@ -69,12 +69,12 @@ def test_trip_report_rows_include_trip_mileage() -> None:
     assert rows[0].to_location == "Client"
     assert rows[0].start_odometer == Decimal("1000.1")
     assert rows[0].end_odometer == Decimal("1012.6")
-    assert rows[0].trip_miles == Decimal("12.50")
+    assert rows[0].trip_miles == Decimal("12.5")
     assert rows[1].from_location == "Client"
     assert rows[1].to_location == "Shop"
     assert rows[1].start_odometer == Decimal("1012.6")
     assert rows[1].end_odometer == Decimal("1019.9")
-    assert rows[1].trip_miles == Decimal("7.25")
+    assert rows[1].trip_miles == Decimal("7.3")
 
 
 def test_trip_report_rows_use_unknown_for_unresolved_sites() -> None:
