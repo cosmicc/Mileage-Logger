@@ -31,10 +31,13 @@ def local_today() -> date:
 
 
 def local_day_bounds(day: date) -> tuple[datetime, datetime]:
+    """Return UTC instants for one midnight-to-midnight local calendar day."""
+
     timezone = local_timezone()
-    start = datetime.combine(day, time.min, tzinfo=timezone)
-    end = start + timedelta(days=1)
-    return start.astimezone(UTC), end.astimezone(UTC)
+    local_start = datetime.combine(day, time.min, tzinfo=timezone)
+    next_day = day + timedelta(days=1)
+    local_end = datetime.combine(next_day, time.min, tzinfo=timezone)
+    return local_start.astimezone(UTC), local_end.astimezone(UTC)
 
 
 def local_day_end_for_datetime(value: datetime) -> datetime:

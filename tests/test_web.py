@@ -333,6 +333,94 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> None:
+    dashboard_now = datetime(
+        2026,
+        6,
+        16,
+        23,
+        30,
+        tzinfo=ZoneInfo("America/Detroit"),
+    )
+    current_day = dashboard_now.date()
+    next_day = current_day + timedelta(days=1)
+    monkeypatch.setattr("mileage_logger.web.routes.local_now", lambda: dashboard_now)
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: current_day)
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    _location(
+                        datetime(2026, 6, 16, 3, 55, tzinfo=UTC),
+                        datetime(2026, 6, 16, 3, 55, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("100.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 4, 10, tzinfo=UTC),
+                        datetime(2026, 6, 16, 4, 10, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("101.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 17, 3, 30, tzinfo=UTC),
+                        datetime(2026, 6, 17, 3, 30, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("112.3"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 17, 4, 0, tzinfo=UTC),
+                        datetime(2026, 6, 17, 4, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("125.0"),
+                    ),
+                    Trip(
+                        trip_date=current_day,
+                        started_at=datetime(2026, 6, 17, 1, 30, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 17, 2, 0, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("7.3"),
+                    ),
+                    Trip(
+                        trip_date=next_day,
+                        started_at=datetime(2026, 6, 17, 4, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 17, 4, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("12.7"),
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "2026-06-16 11:30:00 PM" in response.text
+        assert (
+            "<span>Today</span>\n"
+            "      <strong>12.3</strong>\n"
+            "      <small>Trips + non-trips</small>"
+        ) in response.text
+        assert (
+            "<span>Today</span>\n"
+            "      <strong>7.3</strong>\n"
+            "      <small>Trips only</small>"
+        ) in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_dashboard_replaces_vehicle_mpg_with_location_state(monkeypatch) -> None:
     monkeypatch.setattr(
         "mileage_logger.web.routes._monthly_gas_context",

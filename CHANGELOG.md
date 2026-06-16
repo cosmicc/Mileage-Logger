@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed Dashboard Today distance cards so the trip and non-trip totals stay on the
+  `LOCAL_TIMEZONE` day until local midnight instead of rolling over with UTC.
 - Fixed automatic trip processing so a waypoint arrival can create the trip after the dwell timer
   expires even when OwnTracks sends no follow-up location rows while the phone remains there.
 - Replaced the Dashboard Vehicle MPG card with a current OwnTracks location state card showing

@@ -141,6 +141,12 @@ class ApiTestResult:
 
 def _current_year_month() -> tuple[int, int]:
     today = local_today()
+    return _year_month_for_local_date(today)
+
+
+def _year_month_for_local_date(today: date) -> tuple[int, int]:
+    """Return dashboard calendar selectors for an already-resolved local date."""
+
     return today.year, today.month
 
 
@@ -606,11 +612,12 @@ def logout_form(request: Request) -> RedirectResponse:
 def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     settings = get_settings()
     app_now = local_now()
-    year, month = _current_year_month()
+    app_today = app_now.date()
+    year, month = _year_month_for_local_date(app_today)
     monthly_gas, _ = _monthly_gas_context(db, year, month)
     distance_summary = _dashboard_distance_summary(
         db,
-        today=app_now.date(),
+        today=app_today,
         year=year,
         month=month,
     )
