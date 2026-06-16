@@ -70,13 +70,13 @@
   <div class="panel-toolbar">
     <div>
       <h2>OwnTracks State</h2>
-      <p class="panel-meta">Current waypoint or driving state from recent OwnTracks events.</p>
+      <p class="panel-meta">Current waypoint or travel state from recent OwnTracks events.</p>
     </div>
   </div>
   <dl class="diagnostic-list">
     <dt>Status</dt>
     <dd>
-      <span class="pill {{ 'good' if movement_state.state == 'waypoint' else 'warning' if movement_state.state == 'driving' else 'muted' }}">
+      <span class="pill {{ 'good' if movement_state.state == 'waypoint' else 'warning' if movement_state.state == 'travel' else 'muted' }}">
         {{ movement_state.label }}
       </span>
     </dd>
@@ -92,9 +92,9 @@
     <dt>Detected</dt>
     <dd>{{ movement_state.detected_at|local_datetime }}</dd>
     {% endif %}
-    {% if movement_state.speed_mph is not none %}
-    <dt>Speed</dt>
-    <dd>{{ "%.1f"|format(movement_state.speed_mph) }} mph</dd>
+    {% if movement_state.distance_miles is not none %}
+    <dt>Distance</dt>
+    <dd>{{ "%.2f"|format(movement_state.distance_miles) }} miles</dd>
     {% endif %}
   </dl>
 </section>
@@ -224,7 +224,7 @@
   <div class="panel-toolbar">
     <div>
       <h2>OwnTracks State Changes</h2>
-      <p class="panel-meta">Only waypoint arrivals, waypoint departures, and driving detections.</p>
+      <p class="panel-meta">Only waypoint arrivals, waypoint departures, and travel detections.</p>
     </div>
   </div>
   <table>
@@ -233,7 +233,7 @@
         <th>Captured</th>
         <th>State</th>
         <th>Waypoint</th>
-        <th>Speed</th>
+        <th>Distance</th>
       </tr>
     </thead>
     <tbody>
@@ -241,12 +241,12 @@
       <tr>
         <td>{{ state_change.captured_at|local_datetime }}</td>
         <td>
-          <span class="pill {{ 'good' if state_change.state == 'arrived' else 'warning' if state_change.state == 'driving' else 'muted' }}">
+          <span class="pill {{ 'good' if state_change.state == 'arrived' else 'warning' if state_change.state == 'travel' else 'muted' }}">
             {{ state_change.label }}
           </span>
         </td>
         <td>{{ state_change.site_name or "-" }}</td>
-        <td>{% if state_change.speed_mph is not none %}{{ "%.1f"|format(state_change.speed_mph) }} mph{% else %}-{% endif %}</td>
+        <td>{% if state_change.distance_miles is not none %}{{ "%.2f"|format(state_change.distance_miles) }} miles{% else %}-{% endif %}</td>
       </tr>
       {% else %}
       <tr><td colspan="4">No OwnTracks state changes found.</td></tr>

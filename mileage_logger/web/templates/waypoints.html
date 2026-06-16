@@ -45,6 +45,7 @@
         <th>Longitude</th>
         <th>Radius</th>
         <th>Last Visit</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -57,9 +58,20 @@
         <td>
           {% if waypoint.last_visited_at %}{{ waypoint.last_visited_at|local_datetime("%Y-%m-%d") }}{% else %}-{% endif %}
         </td>
+        <td>
+          <form
+            class="waypoint-actions"
+            action="/waypoints/{{ waypoint.id }}/delete"
+            method="post"
+            onsubmit="return confirm('Delete this waypoint from the app?');"
+          >
+            <input type="hidden" name="page" value="{{ waypoint_pagination.page }}">
+            <button class="small-button danger" type="submit">Delete</button>
+          </form>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="5">No OwnTracks waypoints received yet.</td></tr>
+      <tr><td colspan="6">No OwnTracks waypoints received yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

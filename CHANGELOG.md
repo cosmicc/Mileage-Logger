@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed automatic trip generation so waypoint arrivals require a five-minute OwnTracks dwell
+  confirmation before a trip is created, preventing drive-through waypoint trips.
+- Added rolling checkpoint odometer updates from OwnTracks path distance outside generated trips,
+  while Smartcar webhook and manual odometer readings reset the checkpoint to authoritative values.
+- Removed speed-based Diagnostics movement handling in favor of distance-based travel detection.
+- Added Waypoints page delete buttons that remove stale app waypoints while preserving historical
+  trip details.
 - Replaced the Diagnostics Smartcar API test card with the latest received Smartcar webhook data,
   including received time, age, summary fields, and signal details.
 - Changed Smartcar callback URI verification so `VERIFY` events only require
@@ -11,8 +18,8 @@
 - Removed visible app branding from the login page and added temporary failed-login lockouts.
 - Added an editable trip suppression rules list on the Trips page so mistaken automatic-trip
   suppression records can be removed.
-- Added Diagnostics current OwnTracks state detection for inside-waypoint and driving statuses,
-  plus a state-change log limited to waypoint arrivals, waypoint departures, and driving detected.
+- Added Diagnostics current OwnTracks state detection for inside-waypoint and travel statuses,
+  plus a state-change log limited to waypoint arrivals, waypoint departures, and travel detected.
 - Added a Trips page manual-entry form and trip-date editing so date, origin, destination, and
   distance can be entered or corrected manually.
 - Added a Diagnostics page manual odometer form that stores the current odometer as an audited

@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from math import asin, cos, radians, sin, sqrt
 
@@ -22,7 +22,11 @@ from mileage_logger.services.smartcar import (
     latest_webhook_odometer_event,
     odometer_event_source,
 )
-from mileage_logger.services.timezone import datetime_to_local_date, local_day_bounds
+from mileage_logger.services.timezone import (
+    datetime_to_local_date,
+    datetime_to_utc,
+    local_day_bounds,
+)
 
 METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
@@ -128,8 +132,16 @@ def date_bounds(day: date) -> tuple[datetime, datetime]:
     return local_day_bounds(day)
 
 
-def _locations_for_range(db: Session, start_date: date, end_date: date) -> list[OwnTracksLocation]:
+def _locations_for_range(
+    db: Session,
+    start_date: date,
+    end_date: date,
+    *,
+    end_padding: timedelta | None = None,
+) -> list[OwnTracksLocation]:
     start_dt, end_dt = _date_range_bounds(start_date, end_date)
+    if end_padding is not None:
+        end_dt += end_padding
     stmt = (
         select(OwnTracksLocation)
         .where(OwnTracksLocation.captured_at >= start_dt)
@@ -171,6 +183,12 @@ def _region_names(location: OwnTracksLocation) -> list[str]:
     return [name.strip() for name in names if name.strip()]
 
 
+def _location_sort_key(location: OwnTracksLocation) -> tuple[datetime, int]:
+    """Return a stable chronological key based on OwnTracks event time."""
+
+    return datetime_to_utc(location.captured_at), location.id or 0
+
+
 def site_for_location(
     location: OwnTracksLocation,
     sites: list[Site],
@@ -188,6 +206,70 @@ def site_for_location(
     return nearest_site(location, sites)
 
 
+def _site_matches_location(
+    site: Site,
+    location: OwnTracksLocation,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> bool:
+    """Return true when a stored OwnTracks row still places the device inside a site."""
+
+    matched_site = site_for_location(location, sites, sites_by_name, sites_by_region_id)
+    return matched_site is not None and matched_site.id == site.id
+
+
+def _enter_transition_confirmed(
+    enter_location: OwnTracksLocation,
+    site: Site,
+    locations: list[OwnTracksLocation],
+    enter_index: int,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> bool:
+    """Confirm an enter event only after later OwnTracks data proves waypoint dwell time."""
+
+    dwell_time = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
+    enter_time = datetime_to_utc(enter_location.captured_at)
+    dwell_deadline = enter_time + dwell_time
+
+    for candidate_location in locations[enter_index + 1 :]:
+        candidate_time = datetime_to_utc(candidate_location.captured_at)
+        candidate_event = _transition_event(candidate_location)
+        candidate_site = site_for_location(
+            candidate_location,
+            sites,
+            sites_by_name,
+            sites_by_region_id,
+        )
+
+        if (
+            candidate_event == "leave"
+            and candidate_site is not None
+            and candidate_site.id == site.id
+        ):
+            return candidate_time >= dwell_deadline
+
+        if (
+            candidate_event == "enter"
+            and candidate_site is not None
+            and candidate_site.id != site.id
+        ):
+            return False
+
+        if candidate_time >= dwell_deadline and _site_matches_location(
+            site,
+            candidate_location,
+            sites,
+            sites_by_name,
+            sites_by_region_id,
+        ):
+            return True
+
+    return False
+
+
 def _waypoint_transitions(
     locations: list[OwnTracksLocation],
     sites: list[Site],
@@ -199,12 +281,30 @@ def _waypoint_transitions(
     transitions: list[WaypointTransition] = []
     seen: set[tuple[str, int, datetime]] = set()
 
-    for location in locations:
+    ordered_locations = sorted(locations, key=_location_sort_key)
+    for location_index, location in enumerate(ordered_locations):
         event = _transition_event(location)
         if event is None:
             continue
         site = site_for_location(location, sites, sites_by_name, sites_by_region_id)
         if site is None:
+            continue
+        if event == "enter" and not _enter_transition_confirmed(
+            location,
+            site,
+            ordered_locations,
+            location_index,
+            sites,
+            sites_by_name,
+            sites_by_region_id,
+        ):
+            trip_logger.debug(
+                "waypoint enter skipped reason=dwell_not_confirmed site=%s captured_at=%s "
+                "dwell_minutes=%s",
+                site.name,
+                location.captured_at.isoformat(),
+                get_settings().owntracks_waypoint_dwell_minutes,
+            )
             continue
         dedupe_key = (event, site.id, location.captured_at)
         if dedupe_key in seen:
@@ -476,6 +576,29 @@ def _same_stored_odometer_event(
     return start_odometer.event_id == end_odometer.event_id
 
 
+def _new_odometer_details_available(
+    existing_trip: Trip,
+    calculation: MileageCalculation,
+) -> bool:
+    """Return true when a recalculation adds or corrects stored odometer details."""
+
+    existing_values = (
+        existing_trip.start_odometer_miles,
+        existing_trip.end_odometer_miles,
+        existing_trip.start_odometer_source,
+        existing_trip.end_odometer_source,
+    )
+    calculated_values = (
+        calculation.start_odometer_miles,
+        calculation.end_odometer_miles,
+        calculation.start_odometer_source,
+        calculation.end_odometer_source,
+    )
+    return existing_values != calculated_values and any(
+        value is not None for value in calculated_values
+    )
+
+
 def _odometer_delta_mileage_source(
     start_odometer_source: str | None,
     end_odometer_source: str | None,
@@ -565,13 +688,39 @@ def _mileage_calculation(
     end_odometer_source = _odometer_reading_source(end_odometer)
 
     if path_miles is not None:
+        estimated_odometer = None
+        if start_odometer_miles is None or end_odometer_miles is None:
+            estimated_odometer = _estimated_odometer_calculation(
+                path_miles,
+                start_odometer_miles=start_odometer_miles,
+                end_odometer_miles=end_odometer_miles,
+                start_odometer_source=start_odometer_source,
+                end_odometer_source=end_odometer_source,
+                odometer_anchor_miles=odometer_anchor_miles,
+            )
         return MileageCalculation(
             miles=path_miles.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
             mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
-            start_odometer_miles=start_odometer_miles,
-            end_odometer_miles=end_odometer_miles,
-            start_odometer_source=start_odometer_source,
-            end_odometer_source=end_odometer_source,
+            start_odometer_miles=(
+                estimated_odometer.start_odometer_miles
+                if estimated_odometer is not None
+                else start_odometer_miles
+            ),
+            end_odometer_miles=(
+                estimated_odometer.end_odometer_miles
+                if estimated_odometer is not None
+                else end_odometer_miles
+            ),
+            start_odometer_source=(
+                estimated_odometer.start_odometer_source
+                if estimated_odometer is not None
+                else start_odometer_source
+            ),
+            end_odometer_source=(
+                estimated_odometer.end_odometer_source
+                if estimated_odometer is not None
+                else end_odometer_source
+            ),
         )
 
     odometer_miles = None
@@ -651,6 +800,8 @@ def _calculation_improves_existing_trip(
         and calculation.mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
         and existing_trip.miles != calculation.miles
     ):
+        return True
+    if new_rank == existing_rank and _new_odometer_details_available(existing_trip, calculation):
         return True
     return False
 
@@ -888,6 +1039,20 @@ def _deleted_trip_keys_for_dates(db: Session, source_dates: list[date]) -> set[T
     }
 
 
+def _update_last_visited_from_confirmed_transitions(transitions: list[WaypointTransition]) -> None:
+    """Persist waypoint last-visited timestamps only after dwell-confirmed enter events."""
+
+    for transition in transitions:
+        if transition.event != "enter":
+            continue
+        site = transition.site
+        captured_at = transition.location.captured_at
+        if site.last_visited_at is None or datetime_to_utc(captured_at) > datetime_to_utc(
+            site.last_visited_at
+        ):
+            site.last_visited_at = captured_at
+
+
 def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal | None:
     trip_odometer = db.scalar(
         select(Trip.end_odometer_miles)
@@ -920,8 +1085,10 @@ def generate_trips(
     *,
     as_of: datetime | None = None,
 ) -> list[Trip]:
+    generation_start_dt, generation_end_dt = _date_range_bounds(start_date, end_date)
+    dwell_padding = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
     sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
-    locations = _locations_for_range(db, start_date, end_date)
+    locations = _locations_for_range(db, start_date, end_date, end_padding=dwell_padding)
     if not locations:
         trip_logger.debug(
             "trip generation skipped reason=no_locations start_date=%s end_date=%s",
@@ -930,7 +1097,13 @@ def generate_trips(
         )
         return []
 
-    transitions = _waypoint_transitions(locations, sites)
+    transitions = [
+        transition
+        for transition in _waypoint_transitions(locations, sites)
+        if generation_start_dt
+        <= datetime_to_utc(transition.location.captured_at)
+        < generation_end_dt
+    ]
     if not transitions:
         trip_logger.debug(
             "trip generation skipped reason=no_waypoint_transitions start_date=%s end_date=%s",
@@ -939,6 +1112,7 @@ def generate_trips(
         )
         return []
 
+    _update_last_visited_from_confirmed_transitions(transitions)
     preserved_trips = _preserved_trips_for_range(db, start_date, end_date)
     source_dates = sorted(
         {datetime_to_local_date(event.location.captured_at) for event in transitions}

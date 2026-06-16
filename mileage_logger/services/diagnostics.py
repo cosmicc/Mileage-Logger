@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal
 from math import ceil
 
 from sqlalchemy import func, select
@@ -9,16 +9,11 @@ from sqlalchemy.orm import Session
 from mileage_logger.config import get_settings
 from mileage_logger.models import OwnTracksLocation, Site
 from mileage_logger.services.mileage import (
+    METERS_PER_MILE,
     haversine_miles,
     site_for_location,
 )
 from mileage_logger.services.timezone import datetime_to_utc
-
-# OwnTracks reports velocity as kilometers per hour, while the app displays miles.
-MILES_PER_KILOMETER = Decimal("0.621371")
-
-# Point-to-point speed divides distance by elapsed hours, so keep the conversion explicit.
-MINUTES_PER_HOUR = Decimal("60")
 
 
 @dataclass(frozen=True)
@@ -56,7 +51,7 @@ class OwnTracksStateChange:
     state: str
     label: str
     site_name: str | None = None
-    speed_mph: Decimal | None = None
+    distance_miles: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -68,7 +63,7 @@ class CurrentOwnTracksState:
     site_name: str | None = None
     arrived_at: datetime | None = None
     detected_at: datetime | None = None
-    speed_mph: Decimal | None = None
+    distance_miles: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -156,69 +151,21 @@ def _site_for_location(
     return site_for_location(location, sites, sites_by_name, sites_by_region_id)
 
 
-def _payload_speed_mph(location: OwnTracksLocation) -> Decimal | None:
-    """Read OwnTracks payload velocity and convert it from kilometers per hour to miles per hour."""
-
-    value = (location.raw_payload or {}).get("vel")
-    if value is None:
-        return None
-    try:
-        kilometers_per_hour = Decimal(str(value))
-    except (InvalidOperation, ValueError):
-        return None
-    if kilometers_per_hour < 0:
-        return None
-    return (kilometers_per_hour * MILES_PER_KILOMETER).quantize(
-        Decimal("0.1"),
-        rounding=ROUND_HALF_UP,
-    )
-
-
-def _computed_speed_mph(
+def _distance_from_previous_miles(
     previous_location: OwnTracksLocation | None,
     location: OwnTracksLocation,
-    *,
-    window_minutes: int,
 ) -> Decimal | None:
-    """Compute point-to-point speed when OwnTracks did not include a velocity field."""
+    """Return point-to-point distance from the previous OwnTracks event."""
 
     if previous_location is None:
         return None
-    previous_dt = datetime_to_utc(previous_location.captured_at)
-    current_dt = datetime_to_utc(location.captured_at)
-    elapsed_seconds = Decimal(str((current_dt - previous_dt).total_seconds()))
-    if elapsed_seconds <= 0:
+    if datetime_to_utc(location.captured_at) <= datetime_to_utc(previous_location.captured_at):
         return None
-    elapsed_minutes = elapsed_seconds / Decimal("60")
-    if elapsed_minutes > Decimal(window_minutes):
-        return None
-    miles = haversine_miles(
+    return haversine_miles(
         previous_location.latitude,
         previous_location.longitude,
         location.latitude,
         location.longitude,
-    )
-    hours = elapsed_minutes / MINUTES_PER_HOUR
-    if hours <= 0:
-        return None
-    return (miles / hours).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
-
-
-def _location_speed_mph(
-    previous_location: OwnTracksLocation | None,
-    location: OwnTracksLocation,
-    *,
-    window_minutes: int,
-) -> Decimal | None:
-    """Prefer OwnTracks-reported velocity and fall back to bounded point-to-point speed."""
-
-    payload_speed = _payload_speed_mph(location)
-    if payload_speed is not None:
-        return payload_speed
-    return _computed_speed_mph(
-        previous_location,
-        location,
-        window_minutes=window_minutes,
     )
 
 
@@ -260,7 +207,7 @@ def owntracks_movement_diagnostics(
     history_limit: int = 500,
     state_change_limit: int = 30,
 ) -> OwnTracksMovementDiagnostics:
-    """Infer current waypoint/driving state and recent state changes from OwnTracks rows."""
+    """Infer current waypoint/travel state and recent state changes from OwnTracks rows."""
 
     settings = get_settings()
     # The state machine needs chronological rows, but loading newest first keeps the query bounded.
@@ -279,8 +226,8 @@ def owntracks_movement_diagnostics(
     state_changes: list[OwnTracksStateChange] = []
     current_site: Site | None = None
     arrived_at: datetime | None = None
-    driving_active = False
-    latest_speed_mph: Decimal | None = None
+    travel_active = False
+    latest_distance_miles: Decimal | None = None
     latest_detected_at: datetime | None = None
     previous_location: OwnTracksLocation | None = None
 
@@ -288,18 +235,14 @@ def owntracks_movement_diagnostics(
         event = _transition_event(location)
         event_site = site_for_location(location, sites, sites_by_name, sites_by_region_id)
         location_site = _site_for_location(location, sites, sites_by_name, sites_by_region_id)
-        speed_mph = _location_speed_mph(
-            previous_location,
-            location,
-            window_minutes=settings.owntracks_driving_window_minutes,
-        )
-        latest_speed_mph = speed_mph
+        distance_miles = _distance_from_previous_miles(previous_location, location)
+        latest_distance_miles = distance_miles
         latest_detected_at = location.captured_at
 
         if event == "enter" and event_site is not None:
             current_site = event_site
             arrived_at = location.captured_at
-            driving_active = False
+            travel_active = False
             state_changes.append(
                 OwnTracksStateChange(
                     captured_at=location.captured_at,
@@ -312,7 +255,7 @@ def owntracks_movement_diagnostics(
             if current_site is not None and current_site.id == event_site.id:
                 current_site = None
                 arrived_at = None
-            driving_active = False
+            travel_active = False
             state_changes.append(
                 OwnTracksStateChange(
                     captured_at=location.captured_at,
@@ -334,7 +277,7 @@ def owntracks_movement_diagnostics(
                             site_name=location_site.name,
                         )
                     )
-            driving_active = False
+            travel_active = False
         else:
             if current_site is not None:
                 state_changes.append(
@@ -348,22 +291,23 @@ def owntracks_movement_diagnostics(
                 current_site = None
                 arrived_at = None
 
+            traveled_meters = (
+                distance_miles * METERS_PER_MILE if distance_miles is not None else None
+            )
             if (
-                speed_mph is not None
-                and speed_mph >= settings.owntracks_driving_speed_mph
-                and not driving_active
+                traveled_meters is not None
+                and traveled_meters >= settings.owntracks_travel_distance_m
+                and not travel_active
             ):
-                driving_active = True
+                travel_active = True
                 state_changes.append(
                     OwnTracksStateChange(
                         captured_at=location.captured_at,
-                        state="driving",
-                        label="Driving detected",
-                        speed_mph=speed_mph,
+                        state="travel",
+                        label="Travel detected",
+                        distance_miles=distance_miles,
                     )
                 )
-            elif speed_mph is not None and speed_mph < settings.owntracks_driving_speed_mph:
-                driving_active = False
 
         previous_location = location
 
@@ -382,21 +326,21 @@ def owntracks_movement_diagnostics(
             site_name=current_site.name,
             arrived_at=resolved_arrived_at or arrived_at or current_site.last_visited_at,
             detected_at=latest_detected_at,
-            speed_mph=latest_speed_mph,
+            distance_miles=latest_distance_miles,
         )
-    elif driving_active:
+    elif travel_active:
         current_state = CurrentOwnTracksState(
-            state="driving",
-            label="Driving detected",
+            state="travel",
+            label="Travel detected",
             detected_at=latest_detected_at,
-            speed_mph=latest_speed_mph,
+            distance_miles=latest_distance_miles,
         )
     elif locations:
         current_state = CurrentOwnTracksState(
             state="away",
             label="Away from saved waypoints",
             detected_at=latest_detected_at,
-            speed_mph=latest_speed_mph,
+            distance_miles=latest_distance_miles,
         )
     else:
         current_state = CurrentOwnTracksState(state="unknown", label="No OwnTracks data")

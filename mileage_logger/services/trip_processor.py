@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from threading import Event, Lock, Thread
 
 from sqlalchemy import select
@@ -11,19 +12,23 @@ from mileage_logger.database import SessionLocal
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     OwnTracksLocation,
+    Site,
     Trip,
     TripProcessingCheckpoint,
 )
 from mileage_logger.services.mileage import (
     generate_trips,
+    haversine_miles,
+    site_for_location,
 )
 from mileage_logger.services.retention import RetentionResult, purge_processed_owntracks_locations
-from mileage_logger.services.smartcar import current_odometer_miles
-from mileage_logger.services.timezone import datetime_to_local_date
+from mileage_logger.services.smartcar import current_odometer_miles, latest_webhook_odometer_event
+from mileage_logger.services.timezone import datetime_to_local_date, datetime_to_utc
 
 logger = logging.getLogger(__name__)
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 _PROCESSING_LOCK = Lock()
+ODOMETER_PRECISION = Decimal("0.001")
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,14 @@ class TripProcessingResult:
     @property
     def monthly_reset(self) -> RetentionResult:
         return self.retention
+
+
+@dataclass(frozen=True)
+class OdometerAdvance:
+    """Distance and timestamp used to update the rolling OwnTracks odometer estimate."""
+
+    miles: Decimal
+    recorded_at: datetime | None
 
 
 def _ensure_checkpoint_table(db: Session) -> None:
@@ -69,16 +82,60 @@ def _new_locations_after_checkpoint(
     return list(db.scalars(stmt))
 
 
-def _has_any_trip_odometer(db: Session) -> bool:
-    trip_id = db.scalar(
-        select(Trip.id)
-        .where(
-            (Trip.start_odometer_miles.is_not(None))
-            | (Trip.end_odometer_miles.is_not(None))
-        )
+def _latest_trip_odometer(db: Session) -> tuple[Decimal, datetime] | None:
+    """Return the newest odometer value already stored on generated or manual trips."""
+
+    candidates: list[tuple[Decimal, datetime]] = []
+    latest_end_trip = db.scalar(
+        select(Trip)
+        .where(Trip.end_odometer_miles.is_not(None))
+        .order_by(Trip.ended_at.desc(), Trip.id.desc())
         .limit(1)
     )
-    return trip_id is not None
+    if latest_end_trip is not None and latest_end_trip.end_odometer_miles is not None:
+        candidates.append((latest_end_trip.end_odometer_miles, latest_end_trip.ended_at))
+
+    latest_start_trip = db.scalar(
+        select(Trip)
+        .where(Trip.start_odometer_miles.is_not(None))
+        .order_by(Trip.started_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+    if latest_start_trip is not None and latest_start_trip.start_odometer_miles is not None:
+        candidates.append((latest_start_trip.start_odometer_miles, latest_start_trip.started_at))
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda candidate: datetime_to_utc(candidate[1]))
+
+
+def _quantize_odometer(value: Decimal) -> Decimal:
+    """Round odometer values to the same precision used by Smartcar/manual readings."""
+
+    return Decimal(str(value)).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
+
+
+def update_odometer_anchor_from_reading(
+    db: Session,
+    odometer_miles: Decimal,
+    *,
+    recorded_at: datetime,
+    source: str,
+) -> TripProcessingCheckpoint:
+    """Update the rolling checkpoint from an authoritative Smartcar or manual reading."""
+
+    checkpoint = _get_or_create_checkpoint(db)
+    normalized_odometer = _quantize_odometer(odometer_miles)
+    checkpoint.odometer_anchor_miles = normalized_odometer
+    checkpoint.odometer_anchor_recorded_at = datetime_to_utc(recorded_at)
+    db.commit()
+    trip_logger.info(
+        "Updated odometer anchor from %s miles=%s recorded_at=%s",
+        source,
+        normalized_odometer,
+        datetime_to_utc(recorded_at).isoformat(),
+    )
+    return checkpoint
 
 
 def _ensure_initial_odometer_anchor(
@@ -87,7 +144,37 @@ def _ensure_initial_odometer_anchor(
     *,
     current_dt: datetime,
 ) -> None:
-    if checkpoint.odometer_anchor_miles is not None or _has_any_trip_odometer(db):
+    if checkpoint.odometer_anchor_miles is not None:
+        return
+
+    stored_candidates: list[tuple[Decimal, datetime, str]] = []
+    trip_odometer = _latest_trip_odometer(db)
+    if trip_odometer is not None:
+        stored_candidates.append((trip_odometer[0], trip_odometer[1], "trip"))
+
+    webhook_event = latest_webhook_odometer_event(db)
+    if webhook_event is not None and webhook_event.odometer_miles is not None:
+        recorded_at = (
+            webhook_event.odometer_recorded_at
+            or webhook_event.delivered_at
+            or webhook_event.received_at
+            or current_dt
+        )
+        stored_candidates.append((webhook_event.odometer_miles, recorded_at, "stored_odometer"))
+
+    if stored_candidates:
+        odometer_miles, recorded_at, source = max(
+            stored_candidates,
+            key=lambda candidate: datetime_to_utc(candidate[1]),
+        )
+        checkpoint.odometer_anchor_miles = _quantize_odometer(odometer_miles)
+        checkpoint.odometer_anchor_recorded_at = datetime_to_utc(recorded_at)
+        trip_logger.info(
+            "Saved initial %s odometer anchor miles=%s recorded_at=%s",
+            source,
+            checkpoint.odometer_anchor_miles,
+            datetime_to_utc(recorded_at).isoformat(),
+        )
         return
 
     odometer = current_odometer_miles()
@@ -95,12 +182,156 @@ def _ensure_initial_odometer_anchor(
         trip_logger.debug("Initial Smartcar odometer anchor unavailable")
         return
 
-    checkpoint.odometer_anchor_miles = odometer
+    checkpoint.odometer_anchor_miles = _quantize_odometer(odometer)
     checkpoint.odometer_anchor_recorded_at = current_dt
     trip_logger.info(
         "Saved initial Smartcar odometer anchor miles=%s recorded_at=%s",
-        odometer,
+        checkpoint.odometer_anchor_miles,
         current_dt.isoformat(),
+    )
+
+
+def _location_sort_key(location: OwnTracksLocation) -> tuple[datetime, int]:
+    """Return a stable chronological key based on OwnTracks event time, not receive time."""
+
+    return datetime_to_utc(location.captured_at), location.id or 0
+
+
+def _site_indexes(sites: list[Site]) -> tuple[dict[str, Site], dict[str, Site]]:
+    """Build waypoint indexes for matching stored OwnTracks rows to saved sites."""
+
+    sites_by_name = {site.name.casefold(): site for site in sites}
+    sites_by_region_id = {
+        site.owntracks_region_id: site
+        for site in sites
+        if site.owntracks_region_id is not None
+    }
+    return sites_by_name, sites_by_region_id
+
+
+def _same_saved_waypoint(
+    first_location: OwnTracksLocation,
+    second_location: OwnTracksLocation,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> bool:
+    """Return true when both points are inside the same saved OwnTracks waypoint."""
+
+    first_site = site_for_location(first_location, sites, sites_by_name, sites_by_region_id)
+    second_site = site_for_location(second_location, sites, sites_by_name, sites_by_region_id)
+    return first_site is not None and second_site is not None and first_site.id == second_site.id
+
+
+def _odometer_segment_miles(
+    first_location: OwnTracksLocation,
+    second_location: OwnTracksLocation,
+    sites: list[Site],
+    sites_by_name: dict[str, Site],
+    sites_by_region_id: dict[str, Site],
+) -> Decimal:
+    """Return distance for one OwnTracks segment while ignoring same-waypoint drift."""
+
+    if _same_saved_waypoint(
+        first_location,
+        second_location,
+        sites,
+        sites_by_name,
+        sites_by_region_id,
+    ):
+        return Decimal("0.000")
+    return haversine_miles(
+        first_location.latitude,
+        first_location.longitude,
+        second_location.latitude,
+        second_location.longitude,
+    )
+
+
+def _owntracks_odometer_advance(
+    db: Session,
+    checkpoint: TripProcessingCheckpoint,
+    new_locations: list[OwnTracksLocation],
+) -> OdometerAdvance:
+    """Calculate uncounted OwnTracks path distance after the current odometer anchor."""
+
+    if not new_locations:
+        return OdometerAdvance(miles=Decimal("0.000"), recorded_at=None)
+
+    sites = list(db.scalars(select(Site).where(Site.active.is_(True)).order_by(Site.name.asc())))
+    sites_by_name, sites_by_region_id = _site_indexes(sites)
+    new_location_ids = {location.id for location in new_locations}
+    path_locations = list(new_locations)
+    anchor_recorded_at = (
+        datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
+        if checkpoint.odometer_anchor_recorded_at is not None
+        else None
+    )
+
+    if checkpoint.last_owntracks_location_id is not None:
+        previous_checkpoint_location = db.get(
+            OwnTracksLocation,
+            checkpoint.last_owntracks_location_id,
+        )
+        if previous_checkpoint_location is not None:
+            path_locations.append(previous_checkpoint_location)
+
+    total_miles = Decimal("0.000")
+    latest_counted_at: datetime | None = None
+    previous_location: OwnTracksLocation | None = None
+
+    for location in sorted(path_locations, key=_location_sort_key):
+        location_time = datetime_to_utc(location.captured_at)
+        location_is_new = location.id in new_location_ids
+        location_is_after_anchor = anchor_recorded_at is None or location_time > anchor_recorded_at
+
+        if location_is_new and location_is_after_anchor:
+            latest_counted_at = (
+                location_time
+                if latest_counted_at is None
+                else max(latest_counted_at, location_time)
+            )
+            if previous_location is not None:
+                total_miles += _odometer_segment_miles(
+                    previous_location,
+                    location,
+                    sites,
+                    sites_by_name,
+                    sites_by_region_id,
+                )
+
+        previous_location = location
+
+    return OdometerAdvance(
+        miles=total_miles.quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP),
+        recorded_at=latest_counted_at,
+    )
+
+
+def _advance_odometer_anchor_from_owntracks(
+    db: Session,
+    checkpoint: TripProcessingCheckpoint,
+    new_locations: list[OwnTracksLocation],
+) -> None:
+    """Advance the rolling odometer with OwnTracks distance that does not become a trip."""
+
+    if checkpoint.odometer_anchor_miles is None:
+        trip_logger.debug("OwnTracks odometer advance skipped because no odometer anchor exists")
+        return
+
+    odometer_advance = _owntracks_odometer_advance(db, checkpoint, new_locations)
+    if odometer_advance.recorded_at is None:
+        return
+
+    checkpoint.odometer_anchor_miles = _quantize_odometer(
+        checkpoint.odometer_anchor_miles + odometer_advance.miles
+    )
+    checkpoint.odometer_anchor_recorded_at = odometer_advance.recorded_at
+    trip_logger.info(
+        "Advanced odometer anchor from OwnTracks miles_added=%s odometer=%s recorded_at=%s",
+        odometer_advance.miles,
+        checkpoint.odometer_anchor_miles,
+        odometer_advance.recorded_at.isoformat(),
     )
 
 
@@ -164,6 +395,7 @@ def run_automatic_trip_processing(
         for day in sorted(dates_to_process):
             generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
 
+        _advance_odometer_anchor_from_owntracks(db, checkpoint, new_locations)
         if new_locations:
             checkpoint.last_owntracks_location_id = max(location.id for location in new_locations)
             checkpoint_location_id = checkpoint.last_owntracks_location_id

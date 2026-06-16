@@ -122,6 +122,18 @@ def test_process_owntracks_payload_automatically_creates_trip() -> None:
                 }
             ).encode("utf-8"),
         )
+    process_owntracks_payload(
+        db,
+        json.dumps(
+            {
+                "_type": "location",
+                "lat": 42.3440,
+                "lon": -83.0600,
+                "inregions": ["Client B"],
+                "tst": int((day + timedelta(minutes=30)).timestamp()),
+            }
+        ).encode("utf-8"),
+    )
 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
     client_a = db.scalar(select(Site).where(Site.name == "Client A"))

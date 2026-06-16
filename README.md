@@ -171,6 +171,9 @@ ingestion can receive waypoint definitions, transition events, and location upda
 The app generates trips directly from OwnTracks waypoint transitions:
 
 - A trip is created from a waypoint `leave` event followed by another waypoint `enter` event.
+- The destination `enter` event must be confirmed by at least
+  `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes of later OwnTracks data inside that saved waypoint.
+  The default is 5 minutes so driving through a waypoint does not create a trip.
 - `Home` is the exact waypoint name for home.
 - `Home` to `Home` is never a trip.
 - Trips between the same non-home waypoint are kept, because they can represent work travel that
@@ -182,6 +185,8 @@ The app generates trips directly from OwnTracks waypoint transitions:
 Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
 stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
 `LOCAL_TIMEZONE` day. When the app sees a qualifying trip, it writes the generated row to `trips`.
+OwnTracks `tst` event time is the authoritative timestamp for trip dates and ordering; the server
+receive time is kept separately for diagnostics because phone data can be buffered.
 The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
 `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
 
@@ -191,7 +196,8 @@ Generated mileage uses this order:
    `leave` and `enter` events.
 2. Stored odometer delta from Smartcar webhook readings or Diagnostics page manual odometer
    readings when both endpoint readings are available.
-3. Estimated start/end odometer values using this trip's waypoint distance and any available
+3. Estimated start/end odometer values using this trip's OwnTracks path distance or waypoint
+   distance and any available
    odometer anchor.
 4. Waypoint-to-waypoint distance when no odometer anchor is available.
 
@@ -202,6 +208,10 @@ falls back to odometer, estimated odometer, then waypoint distance. Edit a trip'
 trip because the same waypoint pair can have different real-world mileage. Deleting a trip from
 the `Trips` page also saves a suppression record so the same OwnTracks transition pair is not
 generated again.
+The checkpoint odometer is also advanced from OwnTracks path distance between received points even
+when those points do not become a trip. Segments fully inside the same saved waypoint are ignored
+to reduce stationary GPS drift. Smartcar webhook readings and manual odometer entries reset the
+checkpoint to the authoritative odometer value when they arrive.
 
 Smartcar setup uses a webhook callback for vehicle state data. Set the Smartcar callback URI to:
 
@@ -295,8 +305,8 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
-OWNTRACKS_DRIVING_SPEED_MPH=10.0
-OWNTRACKS_DRIVING_WINDOW_MINUTES=10
+OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
+OWNTRACKS_TRAVEL_DISTANCE_M=50.0
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
@@ -311,9 +321,8 @@ Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for t
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
 leaving `/api/` outside the web login. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
-Diagnostics marks you as driving when recent OwnTracks movement outside saved waypoints is at or
-above `OWNTRACKS_DRIVING_SPEED_MPH`; computed speeds only compare points within
-`OWNTRACKS_DRIVING_WINDOW_MINUTES`.
+Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
+`OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.
 
 ## Workflow

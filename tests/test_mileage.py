@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import (
+    AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     Base,
     DeletedTrip,
     GasPriceSnapshot,
@@ -80,6 +81,15 @@ def _transition(
     )
 
 
+def _dwell_confirmation(captured_at: datetime, site: Site) -> OwnTracksLocation:
+    return _location(
+        captured_at + timedelta(minutes=5),
+        str(site.latitude),
+        str(site.longitude),
+        {"_type": "location", "inregions": [site.name]},
+    )
+
+
 def _location(
     captured_at: datetime,
     latitude: str,
@@ -143,6 +153,7 @@ def test_generate_trips_from_leave_and_enter_transitions() -> None:
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -165,6 +176,28 @@ def test_generate_trips_from_leave_and_enter_transitions() -> None:
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
 
 
+def test_generate_trips_ignores_drive_through_waypoint_without_dwell() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _transition(day + timedelta(minutes=10), client, "enter"),
+            _transition(day + timedelta(minutes=12), client, "leave"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+
+    assert trips == []
+    assert db.scalar(select(Trip.id)) is None
+
+
 def test_generate_trips_uses_smartcar_odometer_delta(monkeypatch) -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
@@ -181,6 +214,7 @@ def test_generate_trips_uses_smartcar_odometer_delta(monkeypatch) -> None:
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -207,6 +241,7 @@ def test_generate_trips_uses_manual_odometer_delta() -> None:
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -243,6 +278,7 @@ def test_generate_trips_uses_single_manual_odometer_as_anchor() -> None:
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -296,6 +332,7 @@ def test_generate_trips_uses_owntracks_path_before_smartcar_odometer(monkeypatch
                 str(route_point_two_longitude),
             ),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -350,6 +387,7 @@ def test_generate_trips_updates_existing_odometer_trip_when_location_path_arrive
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -359,6 +397,7 @@ def test_generate_trips_updates_existing_odometer_trip_when_location_path_arrive
         [
             _location(day + timedelta(minutes=5), "42.3314", "-83.0600"),
             _location(day + timedelta(minutes=10), "42.3380", "-83.0700"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -388,6 +427,7 @@ def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -420,6 +460,7 @@ def test_generate_trips_does_not_rewrite_existing_waypoint_distance_trip() -> No
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -445,6 +486,7 @@ def test_deleted_generated_trip_is_not_recreated_from_same_transitions() -> None
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -481,6 +523,7 @@ def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypat
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -531,6 +574,7 @@ def test_generate_trips_estimates_from_prior_odometer_anchor_when_smartcar_unava
         [
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
@@ -561,8 +605,10 @@ def test_generate_trips_ignores_home_to_home_but_allows_same_work_waypoint() -> 
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=10), home, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=10), home),
             _transition(day + timedelta(hours=1), client, "leave"),
             _transition(day + timedelta(hours=2), client, "enter"),
+            _dwell_confirmation(day + timedelta(hours=2), client),
         ]
     )
     db.commit()
@@ -580,7 +626,14 @@ def test_generate_trips_assumes_missing_first_leave_was_from_home() -> None:
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
     client = _site("Client", "42.3440", "-83.0600")
-    db.add_all([home, client, _transition(day, client, "enter")])
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, client, "enter"),
+            _dwell_confirmation(day, client),
+        ]
+    )
     db.commit()
 
     trips = generate_trips(db, day.date(), day.date())
@@ -597,7 +650,7 @@ def test_generate_trips_does_not_create_missing_leave_home_to_home() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
-    db.add_all([home, _transition(day, home, "enter")])
+    db.add_all([home, _transition(day, home, "enter"), _dwell_confirmation(day, home)])
     db.commit()
 
     assert generate_trips(db, day.date(), day.date()) == []
@@ -616,7 +669,9 @@ def test_generate_trips_uses_previous_arrival_when_next_leave_is_missing() -> No
             client_a,
             client_b,
             _transition(day, client_a, "enter"),
+            _dwell_confirmation(day, client_a),
             _transition(day + timedelta(hours=2), client_b, "enter"),
+            _dwell_confirmation(day + timedelta(hours=2), client_b),
         ]
     )
     db.commit()
@@ -660,6 +715,7 @@ def test_manual_mileage_edit_is_preserved_without_reusing_future_matching_route(
             client,
             _transition(first_day, home, "leave"),
             _transition(first_day + timedelta(minutes=20), client, "enter"),
+            _dwell_confirmation(first_day + timedelta(minutes=20), client),
         ]
     )
     db.commit()
@@ -671,6 +727,7 @@ def test_manual_mileage_edit_is_preserved_without_reusing_future_matching_route(
         [
             _transition(second_day, home, "leave"),
             _transition(second_day + timedelta(minutes=20), client, "enter"),
+            _dwell_confirmation(second_day + timedelta(minutes=20), client),
         ]
     )
     db.commit()
@@ -832,6 +889,7 @@ def test_automatic_trip_processing_finalizes_completed_days_without_early_purge(
             client,
             _transition(completed_day, home, "leave"),
             _transition(completed_day + timedelta(minutes=30), client, "enter"),
+            _dwell_confirmation(completed_day + timedelta(minutes=30), client),
             _location(current_day, "42.3500", "-83.0700"),
         ]
     )
@@ -848,6 +906,7 @@ def test_automatic_trip_processing_finalizes_completed_days_without_early_purge(
     assert [location.captured_at for location in remaining_locations] == [
         _naive(completed_day),
         _naive(completed_day + timedelta(minutes=30)),
+        _naive(completed_day + timedelta(minutes=35)),
         _naive(current_day),
     ]
 
@@ -863,6 +922,7 @@ def test_automatic_trip_processing_uses_checkpoint_without_duplicate_trips() -> 
             client,
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=30), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=30), client),
         ]
     )
     db.commit()
@@ -872,7 +932,7 @@ def test_automatic_trip_processing_uses_checkpoint_without_duplicate_trips() -> 
 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
     checkpoint = db.scalar(select(TripProcessingCheckpoint))
-    assert first_result.processed_location_count == 2
+    assert first_result.processed_location_count == 3
     assert second_result.processed_location_count == 0
     assert len(trips) == 1
     assert checkpoint is not None
@@ -911,6 +971,39 @@ def test_automatic_trip_processing_saves_initial_smartcar_odometer_anchor(monkey
     assert checkpoint.odometer_anchor_recorded_at == _naive(current_time)
 
 
+def test_automatic_trip_processing_advances_odometer_without_trip() -> None:
+    db = _session()
+    day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
+    start_location = _location(day + timedelta(minutes=1), "42.3314", "-83.0458")
+    end_location = _location(day + timedelta(minutes=20), "42.3440", "-83.0600")
+    db.add_all(
+        [
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.000"),
+                odometer_anchor_recorded_at=day,
+            ),
+            start_location,
+            end_location,
+        ]
+    )
+    db.commit()
+
+    result = run_automatic_trip_processing(db, now=day + timedelta(hours=1))
+
+    expected_distance = haversine_miles(
+        start_location.latitude,
+        start_location.longitude,
+        end_location.latitude,
+        end_location.longitude,
+    ).quantize(Decimal("0.001"))
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert result.generated == 0
+    assert checkpoint is not None
+    assert checkpoint.odometer_anchor_miles == Decimal("1000.000") + expected_distance
+    assert checkpoint.odometer_anchor_recorded_at == _naive(end_location.captured_at)
+
+
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:
     db = _session()
     previous_day = datetime(2026, 6, 11, 23, 0, tzinfo=UTC)
@@ -923,6 +1016,7 @@ def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() 
             home,
             _transition(previous_day, client, "leave"),
             _transition(previous_day + timedelta(minutes=75), home, "enter"),
+            _dwell_confirmation(previous_day + timedelta(minutes=75), home),
         ]
     )
     db.commit()
@@ -944,6 +1038,7 @@ def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() 
     assert [location.captured_at for location in remaining_locations] == [
         _naive(previous_day),
         _naive(previous_day + timedelta(minutes=75)),
+        _naive(previous_day + timedelta(minutes=80)),
     ]
 
 
@@ -960,6 +1055,7 @@ def test_automatic_trip_processing_purges_old_processed_locations_and_keeps_trip
             _transition(previous_day, home, "leave"),
             _location(previous_day + timedelta(minutes=30), "42.3380", "-83.0700"),
             _transition(previous_day + timedelta(minutes=75), client, "enter"),
+            _dwell_confirmation(previous_day + timedelta(minutes=75), client),
             _location(current_time - timedelta(days=1), "42.3500", "-83.0700"),
         ]
     )
@@ -976,7 +1072,7 @@ def test_automatic_trip_processing_purges_old_processed_locations_and_keeps_trip
         db.scalars(select(OwnTracksLocation).order_by(OwnTracksLocation.captured_at.asc()))
     )
     assert result.generated == 1
-    assert result.retention.location_points == 3
+    assert result.retention.location_points == 4
     assert result.retention.trips == 0
     assert len(trips) == 1
     assert trips[0].trip_date == previous_day.date()

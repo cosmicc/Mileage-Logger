@@ -324,7 +324,6 @@ def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> 
         latitude=message.latitude,
         longitude=message.longitude,
     )
-    update_site_last_visit_from_transition(db, message.payload, message.captured_at)
     location = OwnTracksLocation(
         user=message.identity.user,
         device=message.identity.device,

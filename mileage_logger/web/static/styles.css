@@ -565,6 +565,11 @@ td input[type="text"] {
   margin: 0;
 }
 
+.waypoint-actions {
+  display: inline-flex;
+  margin: 0;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;

@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     automatic_trip_processing_interval_seconds: int = Field(default=60, ge=5)
     owntracks_purge_enabled: bool = True
     owntracks_location_retention_days: int = Field(default=14, ge=1)
-    owntracks_driving_speed_mph: Decimal = Field(default=Decimal("10.0"), ge=Decimal("0"))
-    owntracks_driving_window_minutes: int = Field(default=10, ge=1)
+    owntracks_waypoint_dwell_minutes: int = Field(default=5, ge=1)
+    owntracks_travel_distance_m: Decimal = Field(default=Decimal("50.0"), ge=Decimal("0"))
 
     mqtt_enabled: bool = False
     mqtt_host: str = "localhost"

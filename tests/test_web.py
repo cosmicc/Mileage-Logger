@@ -334,6 +334,65 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
         app.dependency_overrides.clear()
 
 
+def test_waypoints_page_deletes_waypoint_and_preserves_trip_history() -> None:
+    client, session_factory = _test_client_session()
+    trip_date = datetime(2026, 6, 11, 12, 0, tzinfo=UTC).date()
+    try:
+        with session_factory() as db:
+            home = Site(
+                name="Home",
+                latitude=Decimal("42.3314000"),
+                longitude=Decimal("-83.0458000"),
+                radius_m=150,
+            )
+            client_site = Site(
+                name="Client",
+                latitude=Decimal("42.3440000"),
+                longitude=Decimal("-83.0600000"),
+                radius_m=150,
+            )
+            db.add_all([home, client_site])
+            db.flush()
+            db.add(
+                Trip(
+                    trip_date=trip_date,
+                    origin_site_id=home.id,
+                    destination_site_id=client_site.id,
+                    started_at=datetime(2026, 6, 11, 12, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 6, 11, 12, 30, tzinfo=UTC),
+                    start_latitude=home.latitude,
+                    start_longitude=home.longitude,
+                    end_latitude=client_site.latitude,
+                    end_longitude=client_site.longitude,
+                    miles=Decimal("12.34"),
+                    source="auto",
+                )
+            )
+            waypoint_id = client_site.id
+            db.commit()
+
+        page_response = client.get("/waypoints")
+        delete_response = client.post(
+            f"/waypoints/{waypoint_id}/delete",
+            data={"page": "1"},
+        )
+
+        assert page_response.status_code == 200
+        assert f"/waypoints/{waypoint_id}/delete" in page_response.text
+        assert "Delete" in page_response.text
+        assert delete_response.status_code == 200
+        assert "Client" not in delete_response.text
+        with session_factory() as db:
+            assert db.get(Site, waypoint_id) is None
+            trip = db.scalar(select(Trip))
+            assert trip is not None
+            assert trip.destination_site_id is None
+            assert trip.destination_name == "Client"
+            assert trip.miles == Decimal("12.34")
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_diagnostics_shows_single_colored_app_log_and_download(
     tmp_path,
     monkeypatch,
@@ -475,13 +534,12 @@ def test_diagnostics_shows_current_waypoint_state() -> None:
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_shows_driving_state_change_outside_waypoints(monkeypatch) -> None:
+def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) -> None:
     monkeypatch.setattr(
         "mileage_logger.services.diagnostics.get_settings",
         lambda: Settings(
             database_url="sqlite://",
-            owntracks_driving_speed_mph=Decimal("10.0"),
-            owntracks_driving_window_minutes=10,
+            owntracks_travel_distance_m=Decimal("50.0"),
         ),
     )
     client, session_factory = _test_client_session()
@@ -512,7 +570,7 @@ def test_diagnostics_shows_driving_state_change_outside_waypoints(monkeypatch) -
                     _location(
                         start_at + timedelta(minutes=11),
                         start_at + timedelta(minutes=11),
-                        {"_type": "location", "vel": 40},
+                        {"_type": "location"},
                         latitude="42.3440000",
                         longitude="-83.0600000",
                     ),
@@ -523,10 +581,10 @@ def test_diagnostics_shows_driving_state_change_outside_waypoints(monkeypatch) -
         response = client.get("/diagnostics")
 
         assert response.status_code == 200
-        assert "Driving detected" in response.text
+        assert "Travel detected" in response.text
         assert "Left waypoint" in response.text
         assert "Home" in response.text
-        assert "24.9 mph" in response.text
+        assert "1.13 miles" in response.text
     finally:
         app.dependency_overrides.clear()
 

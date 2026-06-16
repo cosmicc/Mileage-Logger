@@ -18,6 +18,7 @@ from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
 from mileage_logger.logging_config import redact_sensitive_text
 from mileage_logger.models import (
+    AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     DeletedTrip,
     GasPriceSnapshot,
     MonthlyGasPrice,
@@ -25,6 +26,7 @@ from mileage_logger.models import (
     Site,
     SmartcarWebhookEvent,
     Trip,
+    TripProcessingCheckpoint,
 )
 from mileage_logger.services.diagnostics import (
     owntracks_movement_diagnostics,
@@ -50,6 +52,7 @@ from mileage_logger.services.timezone import (
     local_now,
     local_today,
 )
+from mileage_logger.services.trip_processor import update_odometer_anchor_from_reading
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 from mileage_logger.web.auth import (
     authenticate_web_credentials,
@@ -89,6 +92,7 @@ def _format_odometer_source(value) -> str:
         "manual": "Manual",
         "manual_odometer": "Manual odometer",
         "owntracks_path": "OwnTracks path",
+        "owntracks_estimate": "OwnTracks estimate",
         "smartcar_odometer": "Smartcar",
         "fordpass_odometer": "FordPass",
         "estimated_odometer": "Estimated",
@@ -439,6 +443,25 @@ def _latest_odometer_reading(db: Session) -> dict | None:
             }
         )
 
+    checkpoint = db.scalar(
+        select(TripProcessingCheckpoint)
+        .where(TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
+        .where(TripProcessingCheckpoint.odometer_anchor_miles.is_not(None))
+        .where(TripProcessingCheckpoint.odometer_anchor_recorded_at.is_not(None))
+        .limit(1)
+    )
+    if checkpoint is not None:
+        candidates.append(
+            {
+                "value": checkpoint.odometer_anchor_miles,
+                "source": "owntracks_estimate",
+                "recorded_at": checkpoint.odometer_anchor_recorded_at,
+                "trip": None,
+                "database_id": checkpoint.id,
+                "position": "Rolling",
+            }
+        )
+
     if not candidates:
         return None
     return max(
@@ -729,6 +752,75 @@ def sites_redirect() -> RedirectResponse:
     return RedirectResponse(url="/waypoints", status_code=308)
 
 
+def _detach_waypoint_references(db: Session, waypoint: Site) -> tuple[int, int]:
+    """Remove foreign-key references before deleting a waypoint while keeping audit text."""
+
+    trip_updates = 0
+    trips = list(
+        db.scalars(
+            select(Trip).where(
+                (Trip.origin_site_id == waypoint.id)
+                | (Trip.destination_site_id == waypoint.id)
+            )
+        )
+    )
+    for trip in trips:
+        if trip.origin_site_id == waypoint.id:
+            trip.origin_name = trip.origin_name or waypoint.name
+            trip.origin_site_id = None
+            trip_updates += 1
+        if trip.destination_site_id == waypoint.id:
+            trip.destination_name = trip.destination_name or waypoint.name
+            trip.destination_site_id = None
+            trip_updates += 1
+
+    deleted_trip_updates = 0
+    deleted_trips = list(
+        db.scalars(
+            select(DeletedTrip).where(
+                (DeletedTrip.origin_site_id == waypoint.id)
+                | (DeletedTrip.destination_site_id == waypoint.id)
+            )
+        )
+    )
+    for deleted_trip in deleted_trips:
+        if deleted_trip.origin_site_id == waypoint.id:
+            deleted_trip.origin_name = deleted_trip.origin_name or waypoint.name
+            deleted_trip.origin_site_id = None
+            deleted_trip_updates += 1
+        if deleted_trip.destination_site_id == waypoint.id:
+            deleted_trip.destination_name = deleted_trip.destination_name or waypoint.name
+            deleted_trip.destination_site_id = None
+            deleted_trip_updates += 1
+
+    return trip_updates, deleted_trip_updates
+
+
+@router.post("/waypoints/{waypoint_id}/delete")
+def delete_waypoint_form(
+    waypoint_id: int,
+    page: int = Form(default=1),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    waypoint = db.get(Site, waypoint_id)
+    if waypoint is None:
+        raise HTTPException(status_code=404, detail="Waypoint not found")
+
+    redirect_page = max(page, 1)
+    trip_updates, deleted_trip_updates = _detach_waypoint_references(db, waypoint)
+    logger.info(
+        "Deleted waypoint id=%s name=%s trip_references_detached=%s "
+        "deleted_trip_references_detached=%s",
+        waypoint.id,
+        waypoint.name,
+        trip_updates,
+        deleted_trip_updates,
+    )
+    db.delete(waypoint)
+    db.commit()
+    return RedirectResponse(url=f"/waypoints?page={redirect_page}", status_code=303)
+
+
 @router.get("/waypoints", response_class=HTMLResponse)
 def waypoints(
     request: Request,
@@ -863,6 +955,12 @@ def set_manual_odometer(
         )
 
     event = create_manual_odometer_event(db, odometer_miles)
+    update_odometer_anchor_from_reading(
+        db,
+        event.odometer_miles,
+        recorded_at=event.odometer_recorded_at or event.received_at,
+        source="manual",
+    )
     return _diagnostics_redirect(
         "api-tests",
         {

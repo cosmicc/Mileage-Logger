@@ -32,7 +32,10 @@ from mileage_logger.services.smartcar import (
     verify_webhook_signature,
 )
 from mileage_logger.services.timezone import datetime_to_local, datetime_to_local_date
-from mileage_logger.services.trip_processor import run_automatic_trip_processing
+from mileage_logger.services.trip_processor import (
+    run_automatic_trip_processing,
+    update_odometer_anchor_from_reading,
+)
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
@@ -146,6 +149,12 @@ async def smartcar_webhook(request: Request, db: Session = Depends(get_db)) -> d
             result.event.odometer_recorded_at
             or result.event.delivered_at
             or result.event.received_at
+        )
+        update_odometer_anchor_from_reading(
+            db,
+            result.event.odometer_miles,
+            recorded_at=touched_datetime,
+            source="smartcar",
         )
         touched_date = datetime_to_local_date(touched_datetime)
         finalize_completed_days = touched_date >= datetime_to_local_date(datetime.now(UTC))
