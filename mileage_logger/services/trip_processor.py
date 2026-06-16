@@ -22,7 +22,6 @@ from mileage_logger.services.mileage import (
     site_for_location,
 )
 from mileage_logger.services.retention import RetentionResult, purge_processed_owntracks_locations
-from mileage_logger.services.smartcar import current_odometer_miles, latest_webhook_odometer_event
 from mileage_logger.services.timezone import datetime_to_local_date, datetime_to_utc
 
 logger = logging.getLogger(__name__)
@@ -110,7 +109,7 @@ def _latest_trip_odometer(db: Session) -> tuple[Decimal, datetime] | None:
 
 
 def _quantize_odometer(value: Decimal) -> Decimal:
-    """Round odometer values to the same precision used by Smartcar/manual readings."""
+    """Round odometer values to the precision used by the rolling odometer checkpoint."""
 
     return Decimal(str(value)).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
 
@@ -122,7 +121,7 @@ def update_odometer_anchor_from_reading(
     recorded_at: datetime,
     source: str,
 ) -> TripProcessingCheckpoint:
-    """Update the rolling checkpoint from an authoritative Smartcar or manual reading."""
+    """Update the rolling checkpoint from a manual odometer reading."""
 
     checkpoint = _get_or_create_checkpoint(db)
     normalized_odometer = _quantize_odometer(odometer_miles)
@@ -143,7 +142,10 @@ def _ensure_initial_odometer_anchor(
     checkpoint: TripProcessingCheckpoint,
     *,
     current_dt: datetime,
+    new_locations: list[OwnTracksLocation],
 ) -> None:
+    """Create the first rolling odometer anchor from stored data or a zero-mile baseline."""
+
     if checkpoint.odometer_anchor_miles is not None:
         return
 
@@ -151,16 +153,6 @@ def _ensure_initial_odometer_anchor(
     trip_odometer = _latest_trip_odometer(db)
     if trip_odometer is not None:
         stored_candidates.append((trip_odometer[0], trip_odometer[1], "trip"))
-
-    webhook_event = latest_webhook_odometer_event(db)
-    if webhook_event is not None and webhook_event.odometer_miles is not None:
-        recorded_at = (
-            webhook_event.odometer_recorded_at
-            or webhook_event.delivered_at
-            or webhook_event.received_at
-            or current_dt
-        )
-        stored_candidates.append((webhook_event.odometer_miles, recorded_at, "stored_odometer"))
 
     if stored_candidates:
         odometer_miles, recorded_at, source = max(
@@ -177,17 +169,17 @@ def _ensure_initial_odometer_anchor(
         )
         return
 
-    odometer = current_odometer_miles()
-    if odometer is None:
-        trip_logger.debug("Initial Smartcar odometer anchor unavailable")
-        return
-
-    checkpoint.odometer_anchor_miles = _quantize_odometer(odometer)
-    checkpoint.odometer_anchor_recorded_at = current_dt
+    earliest_new_location = min(new_locations, key=_location_sort_key) if new_locations else None
+    checkpoint.odometer_anchor_miles = Decimal("0.000")
+    checkpoint.odometer_anchor_recorded_at = (
+        datetime_to_utc(earliest_new_location.captured_at) - timedelta(microseconds=1)
+        if earliest_new_location is not None
+        else current_dt
+    )
     trip_logger.info(
-        "Saved initial Smartcar odometer anchor miles=%s recorded_at=%s",
+        "Saved initial OwnTracks odometer anchor miles=%s recorded_at=%s",
         checkpoint.odometer_anchor_miles,
-        current_dt.isoformat(),
+        checkpoint.odometer_anchor_recorded_at.isoformat(),
     )
 
 
@@ -380,10 +372,15 @@ def run_automatic_trip_processing(
             finalize_completed_days,
         )
         checkpoint = _get_or_create_checkpoint(db)
-        _ensure_initial_odometer_anchor(db, checkpoint, current_dt=current_dt)
         checkpoint_location_id = checkpoint.last_owntracks_location_id
 
         new_locations = _new_locations_after_checkpoint(db, checkpoint)
+        _ensure_initial_odometer_anchor(
+            db,
+            checkpoint,
+            current_dt=current_dt,
+            new_locations=new_locations,
+        )
         dates_to_process = _dates_touched_by_new_locations(new_locations)
         if touched_date is not None:
             dates_to_process.add(touched_date)

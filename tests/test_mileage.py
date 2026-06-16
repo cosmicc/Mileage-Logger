@@ -18,14 +18,10 @@ from mileage_logger.services.mileage import (
     MANUAL_TRIP_SOURCE,
     MILEAGE_SOURCE_ESTIMATED_ODOMETER,
     MILEAGE_SOURCE_MANUAL,
-    MILEAGE_SOURCE_MANUAL_ODOMETER,
     MILEAGE_SOURCE_OWNTRACKS_PATH,
-    MILEAGE_SOURCE_SMARTCAR_ODOMETER,
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
     ODOMETER_SOURCE_ESTIMATED,
-    ODOMETER_SOURCE_MANUAL,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
-    ODOMETER_SOURCE_SMARTCAR,
     create_manual_trip,
     delete_trip,
     generate_trips,
@@ -36,7 +32,6 @@ from mileage_logger.services.retention import (
     purge_processed_owntracks_locations,
     reset_previous_month_data,
 )
-from mileage_logger.services.smartcar import create_manual_odometer_event
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
 
 
@@ -198,20 +193,20 @@ def test_generate_trips_ignores_drive_through_waypoint_without_dwell() -> None:
     assert db.scalar(select(Trip.id)) is None
 
 
-def test_generate_trips_uses_smartcar_odometer_delta(monkeypatch) -> None:
+def test_generate_trips_estimates_odometer_from_checkpoint_anchor() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
     client = _site("Client", "42.3440", "-83.0600")
-    readings = iter([Decimal("1000.250"), Decimal("1012.875")])
-    monkeypatch.setattr(
-        "mileage_logger.services.mileage.current_odometer_miles",
-        lambda: next(readings),
-    )
     db.add_all(
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.250"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
             _dwell_confirmation(day + timedelta(minutes=24), client),
@@ -220,54 +215,88 @@ def test_generate_trips_uses_smartcar_odometer_delta(monkeypatch) -> None:
     db.commit()
 
     trips = generate_trips(db, day.date(), day.date())
+    distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
 
     assert len(trips) == 1
-    assert trips[0].miles == Decimal("12.63")
+    assert trips[0].miles == distance
     assert trips[0].start_odometer_miles == Decimal("1000.250")
-    assert trips[0].end_odometer_miles == Decimal("1012.875")
-    assert trips[0].mileage_source == MILEAGE_SOURCE_SMARTCAR_ODOMETER
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_SMARTCAR
-    assert trips[0].end_odometer_source == ODOMETER_SOURCE_SMARTCAR
+    assert trips[0].end_odometer_miles == (Decimal("1000.250") + distance).quantize(
+        Decimal("0.001")
+    )
+    assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
-def test_generate_trips_uses_manual_odometer_delta() -> None:
+def test_generate_trips_uses_owntracks_path_with_checkpoint_odometer() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
     client = _site("Client", "42.3440", "-83.0600")
+    route_point_one_latitude = Decimal("42.3314")
+    route_point_one_longitude = Decimal("-83.0600")
+    route_point_two_latitude = Decimal("42.3380")
+    route_point_two_longitude = Decimal("-83.0700")
     db.add_all(
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.000"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
+            _location(
+                day + timedelta(minutes=5),
+                str(route_point_one_latitude),
+                str(route_point_one_longitude),
+            ),
+            _location(
+                day + timedelta(minutes=10),
+                str(route_point_two_latitude),
+                str(route_point_two_longitude),
+            ),
             _transition(day + timedelta(minutes=24), client, "enter"),
             _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
-    create_manual_odometer_event(
-        db,
-        Decimal("1000.000"),
-        recorded_at=day - timedelta(minutes=1),
-    )
-    create_manual_odometer_event(
-        db,
-        Decimal("1012.500"),
-        recorded_at=day + timedelta(minutes=23),
-    )
 
     trips = generate_trips(db, day.date(), day.date())
+    expected_path_miles = (
+        haversine_miles(
+            home.latitude,
+            home.longitude,
+            route_point_one_latitude,
+            route_point_one_longitude,
+        )
+        + haversine_miles(
+            route_point_one_latitude,
+            route_point_one_longitude,
+            route_point_two_latitude,
+            route_point_two_longitude,
+        )
+        + haversine_miles(
+            route_point_two_latitude,
+            route_point_two_longitude,
+            client.latitude,
+            client.longitude,
+        )
+    ).quantize(Decimal("0.01"))
 
     assert len(trips) == 1
-    assert trips[0].miles == Decimal("12.50")
+    assert trips[0].miles == expected_path_miles
     assert trips[0].start_odometer_miles == Decimal("1000.000")
-    assert trips[0].end_odometer_miles == Decimal("1012.500")
-    assert trips[0].mileage_source == MILEAGE_SOURCE_MANUAL_ODOMETER
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_MANUAL
-    assert trips[0].end_odometer_source == ODOMETER_SOURCE_MANUAL
+    assert trips[0].end_odometer_miles == (Decimal("1000.000") + expected_path_miles).quantize(
+        Decimal("0.001")
+    )
+    assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
-def test_generate_trips_uses_single_manual_odometer_as_anchor() -> None:
+def test_generate_trips_uses_manual_checkpoint_as_anchor() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
@@ -276,17 +305,17 @@ def test_generate_trips_uses_single_manual_odometer_as_anchor() -> None:
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.000"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
             _dwell_confirmation(day + timedelta(minutes=24), client),
         ]
     )
     db.commit()
-    create_manual_odometer_event(
-        db,
-        Decimal("1000.000"),
-        recorded_at=day - timedelta(minutes=1),
-    )
 
     trips = generate_trips(db, day.date(), day.date())
     distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
@@ -298,11 +327,11 @@ def test_generate_trips_uses_single_manual_odometer_as_anchor() -> None:
     assert trips[0].end_odometer_miles == (Decimal("1000.000") + distance).quantize(
         Decimal("0.001")
     )
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_MANUAL
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
-def test_generate_trips_uses_owntracks_path_before_smartcar_odometer(monkeypatch) -> None:
+def test_generate_trips_uses_owntracks_path_before_waypoint_distance() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
@@ -311,15 +340,15 @@ def test_generate_trips_uses_owntracks_path_before_smartcar_odometer(monkeypatch
     route_point_one_longitude = Decimal("-83.0600")
     route_point_two_latitude = Decimal("42.3380")
     route_point_two_longitude = Decimal("-83.0700")
-    readings = iter([Decimal("1000.250"), Decimal("1012.875")])
-    monkeypatch.setattr(
-        "mileage_logger.services.mileage.current_odometer_miles",
-        lambda: next(readings),
-    )
     db.add_all(
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.250"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
             _location(
                 day + timedelta(minutes=5),
@@ -363,28 +392,28 @@ def test_generate_trips_uses_owntracks_path_before_smartcar_odometer(monkeypatch
     assert trips[0].miles == expected_path_miles
     assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
     assert trips[0].start_odometer_miles == Decimal("1000.250")
-    assert trips[0].end_odometer_miles == Decimal("1012.875")
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_SMARTCAR
-    assert trips[0].end_odometer_source == ODOMETER_SOURCE_SMARTCAR
+    assert trips[0].end_odometer_miles == (Decimal("1000.250") + expected_path_miles).quantize(
+        Decimal("0.001")
+    )
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
     assert "OwnTracks location path" in trips[0].notes
 
 
-def test_generate_trips_updates_existing_odometer_trip_when_location_path_arrives(
-    monkeypatch,
-) -> None:
+def test_generate_trips_updates_existing_estimated_trip_when_location_path_arrives() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
     client = _site("Client", "42.3440", "-83.0600")
-    readings = iter([Decimal("1000.000"), Decimal("1006.500")])
-    monkeypatch.setattr(
-        "mileage_logger.services.mileage.current_odometer_miles",
-        lambda: next(readings),
-    )
     db.add_all(
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.000"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
             _dwell_confirmation(day + timedelta(minutes=24), client),
@@ -411,20 +440,20 @@ def test_generate_trips_updates_existing_odometer_trip_when_location_path_arrive
     assert all_trips[0].miles != Decimal("6.50")
 
 
-def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
+def test_generate_trips_reuses_existing_auto_estimated_trip() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
     client = _site("Client", "42.3440", "-83.0600")
-    readings = iter([Decimal("1000.000"), Decimal("1006.500")])
-    monkeypatch.setattr(
-        "mileage_logger.services.mileage.current_odometer_miles",
-        lambda: next(readings),
-    )
     db.add_all(
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.000"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
             _dwell_confirmation(day + timedelta(minutes=24), client),
@@ -433,20 +462,20 @@ def test_generate_trips_reuses_existing_auto_odometer_trip(monkeypatch) -> None:
     db.commit()
     first_generation = generate_trips(db, day.date(), day.date())
     first_trip_id = first_generation[0].id
-    monkeypatch.setattr(
-        "mileage_logger.services.mileage.current_odometer_miles",
-        lambda: Decimal("2000.000"),
-    )
 
     regenerated = generate_trips(db, day.date(), day.date())
     all_trips = list(db.scalars(select(Trip).order_by(Trip.id.asc())))
 
     assert regenerated == []
     assert [trip.id for trip in all_trips] == [first_trip_id]
-    assert all_trips[0].miles == Decimal("6.50")
+    assert all_trips[0].miles == haversine_miles(
+        home.latitude,
+        home.longitude,
+        client.latitude,
+        client.longitude,
+    )
     assert all_trips[0].start_odometer_miles == Decimal("1000.000")
-    assert all_trips[0].end_odometer_miles == Decimal("1006.500")
-    assert all_trips[0].mileage_source == MILEAGE_SOURCE_SMARTCAR_ODOMETER
+    assert all_trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
 
 
 def test_generate_trips_does_not_rewrite_existing_waypoint_distance_trip() -> None:
@@ -507,20 +536,20 @@ def test_deleted_generated_trip_is_not_recreated_from_same_transitions() -> None
     assert stored_deleted_trip.ended_at == _naive(day + timedelta(minutes=24))
 
 
-def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypatch) -> None:
+def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
     client = _site("Client", "42.3440", "-83.0600")
-    readings = iter([None, Decimal("1012.875")])
-    monkeypatch.setattr(
-        "mileage_logger.services.mileage.current_odometer_miles",
-        lambda: next(readings),
-    )
     db.add_all(
         [
             home,
             client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1012.875"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
             _transition(day, home, "leave"),
             _transition(day + timedelta(minutes=24), client, "enter"),
             _dwell_confirmation(day + timedelta(minutes=24), client),
@@ -533,19 +562,17 @@ def test_generate_trips_estimates_missing_start_odometer_from_distance(monkeypat
 
     assert len(trips) == 1
     assert trips[0].miles == distance
-    assert trips[0].end_odometer_miles == Decimal("1012.875")
-    assert trips[0].start_odometer_miles == (Decimal("1012.875") - distance).quantize(
+    assert trips[0].start_odometer_miles == Decimal("1012.875")
+    assert trips[0].end_odometer_miles == (Decimal("1012.875") + distance).quantize(
         Decimal("0.001")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_ESTIMATED
-    assert trips[0].end_odometer_source == ODOMETER_SOURCE_SMARTCAR
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
     assert "Estimated odometer" in trips[0].notes
 
 
-def test_generate_trips_estimates_from_prior_odometer_anchor_when_smartcar_unavailable(
-    monkeypatch,
-) -> None:
+def test_generate_trips_estimates_from_prior_odometer_anchor() -> None:
     db = _session()
     previous_day = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
     day = previous_day + timedelta(days=1)
@@ -578,7 +605,6 @@ def test_generate_trips_estimates_from_prior_odometer_anchor_when_smartcar_unava
         ]
     )
     db.commit()
-    monkeypatch.setattr("mileage_logger.services.mileage.current_odometer_miles", lambda: None)
 
     trips = generate_trips(db, day.date(), day.date())
     distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
@@ -954,20 +980,16 @@ def test_automatic_trip_processing_creates_missing_checkpoint_table() -> None:
     assert checkpoint.name == "automatic_trip_processing"
 
 
-def test_automatic_trip_processing_saves_initial_smartcar_odometer_anchor(monkeypatch) -> None:
+def test_automatic_trip_processing_saves_initial_zero_odometer_anchor() -> None:
     db = _session()
     current_time = datetime(2026, 6, 10, 13, 0, tzinfo=UTC)
-    monkeypatch.setattr(
-        "mileage_logger.services.trip_processor.current_odometer_miles",
-        lambda: Decimal("12345.678"),
-    )
 
     result = run_automatic_trip_processing(db, now=current_time)
 
     checkpoint = db.scalar(select(TripProcessingCheckpoint))
     assert result.generated == 0
     assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("12345.678")
+    assert checkpoint.odometer_anchor_miles == Decimal("0.000")
     assert checkpoint.odometer_anchor_recorded_at == _naive(current_time)
 
 

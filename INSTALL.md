@@ -92,22 +92,6 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
-SMARTCAR_ENABLED=false
-SMARTCAR_MANAGEMENT_TOKEN=
-SMARTCAR_API_POLLING_ENABLED=false
-SMARTCAR_WEBHOOK_MAX_BODY_BYTES=262144
-SMARTCAR_ACCESS_TOKEN=
-SMARTCAR_CLIENT_ID=
-SMARTCAR_CLIENT_SECRET=
-SMARTCAR_TOKEN_URL=https://iam.smartcar.com/oauth2/token
-SMARTCAR_SCOPE=read_odometer
-SMARTCAR_VEHICLE_ID=
-SMARTCAR_API_BASE_URL=https://api.smartcar.com/v2.0
-SMARTCAR_ODOMETER_UNIT=km
-SMARTCAR_TIMEOUT_SECONDS=20
-SMARTCAR_RETRY_ATTEMPTS=3
-SMARTCAR_RETRY_DELAY_SECONDS=2
-SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS=3600
 LOG_DIR=/data/logs
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
@@ -294,78 +278,21 @@ Generated mileage uses this order:
 
 1. OwnTracks location path distance from the location updates received between the waypoint
    `leave` and `enter` events.
-2. Stored odometer delta from Smartcar webhook readings or Diagnostics page manual odometer
-   readings when both endpoint readings are available.
-3. Estimated start/end odometer values using this trip's OwnTracks path distance or waypoint
+2. Estimated start/end odometer values using this trip's OwnTracks path distance or waypoint
    distance and any available
    odometer anchor.
-4. Waypoint-to-waypoint distance when no odometer anchor is available.
+3. Waypoint-to-waypoint distance when no odometer anchor is available.
 
 If a trip window has only transition events and no location updates between them, the app falls
-back to odometer, estimated odometer, then waypoint distance. Edit a trip's miles on the `Trips`
-page when the generated mileage needs correction. Manual corrections apply only to that trip
-because the same waypoint pair can have different real-world mileage. Deleting a trip from the
+back to estimated odometer, then waypoint distance. Edit a trip's miles on the `Trips` page when
+the generated mileage needs correction. A distance correction resequences that month's displayed
+start and end odometers in chronological trip order. Deleting a trip from the
 `Trips` page also saves a suppression record so the same OwnTracks transition pair is not
 generated again.
 The checkpoint odometer is also advanced from OwnTracks path distance between received points even
 when those points do not become a trip. Segments fully inside the same saved waypoint are ignored
-to reduce stationary GPS drift. Smartcar webhook readings and manual odometer entries reset the
-checkpoint to the authoritative odometer value when they arrive.
-
-Smartcar setup uses a webhook callback for vehicle state data. In the Smartcar Dashboard, set the
-callback URI to:
-
-```text
-https://your-host.example.com/api/smartcar/webhook
-```
-
-The `/api/webhooks/smartcar` alias is also available. Smartcar sends a `VERIFY` event when the
-callback URI is created or changed. The app answers that challenge with an HMAC-SHA256 hash
-generated from `SMARTCAR_MANAGEMENT_TOKEN`, then requires the `SC-Signature` header on normal
-vehicle events before storing any data.
-Callback URI verification only needs `SMARTCAR_MANAGEMENT_TOKEN`; normal vehicle deliveries still
-require `SMARTCAR_ENABLED=true`.
-
-Set these in Docker or `.env` when you want webhook-based mileage:
-
-```env
-SMARTCAR_ENABLED=true
-SMARTCAR_MANAGEMENT_TOKEN=your-smartcar-application-management-token
-SMARTCAR_API_POLLING_ENABLED=false
-SMARTCAR_WEBHOOK_MAX_BODY_BYTES=262144
-SMARTCAR_ODOMETER_UNIT=km
-```
-
-Webhook deliveries are stored in `smartcar_webhook_events`, and every included signal is stored in
-`smartcar_webhook_signals`. The app also summarizes common vehicle state fields on the event row:
-odometer, fuel level, lock state, online state, nickname, VIN, firmware version, vehicle metadata,
-webhook metadata, and the full raw payload.
-
-Direct Smartcar API odometer polling is now only an optional automatic fallback. Leave it disabled
-for webhook-only operation. The Diagnostics page shows the latest received Smartcar webhook data
-and can also save the vehicle's current odometer manually; those
-manual readings are stored in the same odometer event stream used by trip generation. If you
-explicitly want automatic fallback reads, set:
-
-```env
-SMARTCAR_API_POLLING_ENABLED=true
-SMARTCAR_ACCESS_TOKEN=your-smartcar-api-access-token
-SMARTCAR_CLIENT_ID=optional-smartcar-client-id
-SMARTCAR_CLIENT_SECRET=optional-smartcar-client-secret
-SMARTCAR_TOKEN_URL=https://iam.smartcar.com/oauth2/token
-SMARTCAR_SCOPE=read_odometer
-SMARTCAR_VEHICLE_ID=optional-smartcar-vehicle-id
-SMARTCAR_API_BASE_URL=https://api.smartcar.com/v2.0
-SMARTCAR_TIMEOUT_SECONDS=20
-SMARTCAR_RETRY_ATTEMPTS=3
-SMARTCAR_RETRY_DELAY_SECONDS=2
-SMARTCAR_AUTH_FAILURE_COOLDOWN_SECONDS=3600
-```
-
-`SMARTCAR_ODOMETER_UNIT` is the raw unit returned by Smartcar before conversion to report miles;
-Smartcar odometer values commonly use kilometers. If direct API polling is enabled and
-`SMARTCAR_VEHICLE_ID` is blank, the app calls Smartcar's vehicles endpoint and uses the first
-connected vehicle. The connected vehicle must have the `read_odometer` permission.
+to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset the checkpoint to the
+entered value and OwnTracks distance continues from that new rolling value.
 
 ## Cloudflare Tunnel
 
@@ -392,16 +319,10 @@ Start the normal stack:
 docker compose up -d --build
 ```
 
-For Smartcar, use the public Cloudflare hostname as the callback base, for example:
-
-```text
-https://mileage.example.com/api/smartcar/webhook
-```
-
 The web app also starts a background processor. It recalculates the current local day on a short
 interval and finalizes completed local days. After trip processing updates its checkpoint,
 processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged automatically.
-Trips, waypoints, reports, Smartcar data, and gas price records are not removed by this purge.
+Trips, waypoints, reports, and gas price records are not removed by this purge.
 
 Configuration:
 
@@ -420,16 +341,13 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
-SMARTCAR_ENABLED=false
-SMARTCAR_MANAGEMENT_TOKEN=
-SMARTCAR_API_POLLING_ENABLED=false
 ```
 
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
 waypoints. Location `inregions` values are only used to match already-saved waypoints; they do not
 create new waypoints.
 The web login protects rendered browser pages only. Routes under `/api/` are not placed behind the
-web login so OwnTracks and Smartcar webhooks continue to use their existing API authentication. Set
+web login so OwnTracks can continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
 the app name before authentication and temporarily locks out repeated failed attempts.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at

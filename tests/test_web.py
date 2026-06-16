@@ -10,13 +10,13 @@ from mileage_logger.app import app
 from mileage_logger.config import Settings
 from mileage_logger.database import get_db
 from mileage_logger.models import (
+    AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     Base,
     DeletedTrip,
     OwnTracksLocation,
     Site,
-    SmartcarWebhookEvent,
-    SmartcarWebhookSignal,
     Trip,
+    TripProcessingCheckpoint,
 )
 from mileage_logger.services.diagnostics import (
     paginated_owntracks_entries,
@@ -780,9 +780,9 @@ def test_trips_page_updates_existing_trip_date_and_values() -> None:
             assert trip.origin_name == "Old Home"
             assert trip.destination_name == "Old Client"
             assert trip.miles == Decimal("15.50")
-            assert trip.start_odometer_miles == Decimal("2000.123")
-            assert trip.end_odometer_miles == Decimal("2015.988")
-            assert trip.start_odometer_source == "estimated"
+            assert trip.start_odometer_miles == Decimal("1000.000")
+            assert trip.end_odometer_miles == Decimal("1015.500")
+            assert trip.start_odometer_source == "previous_trip"
             assert trip.end_odometer_source == "estimated"
             assert trip.source == "manual"
             assert trip.mileage_source == "manual"
@@ -790,7 +790,7 @@ def test_trips_page_updates_existing_trip_date_and_values() -> None:
         app.dependency_overrides.clear()
 
 
-def test_trips_page_odometer_only_edit_does_not_change_trip_mileage_or_source() -> None:
+def test_trips_page_odometer_values_are_read_only() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
@@ -831,8 +831,8 @@ def test_trips_page_odometer_only_edit_does_not_change_trip_mileage_or_source() 
             'name="destination_name" maxlength="160" required value="Client"'
             not in page_response.text
         )
-        assert 'name="start_odometer_miles"' in page_response.text
-        assert 'name="end_odometer_miles"' in page_response.text
+        assert 'name="start_odometer_miles"' not in page_response.text
+        assert 'name="end_odometer_miles"' not in page_response.text
         assert response.status_code == 200
         with session_factory() as db:
             trip = db.get(Trip, 1)
@@ -840,7 +840,7 @@ def test_trips_page_odometer_only_edit_does_not_change_trip_mileage_or_source() 
             assert trip.origin_name == "Home"
             assert trip.destination_name == "Client"
             assert trip.miles == Decimal("5.00")
-            assert trip.start_odometer_miles == Decimal("3000.111")
+            assert trip.start_odometer_miles is None
             assert trip.end_odometer_miles is None
             assert trip.source == "auto"
             assert trip.mileage_source == "owntracks_path"
@@ -848,100 +848,61 @@ def test_trips_page_odometer_only_edit_does_not_change_trip_mileage_or_source() 
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_smartcar_webhook_card_shows_no_data() -> None:
-    client, _ = _test_client_session()
-    try:
-        response = client.get("/diagnostics")
-
-        assert response.status_code == 200
-        assert "Smartcar Webhook" in response.text
-        assert "No Data" in response.text
-        assert "Never" in response.text
-        assert "Odometer connectivity test" not in response.text
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_diagnostics_smartcar_webhook_card_shows_latest_received_data() -> None:
+def test_trips_page_distance_edit_resequences_month_odometers() -> None:
     client, session_factory = _test_client_session()
-    received_at = datetime.now(UTC) - timedelta(minutes=5)
     try:
         with session_factory() as db:
-            event = SmartcarWebhookEvent(
-                event_id="event-1",
-                event_type="VEHICLE_STATE",
-                user_id="user-1",
-                vehicle_id="vehicle-1",
-                vehicle_make="Tesla",
-                vehicle_model="Model 3",
-                vehicle_year=2020,
-                vehicle_mode="test",
-                vehicle_powertrain_type="BEV",
-                webhook_id="webhook-1",
-                webhook_name="Mileage Webhook",
-                delivery_id="delivery-1",
-                delivered_at=received_at - timedelta(seconds=30),
-                received_at=received_at,
-                odometer_miles=Decimal("12345.678"),
-                odometer_raw_value=Decimal("19868.905"),
-                odometer_unit="km",
-                odometer_recorded_at=received_at - timedelta(minutes=1),
-                fuel_percent=Decimal("65.00"),
-                fuel_unit="percent",
-                is_locked=True,
-                is_online=True,
-                nickname="Test Vehicle",
-                vin="5YJSA1CN5DFP00101",
-                firmware_version="2026.1",
-                triggers=[{"type": "SIGNAL_UPDATED"}],
-                raw_payload={"eventType": "VEHICLE_STATE"},
+            db.add_all(
+                [
+                    Trip(
+                        trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                        started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        origin_name="Home",
+                        destination_name="Client A",
+                        miles=Decimal("5.00"),
+                        start_odometer_miles=Decimal("1000.000"),
+                        end_odometer_miles=Decimal("1005.000"),
+                        source="auto",
+                    ),
+                    Trip(
+                        trip_date=datetime(2026, 6, 11, tzinfo=UTC).date(),
+                        started_at=datetime(2026, 6, 11, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 11, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3440"),
+                        start_longitude=Decimal("-83.0600"),
+                        end_latitude=Decimal("42.3600"),
+                        end_longitude=Decimal("-83.0700"),
+                        origin_name="Client A",
+                        destination_name="Client B",
+                        miles=Decimal("7.00"),
+                        start_odometer_miles=Decimal("1005.000"),
+                        end_odometer_miles=Decimal("1012.000"),
+                        source="auto",
+                    ),
+                ]
             )
-            event.signal_rows = [
-                SmartcarWebhookSignal(
-                    code="odometer-traveleddistance",
-                    name="TraveledDistance",
-                    group="Odometer",
-                    status="SUCCESS",
-                    value=19868.905,
-                    unit="km",
-                    body={"value": 19868.905, "unit": "km"},
-                    meta={},
-                    raw_signal={
-                        "code": "odometer-traveleddistance",
-                        "name": "TraveledDistance",
-                    },
-                ),
-                SmartcarWebhookSignal(
-                    code="connectivitystatus-isonline",
-                    name="IsOnline",
-                    group="ConnectivityStatus",
-                    status="SUCCESS",
-                    value=True,
-                    body={"value": True},
-                    meta={},
-                    raw_signal={
-                        "code": "connectivitystatus-isonline",
-                        "name": "IsOnline",
-                    },
-                ),
-            ]
-            db.add(event)
             db.commit()
 
-        response = client.get("/diagnostics")
+        response = client.post(
+            "/trips/1",
+            data={
+                "trip_date": "2026-06-10",
+                "miles": "6.25",
+            },
+        )
 
         assert response.status_code == 200
-        assert "Smartcar Webhook" in response.text
-        assert "Received" in response.text
-        assert "minutes ago" in response.text
-        assert "VEHICLE_STATE" in response.text
-        assert "Mileage Webhook" in response.text
-        assert "2020 Tesla Model 3" in response.text
-        assert "12345.7 miles" in response.text
-        assert "65.0%" in response.text
-        assert "Ending 0101" in response.text
-        assert "TraveledDistance" in response.text
-        assert "IsOnline" in response.text
+        with session_factory() as db:
+            trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+            assert trips[0].start_odometer_miles == Decimal("1000.000")
+            assert trips[0].end_odometer_miles == Decimal("1006.250")
+            assert trips[1].start_odometer_miles == Decimal("1006.250")
+            assert trips[1].end_odometer_miles == Decimal("1013.250")
     finally:
         app.dependency_overrides.clear()
 
@@ -960,10 +921,13 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
         assert "12345.7 miles" in response.text
         assert "Manual" in response.text
         with session_factory() as db:
-            event = db.scalar(select(SmartcarWebhookEvent))
-            assert event is not None
-            assert event.event_type == "MANUAL_ODOMETER"
-            assert event.odometer_miles == Decimal("12345.678")
+            checkpoint = db.scalar(
+                select(TripProcessingCheckpoint).where(
+                    TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT
+                )
+            )
+            assert checkpoint is not None
+            assert checkpoint.odometer_anchor_miles == Decimal("12345.678")
     finally:
         app.dependency_overrides.clear()
 
@@ -980,7 +944,7 @@ def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:
         assert "Fail" in response.text
         assert "Odometer reading must be greater than zero." in response.text
         with session_factory() as db:
-            assert db.scalar(select(SmartcarWebhookEvent)) is None
+            assert db.scalar(select(TripProcessingCheckpoint)) is None
     finally:
         app.dependency_overrides.clear()
 

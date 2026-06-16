@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import select
@@ -17,11 +17,6 @@ from mileage_logger.models import (
     TripProcessingCheckpoint,
     normalize_location_name,
 )
-from mileage_logger.services.smartcar import (
-    current_odometer_miles,
-    latest_webhook_odometer_event,
-    odometer_event_source,
-)
 from mileage_logger.services.timezone import (
     datetime_to_local_date,
     datetime_to_utc,
@@ -32,14 +27,10 @@ METERS_PER_MILE = Decimal("1609.344")
 EARTH_RADIUS_M = Decimal("6371008.8")
 AUTO_TRIP_SOURCE = "auto"
 MANUAL_TRIP_SOURCE = "manual"
-MILEAGE_SOURCE_SMARTCAR_ODOMETER = "smartcar_odometer"
-LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER = "fordpass_odometer"
-MILEAGE_SOURCE_MANUAL_ODOMETER = "manual_odometer"
 MILEAGE_SOURCE_OWNTRACKS_PATH = "owntracks_path"
 MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"
 MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"
 MILEAGE_SOURCE_MANUAL = "manual"
-ODOMETER_SOURCE_SMARTCAR = "smartcar"
 ODOMETER_SOURCE_MANUAL = "manual"
 ODOMETER_SOURCE_ESTIMATED = "estimated"
 ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
@@ -47,12 +38,6 @@ HOME_WAYPOINT_NAME = "Home"
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
 MANUAL_TRIP_NOTE = "Manually added from Trips page."
-ODOMETER_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_miles"
-LEGACY_ODOMETER_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_miles"
-ODOMETER_SOURCE_PAYLOAD_KEY = "mileage_logger_odometer_source"
-ODOMETER_EVENT_ID_PAYLOAD_KEY = "mileage_logger_odometer_event_id"
-ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_smartcar_odometer_attempted"
-LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY = "mileage_logger_fordpass_odometer_attempted"
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 TripGenerationKey = tuple[int, int, datetime, datetime]
 
@@ -78,7 +63,6 @@ class MileageCalculation:
 class OdometerReading:
     miles: Decimal
     source: str
-    event_id: str | None = None
 
 
 def haversine_miles(
@@ -386,128 +370,13 @@ def _append_note(existing_notes: str | None, note: str) -> str:
     return f"{existing} {note}".strip() if existing else note
 
 
-def _payload_odometer_miles(location: OwnTracksLocation) -> Decimal | None:
-    payload = location.raw_payload or {}
-    for key in (ODOMETER_PAYLOAD_KEY, LEGACY_ODOMETER_PAYLOAD_KEY):
-        value = payload.get(key)
-        if value is None:
-            continue
-        try:
-            return Decimal(str(value)).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-        except (InvalidOperation, ValueError):
-            continue
+def _odometer_for_transition(
+    _db: Session,
+    _transition: WaypointTransition,
+) -> OdometerReading | None:
+    """Return no external odometer reading because OwnTracks distance is the odometer source."""
+
     return None
-
-
-def _payload_odometer_source(location: OwnTracksLocation) -> str:
-    payload = location.raw_payload or {}
-    source = str(payload.get(ODOMETER_SOURCE_PAYLOAD_KEY) or "").strip().casefold()
-    if source == ODOMETER_SOURCE_MANUAL:
-        return ODOMETER_SOURCE_MANUAL
-    return ODOMETER_SOURCE_SMARTCAR
-
-
-def _payload_odometer_reading(location: OwnTracksLocation) -> OdometerReading | None:
-    odometer_miles = _payload_odometer_miles(location)
-    if odometer_miles is None:
-        return None
-    payload = location.raw_payload or {}
-    event_id = str(payload.get(ODOMETER_EVENT_ID_PAYLOAD_KEY) or "").strip() or None
-    return OdometerReading(
-        miles=odometer_miles,
-        source=_payload_odometer_source(location),
-        event_id=event_id,
-    )
-
-
-def _set_payload_odometer_miles(
-    location: OwnTracksLocation,
-    odometer_miles: Decimal,
-    *,
-    source: str,
-    event_id: str | None = None,
-) -> None:
-    payload = dict(location.raw_payload or {})
-    payload[ODOMETER_PAYLOAD_KEY] = str(
-        odometer_miles.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-    )
-    payload[ODOMETER_SOURCE_PAYLOAD_KEY] = source
-    if event_id is not None:
-        payload[ODOMETER_EVENT_ID_PAYLOAD_KEY] = event_id
-    payload[ODOMETER_ATTEMPTED_PAYLOAD_KEY] = True
-    location.raw_payload = payload
-
-
-def _set_payload_odometer_attempted(location: OwnTracksLocation) -> None:
-    payload = dict(location.raw_payload or {})
-    payload[ODOMETER_ATTEMPTED_PAYLOAD_KEY] = True
-    location.raw_payload = payload
-
-
-def _odometer_for_transition(db: Session, transition: WaypointTransition) -> OdometerReading | None:
-    odometer = _payload_odometer_reading(transition.location)
-    if odometer is not None:
-        return odometer
-
-    webhook_event = latest_webhook_odometer_event(
-        db,
-        at=transition.location.captured_at,
-    )
-    if webhook_event is not None and webhook_event.odometer_miles is not None:
-        odometer_source = odometer_event_source(webhook_event)
-        _set_payload_odometer_miles(
-            transition.location,
-            webhook_event.odometer_miles,
-            source=odometer_source,
-            event_id=webhook_event.event_id,
-        )
-        trip_logger.debug(
-            "Captured stored odometer site=%s event=%s odometer=%s source=%s captured_at=%s",
-            transition.site.name,
-            transition.event,
-            webhook_event.odometer_miles,
-            odometer_source,
-            transition.location.captured_at.isoformat(),
-        )
-        return OdometerReading(
-            miles=webhook_event.odometer_miles,
-            source=odometer_source,
-            event_id=webhook_event.event_id,
-        )
-
-    payload = transition.location.raw_payload or {}
-    if payload.get(ODOMETER_ATTEMPTED_PAYLOAD_KEY) or payload.get(
-        LEGACY_ODOMETER_ATTEMPTED_PAYLOAD_KEY
-    ):
-        return None
-
-    odometer = current_odometer_miles()
-    if odometer is None:
-        _set_payload_odometer_attempted(transition.location)
-        settings = get_settings()
-        log = trip_logger.warning if settings.smartcar_enabled else trip_logger.debug
-        log(
-            "Odometer unavailable site=%s event=%s captured_at=%s smartcar_enabled=%s",
-            transition.site.name,
-            transition.event,
-            transition.location.captured_at.isoformat(),
-            settings.smartcar_enabled,
-        )
-        return None
-
-    _set_payload_odometer_miles(
-        transition.location,
-        odometer,
-        source=ODOMETER_SOURCE_SMARTCAR,
-    )
-    trip_logger.debug(
-        "Captured odometer site=%s event=%s odometer=%s captured_at=%s",
-        transition.site.name,
-        transition.event,
-        odometer,
-        transition.location.captured_at.isoformat(),
-    )
-    return OdometerReading(miles=odometer, source=ODOMETER_SOURCE_SMARTCAR)
 
 
 def _is_home_to_home(origin: Site, destination: Site) -> bool:
@@ -565,17 +434,6 @@ def _odometer_reading_source(reading: OdometerReading | None) -> str | None:
     return reading.source if reading is not None else None
 
 
-def _same_stored_odometer_event(
-    start_odometer: OdometerReading | None,
-    end_odometer: OdometerReading | None,
-) -> bool:
-    if start_odometer is None or end_odometer is None:
-        return False
-    if start_odometer.event_id is None or end_odometer.event_id is None:
-        return False
-    return start_odometer.event_id == end_odometer.event_id
-
-
 def _new_odometer_details_available(
     existing_trip: Trip,
     calculation: MileageCalculation,
@@ -597,15 +455,6 @@ def _new_odometer_details_available(
     return existing_values != calculated_values and any(
         value is not None for value in calculated_values
     )
-
-
-def _odometer_delta_mileage_source(
-    start_odometer_source: str | None,
-    end_odometer_source: str | None,
-) -> str:
-    if ODOMETER_SOURCE_MANUAL in {start_odometer_source, end_odometer_source}:
-        return MILEAGE_SOURCE_MANUAL_ODOMETER
-    return MILEAGE_SOURCE_SMARTCAR_ODOMETER
 
 
 def _distance_estimate_miles(origin: Site, destination: Site) -> Decimal:
@@ -637,7 +486,7 @@ def _estimated_odometer_calculation(
             mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=estimated_end,
-            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_SMARTCAR,
+            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_PREVIOUS_TRIP,
             end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
         )
 
@@ -652,7 +501,7 @@ def _estimated_odometer_calculation(
             start_odometer_miles=estimated_start,
             end_odometer_miles=end_odometer_miles,
             start_odometer_source=ODOMETER_SOURCE_ESTIMATED,
-            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_SMARTCAR,
+            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_MANUAL,
         )
 
     if odometer_anchor_miles is None:
@@ -723,20 +572,15 @@ def _mileage_calculation(
             ),
         )
 
-    odometer_miles = None
-    if not _same_stored_odometer_event(start_odometer, end_odometer):
-        odometer_miles = _odometer_miles(start_odometer_miles, end_odometer_miles)
+    odometer_miles = _odometer_miles(start_odometer_miles, end_odometer_miles)
     if odometer_miles is not None:
         return MileageCalculation(
             miles=odometer_miles,
-            mileage_source=_odometer_delta_mileage_source(
-                start_odometer_source,
-                end_odometer_source,
-            ),
+            mileage_source=MILEAGE_SOURCE_MANUAL,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=end_odometer_miles,
-            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_SMARTCAR,
-            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_SMARTCAR,
+            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_MANUAL,
+            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_MANUAL,
         )
 
     distance_miles = _distance_estimate_miles(origin, destination)
@@ -774,11 +618,7 @@ def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decim
 def _mileage_source_rank(value: str | None) -> int:
     if value == MILEAGE_SOURCE_OWNTRACKS_PATH:
         return 4
-    if value in {
-        MILEAGE_SOURCE_SMARTCAR_ODOMETER,
-        LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
-        MILEAGE_SOURCE_MANUAL_ODOMETER,
-    }:
+    if value == MILEAGE_SOURCE_MANUAL:
         return 3
     if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
         return 2
@@ -1000,9 +840,7 @@ def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dic
             .where(
                 Trip.mileage_source.in_(
                     [
-                        MILEAGE_SOURCE_SMARTCAR_ODOMETER,
-                        LEGACY_MILEAGE_SOURCE_FORDPASS_ODOMETER,
-                        MILEAGE_SOURCE_MANUAL_ODOMETER,
+                        MILEAGE_SOURCE_MANUAL,
                         MILEAGE_SOURCE_OWNTRACKS_PATH,
                         MILEAGE_SOURCE_ESTIMATED_ODOMETER,
                         MILEAGE_SOURCE_WAYPOINT_DISTANCE,
@@ -1054,6 +892,8 @@ def _update_last_visited_from_confirmed_transitions(transitions: list[WaypointTr
 
 
 def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal | None:
+    """Return the latest stored trip/checkpoint odometer before a trip starts."""
+
     trip_odometer = db.scalar(
         select(Trip.end_odometer_miles)
         .where(Trip.ended_at < before_datetime)
@@ -1064,10 +904,6 @@ def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal |
     if trip_odometer is not None:
         return trip_odometer
 
-    webhook_event = latest_webhook_odometer_event(db, at=before_datetime)
-    if webhook_event is not None:
-        return webhook_event.odometer_miles
-
     return db.scalar(
         select(TripProcessingCheckpoint.odometer_anchor_miles)
         .where(TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
@@ -1076,6 +912,120 @@ def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal |
         .order_by(TripProcessingCheckpoint.updated_at.desc(), TripProcessingCheckpoint.id.desc())
         .limit(1)
     )
+
+
+def _month_date_bounds(year: int, month: int) -> tuple[date, date]:
+    """Return inclusive start and exclusive end dates for one local report month."""
+
+    start_date = date(year, month, 1)
+    end_date = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
+    return start_date, end_date
+
+
+def _month_trips_ordered(db: Session, year: int, month: int) -> list[Trip]:
+    """Load month trips in chronological odometer order."""
+
+    start_date, end_date = _month_date_bounds(year, month)
+    return list(
+        db.scalars(
+            select(Trip)
+            .where(Trip.trip_date >= start_date)
+            .where(Trip.trip_date < end_date)
+            .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
+        )
+    )
+
+
+def _latest_checkpoint(db: Session) -> TripProcessingCheckpoint | None:
+    """Return the rolling odometer checkpoint when it already exists."""
+
+    return db.scalar(
+        select(TripProcessingCheckpoint)
+        .where(TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
+        .limit(1)
+    )
+
+
+def _month_resequence_anchor(db: Session, first_trip: Trip) -> Decimal:
+    """Choose the stable odometer start point for resequencing a month."""
+
+    prior_odometer = _latest_odometer_before(db, first_trip.started_at)
+    if prior_odometer is not None:
+        return Decimal(prior_odometer).quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+    if first_trip.start_odometer_miles is not None:
+        return Decimal(first_trip.start_odometer_miles).quantize(
+            Decimal("0.001"),
+            rounding=ROUND_HALF_UP,
+        )
+
+    checkpoint = _latest_checkpoint(db)
+    if checkpoint is not None and checkpoint.odometer_anchor_miles is not None:
+        return Decimal(checkpoint.odometer_anchor_miles).quantize(
+            Decimal("0.001"),
+            rounding=ROUND_HALF_UP,
+        )
+    return Decimal("0.000")
+
+
+def _update_checkpoint_after_resequence(db: Session, last_trip: Trip) -> None:
+    """Move the rolling odometer forward only when the edited month reaches the checkpoint."""
+
+    if last_trip.end_odometer_miles is None:
+        return
+
+    checkpoint = _latest_checkpoint(db)
+    if checkpoint is None:
+        checkpoint = TripProcessingCheckpoint(name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
+        db.add(checkpoint)
+        db.flush()
+
+    checkpoint_recorded_at = (
+        datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
+        if checkpoint.odometer_anchor_recorded_at is not None
+        else None
+    )
+    last_trip_ended_at = datetime_to_utc(last_trip.ended_at)
+    if checkpoint_recorded_at is not None and checkpoint_recorded_at > last_trip_ended_at:
+        return
+
+    checkpoint.odometer_anchor_miles = Decimal(last_trip.end_odometer_miles).quantize(
+        Decimal("0.001"),
+        rounding=ROUND_HALF_UP,
+    )
+    checkpoint.odometer_anchor_recorded_at = last_trip_ended_at
+
+
+def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
+    """Recalculate every trip odometer in a month from ordered trip distances."""
+
+    month_trips = _month_trips_ordered(db, year, month)
+    if not month_trips:
+        return 0
+
+    current_odometer = _month_resequence_anchor(db, month_trips[0])
+    for trip in month_trips:
+        trip_distance = Decimal(trip.miles).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        start_odometer = current_odometer.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+        end_odometer = (start_odometer + trip_distance).quantize(
+            Decimal("0.001"),
+            rounding=ROUND_HALF_UP,
+        )
+        trip.start_odometer_miles = start_odometer
+        trip.end_odometer_miles = end_odometer
+        trip.start_odometer_source = ODOMETER_SOURCE_PREVIOUS_TRIP
+        trip.end_odometer_source = ODOMETER_SOURCE_ESTIMATED
+        current_odometer = end_odometer
+
+    _update_checkpoint_after_resequence(db, month_trips[-1])
+    trip_logger.info(
+        "Resequenced trip odometers year=%s month=%s trips=%s start_odometer=%s end_odometer=%s",
+        year,
+        month,
+        len(month_trips),
+        month_trips[0].start_odometer_miles,
+        month_trips[-1].end_odometer_miles,
+    )
+    return len(month_trips)
 
 
 def generate_trips(
@@ -1318,8 +1268,7 @@ def update_trip_location_names(trip: Trip, origin_name: str, destination_name: s
 
 
 def monthly_miles(db: Session, year: int, month: int) -> Decimal:
-    start_date = date(year, month, 1)
-    end_date = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
+    start_date, end_date = _month_date_bounds(year, month)
     stmt = (
         select(Trip)
         .where(Trip.trip_date >= start_date)

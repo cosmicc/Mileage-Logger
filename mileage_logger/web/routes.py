@@ -3,7 +3,7 @@ import re
 from calendar import month_name
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from math import ceil
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload
 
 from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
@@ -24,7 +24,6 @@ from mileage_logger.models import (
     MonthlyGasPrice,
     OwnTracksLocation,
     Site,
-    SmartcarWebhookEvent,
     Trip,
     TripProcessingCheckpoint,
 )
@@ -43,14 +42,9 @@ from mileage_logger.services.mileage import (
     create_manual_trip,
     delete_trip,
     mark_trip_manually_reviewed,
+    resequence_month_trip_odometers,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
-from mileage_logger.services.smartcar import (
-    MANUAL_ODOMETER_EVENT_TYPE,
-    create_manual_odometer_event,
-    latest_webhook_odometer_event,
-    odometer_event_source,
-)
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
@@ -91,16 +85,12 @@ def _format_odometer(value) -> str:
 
 def _format_odometer_source(value) -> str:
     labels = {
-        "smartcar": "Smartcar",
-        "fordpass": "FordPass",
         "estimated": "Estimated",
         "previous_trip": "Previous trip",
         "manual": "Manual",
         "manual_odometer": "Manual odometer",
         "owntracks_path": "OwnTracks path",
         "owntracks_estimate": "OwnTracks estimate",
-        "smartcar_odometer": "Smartcar",
-        "fordpass_odometer": "FordPass",
         "estimated_odometer": "Estimated",
         "waypoint_distance": "Waypoint distance",
     }
@@ -145,16 +135,6 @@ class ApiTestResult:
     @property
     def passed(self) -> bool:
         return self.status == "pass"
-
-
-@dataclass(frozen=True)
-class SmartcarWebhookDiagnostics:
-    """Latest non-manual Smartcar webhook delivery details for Diagnostics."""
-
-    event: SmartcarWebhookEvent | None
-    age: str
-    data_rows: list[tuple[str, str]]
-    signal_rows: list[tuple[str, str, str, str]]
 
 
 def _current_year_month() -> tuple[int, int]:
@@ -229,21 +209,6 @@ def _api_test_result(
     return ApiTestResult(status=status, message=cleaned_message, value=cleaned_value)
 
 
-def _optional_odometer_form_value(value: str, field_name: str) -> Decimal | None:
-    """Parse an optional odometer input without deriving or recalculating mileage."""
-
-    cleaned_value = (value or "").strip()
-    if not cleaned_value:
-        return None
-    try:
-        odometer_value = Decimal(cleaned_value)
-    except (InvalidOperation, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"{field_name} must be a number") from exc
-    if odometer_value < 0:
-        raise HTTPException(status_code=400, detail=f"{field_name} must be zero or greater")
-    return odometer_value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
-
-
 def _manual_trip_datetime(trip_date: date) -> datetime:
     """Return the local-day start used for web edits that manually move a trip date."""
 
@@ -256,142 +221,29 @@ def _update_trip_row_values(
     *,
     trip_date: date,
     miles: Decimal,
-    start_odometer_miles: Decimal | None,
-    end_odometer_miles: Decimal | None,
-) -> None:
+) -> set[tuple[int, int]]:
     """Apply only the editable Trips-page fields to one trip row."""
 
     manual_review_needed = False
+    resequence_months: set[tuple[int, int]] = set()
     if trip.trip_date != trip_date:
+        resequence_months.add((trip.trip_date.year, trip.trip_date.month))
         trip.trip_date = trip_date
         trip.started_at = _manual_trip_datetime(trip_date)
         trip.ended_at = trip.started_at
+        resequence_months.add((trip.trip_date.year, trip.trip_date.month))
         manual_review_needed = True
 
     rounded_miles = Decimal(str(miles)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     if trip.miles != rounded_miles:
         trip.miles = rounded_miles
         trip.mileage_source = MILEAGE_SOURCE_MANUAL
+        resequence_months.add((trip.trip_date.year, trip.trip_date.month))
         manual_review_needed = True
-
-    trip.start_odometer_miles = start_odometer_miles
-    trip.end_odometer_miles = end_odometer_miles
 
     if manual_review_needed:
         mark_trip_manually_reviewed(trip)
-
-
-def _display_text(value: object | None) -> str:
-    """Return a compact display value for optional diagnostic fields."""
-
-    if value is None:
-        return "-"
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    if isinstance(value, Decimal):
-        return f"{value.normalize():f}"
-    return str(value)
-
-
-def _masked_vin(vin: str | None) -> str:
-    """Display only the VIN suffix because full VINs are sensitive diagnostics data."""
-
-    cleaned_vin = (vin or "").strip()
-    if not cleaned_vin:
-        return "-"
-    return f"Ending {cleaned_vin[-4:]}"
-
-
-def _vehicle_description(event: SmartcarWebhookEvent) -> str:
-    """Build a human-readable vehicle label from the latest Smartcar webhook."""
-
-    parts = [
-        str(event.vehicle_year) if event.vehicle_year is not None else "",
-        event.vehicle_make or "",
-        event.vehicle_model or "",
-    ]
-    description = " ".join(part for part in parts if part).strip()
-    return description or "-"
-
-
-def _miles_text(value: Decimal | None) -> str:
-    """Format a mileage value for webhook diagnostics."""
-
-    return f"{value:.1f} miles" if value is not None else "-"
-
-
-def _percent_text(value: Decimal | None) -> str:
-    """Format a percent value for webhook diagnostics."""
-
-    return f"{value:.1f}%" if value is not None else "-"
-
-
-def _smartcar_signal_display_rows(event: SmartcarWebhookEvent) -> list[tuple[str, str, str, str]]:
-    """Return sorted signal rows with safe display values for the latest webhook card."""
-
-    signals = sorted(
-        event.signal_rows,
-        key=lambda signal: (
-            signal.group or "",
-            signal.name or "",
-            signal.code or "",
-        ),
-    )
-    return [
-        (
-            signal.group or "-",
-            signal.name or signal.code or "-",
-            _display_text(signal.value),
-            signal.unit or signal.status or "-",
-        )
-        for signal in signals
-    ]
-
-
-def _smartcar_webhook_diagnostics(db: Session) -> SmartcarWebhookDiagnostics:
-    """Load the latest real Smartcar webhook and summarize the received vehicle data."""
-
-    latest_event = db.scalar(
-        select(SmartcarWebhookEvent)
-        .options(selectinload(SmartcarWebhookEvent.signal_rows))
-        .where(SmartcarWebhookEvent.event_type != MANUAL_ODOMETER_EVENT_TYPE)
-        .order_by(SmartcarWebhookEvent.received_at.desc(), SmartcarWebhookEvent.id.desc())
-        .limit(1)
-    )
-    if latest_event is None:
-        return SmartcarWebhookDiagnostics(
-            event=None,
-            age="Never",
-            data_rows=[],
-            signal_rows=[],
-        )
-
-    data_rows = [
-        ("Event Type", latest_event.event_type),
-        ("Event ID", latest_event.event_id),
-        ("Delivery ID", latest_event.delivery_id or "-"),
-        ("Webhook", latest_event.webhook_name or latest_event.webhook_id or "-"),
-        ("Vehicle", _vehicle_description(latest_event)),
-        ("Vehicle ID", latest_event.vehicle_id or "-"),
-        ("Mode", latest_event.vehicle_mode or "-"),
-        ("Powertrain", latest_event.vehicle_powertrain_type or "-"),
-        ("Odometer", _miles_text(latest_event.odometer_miles)),
-        ("Odometer Recorded", _format_local_datetime(latest_event.odometer_recorded_at) or "-"),
-        ("Fuel", _percent_text(latest_event.fuel_percent)),
-        ("Locked", _display_text(latest_event.is_locked)),
-        ("Online", _display_text(latest_event.is_online)),
-        ("Nickname", latest_event.nickname or "-"),
-        ("VIN", _masked_vin(latest_event.vin)),
-        ("Firmware", latest_event.firmware_version or "-"),
-        ("Signals", str(len(latest_event.signal_rows))),
-        ("Triggers", str(len(latest_event.triggers or []))),
-    ]
-    return SmartcarWebhookDiagnostics(
-        event=latest_event,
-        age=_human_duration_since(latest_event.received_at),
-        data_rows=data_rows,
-        signal_rows=_smartcar_signal_display_rows(latest_event),
-    )
+    return resequence_months
 
 
 def _diagnostics_redirect(fragment: str, params: dict[str, str]) -> RedirectResponse:
@@ -482,22 +334,6 @@ def _latest_odometer_reading(db: Session) -> dict | None:
                 "trip": latest_start_trip,
                 "database_id": latest_start_trip.id,
                 "position": "Start",
-            }
-        )
-
-    latest_webhook_event = latest_webhook_odometer_event(db)
-    if latest_webhook_event is not None:
-        event_source = odometer_event_source(latest_webhook_event)
-        candidates.append(
-            {
-                "value": latest_webhook_event.odometer_miles,
-                "source": event_source,
-                "recorded_at": latest_webhook_event.odometer_recorded_at
-                or latest_webhook_event.delivered_at
-                or latest_webhook_event.received_at,
-                "trip": None,
-                "database_id": latest_webhook_event.id,
-                "position": "Manual" if event_source == "manual" else "Webhook",
             }
         )
 
@@ -695,8 +531,6 @@ def update_trip_form(
     trip_id: int,
     trip_date: date = Form(...),
     miles: Decimal = Form(...),
-    start_odometer_miles: str = Form(default=""),
-    end_odometer_miles: str = Form(default=""),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     trip = db.get(Trip, trip_id)
@@ -705,32 +539,23 @@ def update_trip_form(
     if miles < 0:
         raise HTTPException(status_code=400, detail="Miles must be zero or greater")
 
-    parsed_start_odometer = _optional_odometer_form_value(
-        start_odometer_miles,
-        "Start odometer",
-    )
-    parsed_end_odometer = _optional_odometer_form_value(
-        end_odometer_miles,
-        "End odometer",
-    )
-    _update_trip_row_values(
+    resequence_months = _update_trip_row_values(
         trip,
         trip_date=trip_date,
         miles=miles,
-        start_odometer_miles=parsed_start_odometer,
-        end_odometer_miles=parsed_end_odometer,
     )
+    for resequence_year, resequence_month in sorted(resequence_months):
+        resequence_month_trip_odometers(db, resequence_year, resequence_month)
     db.commit()
     logger.info(
         "Updated trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s "
-        "start_odometer=%s end_odometer=%s",
+        "resequence_months=%s",
         trip.id,
         trip.trip_date.isoformat(),
         trip.origin_display_name,
         trip.destination_display_name,
         trip.miles,
-        trip.start_odometer_miles,
-        trip.end_odometer_miles,
+        sorted(resequence_months),
     )
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
@@ -981,7 +806,6 @@ def diagnostics(
     latest_odometer = _latest_odometer_reading(db)
     owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
     movement_diagnostics = owntracks_movement_diagnostics(db)
-    smartcar_webhook_diagnostics = _smartcar_webhook_diagnostics(db)
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
@@ -1006,7 +830,6 @@ def diagnostics(
             "owntracks_entries_page": owntracks_entries_page,
             "movement_state": movement_diagnostics.current_state,
             "movement_state_changes": movement_diagnostics.state_changes,
-            "smartcar_webhook": smartcar_webhook_diagnostics,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
             "manual_odometer_result": _api_test_result(
                 odometer_test,
@@ -1032,11 +855,10 @@ def set_manual_odometer(
             },
         )
 
-    event = create_manual_odometer_event(db, odometer_miles)
-    update_odometer_anchor_from_reading(
+    checkpoint = update_odometer_anchor_from_reading(
         db,
-        event.odometer_miles,
-        recorded_at=event.odometer_recorded_at or event.received_at,
+        odometer_miles,
+        recorded_at=datetime.now(UTC),
         source="manual",
     )
     return _diagnostics_redirect(
@@ -1044,7 +866,7 @@ def set_manual_odometer(
         {
             "odometer_test": "pass",
             "odometer_message": "Manual odometer reading saved.",
-            "odometer_value": f"{event.odometer_miles:.1f} miles",
+            "odometer_value": f"{checkpoint.odometer_anchor_miles:.1f} miles",
         },
     )
 

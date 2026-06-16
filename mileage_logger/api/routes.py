@@ -1,5 +1,4 @@
 import logging
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
@@ -7,7 +6,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mileage_logger.api.deps import verify_owntracks_auth
-from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
 from mileage_logger.models import OwnTracksLocation, Site, Trip
 from mileage_logger.schemas import MonthlyGasPriceCreate, TripUpdate, WaypointRead
@@ -23,19 +21,7 @@ from mileage_logger.services.owntracks import (
     process_owntracks_payload,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
-from mileage_logger.services.smartcar import (
-    SMARTCAR_VERIFY_EVENT,
-    SmartcarWebhookError,
-    decode_webhook_payload,
-    hash_webhook_challenge,
-    store_webhook_payload,
-    verify_webhook_signature,
-)
-from mileage_logger.services.timezone import datetime_to_local, datetime_to_local_date
-from mileage_logger.services.trip_processor import (
-    run_automatic_trip_processing,
-    update_odometer_anchor_from_reading,
-)
+from mileage_logger.services.timezone import datetime_to_local
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 
 router = APIRouter()
@@ -68,114 +54,6 @@ async def owntracks_http(request: Request, db: Session = Depends(get_db)) -> JSO
         logger.debug("Ignored unsupported OwnTracks payload: %s", exc)
         return JSONResponse(content=[])
     return JSONResponse(content=[])
-
-
-def _smartcar_webhook_unavailable() -> HTTPException:
-    """Return a generic unavailable response without leaking token configuration."""
-    return HTTPException(status_code=503, detail="Smartcar webhook is not configured")
-
-
-def _smartcar_verify_unavailable() -> HTTPException:
-    """Return a generic VERIFY error when the management token needed for HMAC is missing."""
-    return HTTPException(status_code=503, detail="Smartcar webhook verification is not configured")
-
-
-@router.post("/smartcar/webhook")
-@router.post("/smartcar/webhook/")
-@router.post("/webhooks/smartcar")
-@router.post("/webhooks/smartcar/")
-async def smartcar_webhook(request: Request, db: Session = Depends(get_db)) -> dict[str, object]:
-    settings = get_settings()
-    raw_body = await request.body()
-    if len(raw_body) > settings.smartcar_webhook_max_body_bytes:
-        logger.warning(
-            "Rejected Smartcar webhook oversized_body bytes=%s max_bytes=%s client=%s",
-            len(raw_body),
-            settings.smartcar_webhook_max_body_bytes,
-            request.client.host if request.client else "",
-        )
-        raise HTTPException(status_code=413, detail="Smartcar webhook body is too large")
-
-    try:
-        payload = decode_webhook_payload(raw_body)
-    except SmartcarWebhookError as exc:
-        logger.warning("Rejected malformed Smartcar webhook: %s", exc)
-        raise HTTPException(status_code=400, detail="Invalid Smartcar webhook payload") from exc
-
-    event_type = str(payload.get("eventType") or "").strip().upper()
-    if event_type == SMARTCAR_VERIFY_EVENT:
-        if not settings.smartcar_management_token:
-            raise _smartcar_verify_unavailable()
-
-        try:
-            data = payload.get("data")
-            challenge = str(data.get("challenge") if isinstance(data, dict) else "")
-            challenge_response = hash_webhook_challenge(
-                settings.smartcar_management_token,
-                challenge,
-            )
-        except SmartcarWebhookError as exc:
-            logger.warning("Rejected Smartcar VERIFY webhook: %s", exc)
-            raise HTTPException(status_code=400, detail="Invalid Smartcar VERIFY payload") from exc
-
-        logger.info("Answered Smartcar VERIFY webhook event_id=%s", payload.get("eventId") or "")
-        return {"challenge": challenge_response}
-
-    if not settings.smartcar_enabled or not settings.smartcar_management_token:
-        raise _smartcar_webhook_unavailable()
-
-    signature = request.headers.get("SC-Signature")
-    if not verify_webhook_signature(
-        raw_body,
-        signature,
-        settings.smartcar_management_token,
-    ):
-        logger.warning(
-            "Rejected Smartcar webhook invalid_signature event_type=%s bytes=%s client=%s",
-            event_type or "",
-            len(raw_body),
-            request.client.host if request.client else "",
-        )
-        raise HTTPException(status_code=401, detail="Invalid Smartcar webhook signature")
-
-    try:
-        result = store_webhook_payload(db, payload, settings=settings)
-    except SmartcarWebhookError as exc:
-        logger.warning("Rejected Smartcar webhook after signature verification: %s", exc)
-        raise HTTPException(status_code=400, detail="Invalid Smartcar webhook payload") from exc
-
-    if result.created and result.event.odometer_miles is not None:
-        touched_datetime = (
-            result.event.odometer_recorded_at
-            or result.event.delivered_at
-            or result.event.received_at
-        )
-        update_odometer_anchor_from_reading(
-            db,
-            result.event.odometer_miles,
-            recorded_at=touched_datetime,
-            source="smartcar",
-        )
-        touched_date = datetime_to_local_date(touched_datetime)
-        finalize_completed_days = touched_date >= datetime_to_local_date(datetime.now(UTC))
-        try:
-            run_automatic_trip_processing(
-                db,
-                touched_date=touched_date,
-                finalize_completed_days=finalize_completed_days,
-            )
-        except Exception:
-            logger.exception(
-                "Automatic trip processing failed after Smartcar webhook event_id=%s",
-                result.event.event_id,
-            )
-
-    return {
-        "status": "received",
-        "created": result.created,
-        "event_id": result.event.event_id,
-        "database_id": result.event.id,
-    }
 
 
 @router.get("/locations")

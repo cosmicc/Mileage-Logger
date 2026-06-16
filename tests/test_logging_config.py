@@ -88,7 +88,7 @@ def test_formatter_redacts_bearer_tokens() -> None:
         logging.INFO,
         __file__,
         1,
-        "Authorization: Bearer secret-smartcar-token",
+        "Authorization: Bearer secret-provider-token",
         (),
         None,
     )
@@ -96,7 +96,7 @@ def test_formatter_redacts_bearer_tokens() -> None:
     formatted = formatter.format(record)
 
     assert "Authorization: Bearer ***" in formatted
-    assert "secret-smartcar-token" not in formatted
+    assert "secret-provider-token" not in formatted
 
 
 def test_tail_file_returns_level_classes_newest_first(tmp_path) -> None:

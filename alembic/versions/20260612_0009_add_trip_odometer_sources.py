@@ -26,14 +26,12 @@ def upgrade() -> None:
         SET
             start_odometer_source = CASE
                 WHEN start_odometer_miles IS NULL THEN NULL
-                WHEN mileage_source = 'fordpass_odometer' THEN 'fordpass'
                 WHEN mileage_source = 'estimated_odometer' THEN 'estimated'
                 WHEN mileage_source = 'manual' THEN 'manual'
                 ELSE NULL
             END,
             end_odometer_source = CASE
                 WHEN end_odometer_miles IS NULL THEN NULL
-                WHEN mileage_source = 'fordpass_odometer' THEN 'fordpass'
                 WHEN mileage_source = 'estimated_odometer' THEN 'estimated'
                 WHEN mileage_source = 'manual' THEN 'manual'
                 ELSE NULL

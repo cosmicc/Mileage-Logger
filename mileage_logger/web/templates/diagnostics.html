@@ -103,60 +103,6 @@
   <div class="panel">
     <div class="panel-toolbar">
       <div>
-        <h2>Smartcar Webhook</h2>
-        <p class="panel-meta">Latest received vehicle webhook data.</p>
-      </div>
-    </div>
-    <dl class="diagnostic-list">
-      <dt>Status</dt>
-      <dd>
-        {% if smartcar_webhook.event %}
-        <span class="pill good">Received</span>
-        {% else %}
-        <span class="pill muted">No Data</span>
-        {% endif %}
-      </dd>
-      <dt>Received</dt>
-      <dd>{% if smartcar_webhook.event %}{{ smartcar_webhook.event.received_at|local_datetime }}{% else %}Never{% endif %}</dd>
-      <dt>Age</dt>
-      <dd>{{ smartcar_webhook.age }}</dd>
-      {% if smartcar_webhook.event %}
-      {% for label, value in smartcar_webhook.data_rows %}
-      <dt>{{ label }}</dt>
-      <dd>{{ value }}</dd>
-      {% endfor %}
-      {% endif %}
-    </dl>
-    {% if smartcar_webhook.signal_rows %}
-    <details class="payload-details signal-details">
-      <summary>View Received Signals</summary>
-      <table>
-        <thead>
-          <tr>
-            <th>Group</th>
-            <th>Signal</th>
-            <th>Value</th>
-            <th>Unit / Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for group, signal, value, unit in smartcar_webhook.signal_rows %}
-          <tr>
-            <td>{{ group }}</td>
-            <td>{{ signal }}</td>
-            <td>{{ value }}</td>
-            <td>{{ unit }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </details>
-    {% endif %}
-  </div>
-
-  <div class="panel">
-    <div class="panel-toolbar">
-      <div>
         <h2>Manual Odometer</h2>
         <p class="panel-meta">Current odometer reading.</p>
       </div>
