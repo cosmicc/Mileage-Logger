@@ -347,6 +347,8 @@ def run_automatic_trip_processing(
             processed_location_count = len(new_locations)
 
         dates_to_process = _dates_touched_by_new_locations(new_locations)
+        dates_to_process.add(today)
+        dates_to_process.add(today - timedelta(days=1))
         if touched_date is not None:
             dates_to_process.add(touched_date)
             dates_to_process.add(touched_date - timedelta(days=1))

@@ -265,12 +265,15 @@ def _enter_transition_confirmed(
     sites: list[Site],
     sites_by_name: dict[str, Site],
     sites_by_region_id: dict[str, Site],
+    *,
+    as_of: datetime | None,
 ) -> bool:
-    """Confirm an enter event only after later OwnTracks data proves waypoint dwell time."""
+    """Confirm an enter event after stored data or processor time proves waypoint dwell."""
 
     dwell_time = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
     enter_time = datetime_to_utc(enter_location.captured_at)
     dwell_deadline = enter_time + dwell_time
+    as_of_utc = datetime_to_utc(as_of) if as_of is not None else None
 
     for candidate_location in locations[enter_index + 1 :]:
         candidate_time = datetime_to_utc(candidate_location.captured_at)
@@ -305,12 +308,14 @@ def _enter_transition_confirmed(
         ):
             return True
 
-    return False
+    return as_of_utc is not None and as_of_utc >= dwell_deadline
 
 
 def _waypoint_transitions(
     locations: list[OwnTracksLocation],
     sites: list[Site],
+    *,
+    as_of: datetime | None,
 ) -> list[WaypointTransition]:
     sites_by_name, sites_by_region_id = site_indexes(sites)
     transitions: list[WaypointTransition] = []
@@ -332,13 +337,15 @@ def _waypoint_transitions(
             sites,
             sites_by_name,
             sites_by_region_id,
+            as_of=as_of,
         ):
             trip_logger.debug(
                 "waypoint enter skipped reason=dwell_not_confirmed site=%s captured_at=%s "
-                "dwell_minutes=%s",
+                "dwell_minutes=%s as_of=%s",
                 site.name,
                 location.captured_at.isoformat(),
                 get_settings().owntracks_waypoint_dwell_minutes,
+                datetime_to_utc(as_of).isoformat() if as_of is not None else "",
             )
             continue
         dedupe_key = (event, site.id, location.captured_at)
@@ -1140,7 +1147,7 @@ def generate_trips(
 
     transitions = [
         transition
-        for transition in _waypoint_transitions(locations, sites)
+        for transition in _waypoint_transitions(locations, sites, as_of=as_of)
         if generation_start_dt
         <= datetime_to_utc(transition.location.captured_at)
         < generation_end_dt

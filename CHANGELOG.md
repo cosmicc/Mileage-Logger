@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed automatic trip processing so a waypoint arrival can create the trip after the dwell timer
+  expires even when OwnTracks sends no follow-up location rows while the phone remains there.
 - Replaced the Dashboard Vehicle MPG card with a current OwnTracks location state card showing
   inside-waypoint, driving, stationary, or no-data status.
 - Changed PDF trip table headers to spell out Start Odometer and End Odometer instead of

@@ -172,6 +172,41 @@ def test_generate_trips_from_leave_and_enter_transitions() -> None:
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
 
 
+def test_generate_trips_confirms_arrival_from_as_of_without_follow_up_location() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    arrival_at = day + timedelta(minutes=24)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _transition(arrival_at, client, "enter"),
+        ]
+    )
+    db.commit()
+
+    early_trips = generate_trips(
+        db,
+        day.date(),
+        day.date(),
+        as_of=arrival_at + timedelta(minutes=4),
+    )
+    mature_trips = generate_trips(
+        db,
+        day.date(),
+        day.date(),
+        as_of=arrival_at + timedelta(minutes=6),
+    )
+
+    assert early_trips == []
+    assert len(mature_trips) == 1
+    assert mature_trips[0].origin_site_id == home.id
+    assert mature_trips[0].destination_site_id == client.id
+
+
 def test_generate_trips_ignores_drive_through_waypoint_without_dwell() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
@@ -1076,6 +1111,40 @@ def test_automatic_trip_processing_uses_checkpoint_without_duplicate_trips() -> 
     assert checkpoint is not None
     latest_location_id = max(location.id for location in db.scalars(select(OwnTracksLocation)))
     assert checkpoint.last_owntracks_location_id == latest_location_id
+
+
+def test_automatic_trip_processing_rechecks_pending_arrival_after_dwell() -> None:
+    db = _session()
+    day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
+    arrival_at = day + timedelta(minutes=24)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _transition(arrival_at, client, "enter"),
+        ]
+    )
+    db.commit()
+
+    first_result = run_automatic_trip_processing(db, now=arrival_at + timedelta(minutes=1))
+    second_result = run_automatic_trip_processing(db, now=arrival_at + timedelta(minutes=20))
+
+    trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert first_result.generated == 0
+    assert first_result.processed_location_count == 2
+    assert second_result.generated == 1
+    assert second_result.processed_location_count == 0
+    assert len(trips) == 1
+    assert trips[0].origin_site_id == home.id
+    assert trips[0].destination_site_id == client.id
+    assert checkpoint is not None
+    assert checkpoint.last_owntracks_location_id == max(
+        location.id for location in db.scalars(select(OwnTracksLocation))
+    )
 
 
 def test_automatic_trip_processing_creates_missing_checkpoint_table() -> None:
