@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replaced the Dashboard Vehicle MPG card with a current OwnTracks location state card showing
+  inside-waypoint, driving, stationary, or no-data status.
 - Changed PDF trip table headers to spell out Start Odometer and End Odometer instead of
   abbreviating odometer.
 - Added Dashboard distance cards for today's total driven miles, today's trip miles, this month's

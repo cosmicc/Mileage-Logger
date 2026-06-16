@@ -306,6 +306,27 @@ p {
   line-height: 1.25;
 }
 
+.state-stat strong {
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.08;
+}
+
+.state-waypoint::before {
+  background: linear-gradient(90deg, #93c5fd, var(--accent));
+}
+
+.state-travel::before {
+  background: linear-gradient(90deg, #facc15, var(--warning));
+}
+
+.state-stationary::before {
+  background: linear-gradient(90deg, #c7beaf, var(--muted));
+}
+
+.state-unknown::before {
+  background: linear-gradient(90deg, var(--line-strong), var(--muted));
+}
+
 .odometer-cell span,
 .odometer-cell small {
   display: block;

@@ -333,6 +333,43 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_dashboard_replaces_vehicle_mpg_with_location_state(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            waypoint = Site(
+                name="Home",
+                latitude=Decimal("42.3314000"),
+                longitude=Decimal("-83.0458000"),
+                radius_m=150,
+            )
+            db.add(waypoint)
+            db.add(
+                _location(
+                    datetime(2026, 6, 16, 13, 0, tzinfo=UTC),
+                    datetime(2026, 6, 16, 13, 0, tzinfo=UTC),
+                    {"_type": "location", "inregions": ["Home"]},
+                    latitude="42.3314000",
+                    longitude="-83.0458000",
+                )
+            )
+            db.commit()
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "Vehicle MPG" not in response.text
+        assert "Location State" in response.text
+        assert "Inside waypoint" in response.text
+        assert "Home" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_web_login_temporarily_locks_repeated_failures(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(

@@ -286,6 +286,33 @@ def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: i
     }
 
 
+def _dashboard_location_state(movement_state) -> dict[str, str]:
+    """Return compact current-location state text for the Dashboard card."""
+
+    if movement_state.state == "waypoint":
+        return {
+            "state": "waypoint",
+            "label": "Inside waypoint",
+            "detail": movement_state.site_name or "Saved waypoint",
+        }
+    if movement_state.state == "travel":
+        detail = "Moving away from saved waypoints"
+        if movement_state.distance_miles is not None:
+            detail = f"Last movement {movement_state.distance_miles:.1f} miles"
+        return {"state": "travel", "label": "Driving", "detail": detail}
+    if movement_state.state == "away":
+        return {
+            "state": "stationary",
+            "label": "Stationary",
+            "detail": "Away from saved waypoints",
+        }
+    return {
+        "state": "unknown",
+        "label": "No OwnTracks data",
+        "detail": "Waiting for phone location",
+    }
+
+
 def _pagination_context(total: int, page: int, page_size: int) -> dict[str, int | bool]:
     total_pages = max(1, ceil(total / page_size))
     current_page = min(max(page, 1), total_pages)
@@ -591,6 +618,8 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     site_count = db.scalar(select(func.count(Site.id))) or 0
     trip_count = db.scalar(select(func.count(Trip.id))) or 0
     latest_odometer = _latest_odometer_reading(db)
+    movement_diagnostics = owntracks_movement_diagnostics(db)
+    location_state = _dashboard_location_state(movement_diagnostics.current_state)
     recent_trips = list(
         db.scalars(
             select(Trip)
@@ -609,10 +638,10 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "site_count": site_count,
             "trip_count": trip_count,
             "distance_summary": distance_summary,
+            "location_state": location_state,
             "latest_odometer": latest_odometer,
             "recent_trips": recent_trips,
             "monthly_gas": monthly_gas,
-            "vehicle_mpg": settings.vehicle_mpg,
             "app_local_datetime": app_now,
             "app_timezone": settings.local_timezone,
             "app_timezone_abbr": app_now.tzname(),

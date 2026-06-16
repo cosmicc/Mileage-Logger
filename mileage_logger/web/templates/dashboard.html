@@ -66,9 +66,10 @@
     <span>MI Monthly Avg Gas</span>
     <strong>{% if monthly_gas %}${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
   </div>
-  <div class="stat">
-    <span>Vehicle MPG</span>
-    <strong>{{ "%.1f"|format(vehicle_mpg) }}</strong>
+  <div class="stat state-stat state-{{ location_state.state }}">
+    <span>Location State</span>
+    <strong>{{ location_state.label }}</strong>
+    <small>{{ location_state.detail }}</small>
   </div>
   <div class="stat">
     <span>Last Odometer</span>
