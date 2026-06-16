@@ -2,7 +2,7 @@ import logging
 import re
 from calendar import month_name
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from math import ceil
 from pathlib import Path
@@ -105,6 +105,7 @@ templates.env.filters["odometer"] = _format_odometer
 templates.env.filters["odometer_source"] = _format_odometer_source
 templates.env.globals["web_login_enabled"] = web_login_enabled
 WAYPOINT_PAGE_SIZE = 20
+DISTANCE_PRECISION = Decimal("0.1")
 LOG_LINE_LEVEL_RE = re.compile(r"\s(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+\[")
 LOG_LEVEL_VALUES = {
     "debug": 10,
@@ -151,6 +152,138 @@ def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
 def _validate_month(month: int) -> None:
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="month must be 1 through 12")
+
+
+def _quantize_distance(value: Decimal) -> Decimal:
+    """Round dashboard distance totals to the displayed one-decimal precision."""
+
+    return Decimal(value).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
+
+
+def _month_date_bounds(year: int, month: int) -> tuple[date, date]:
+    """Return inclusive and exclusive local dates for a dashboard month."""
+
+    start_date = date(year, month, 1)
+    end_date = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
+    return start_date, end_date
+
+
+def _month_datetime_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    """Return UTC datetime bounds for one complete local dashboard month."""
+
+    start_date, end_date = _month_date_bounds(year, month)
+    start_dt, _ = local_day_bounds(start_date)
+    end_dt, _ = local_day_bounds(end_date)
+    return start_dt, end_dt
+
+
+def _trip_miles_for_date_range(db: Session, start_date: date, end_date: date) -> Decimal:
+    """Sum stored trip miles for a half-open local date range."""
+
+    total = db.scalar(
+        select(func.coalesce(func.sum(Trip.miles), 0))
+        .where(Trip.trip_date >= start_date)
+        .where(Trip.trip_date < end_date)
+    )
+    return _quantize_distance(Decimal(str(total or "0.0")))
+
+
+def _owntracks_odometer_location_before(
+    db: Session,
+    before_dt: datetime,
+) -> OwnTracksLocation | None:
+    """Return the latest rolling odometer point before a UTC boundary."""
+
+    return db.scalar(
+        select(OwnTracksLocation)
+        .where(OwnTracksLocation.odometer_miles.is_not(None))
+        .where(OwnTracksLocation.captured_at < before_dt)
+        .order_by(OwnTracksLocation.captured_at.desc(), OwnTracksLocation.id.desc())
+        .limit(1)
+    )
+
+
+def _owntracks_odometer_location_in_range(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    ascending: bool,
+) -> OwnTracksLocation | None:
+    """Return one rolling odometer point inside a UTC range."""
+
+    ordering = (
+        (OwnTracksLocation.captured_at.asc(), OwnTracksLocation.id.asc())
+        if ascending
+        else (OwnTracksLocation.captured_at.desc(), OwnTracksLocation.id.desc())
+    )
+    return db.scalar(
+        select(OwnTracksLocation)
+        .where(OwnTracksLocation.odometer_miles.is_not(None))
+        .where(OwnTracksLocation.captured_at >= start_dt)
+        .where(OwnTracksLocation.captured_at < end_dt)
+        .order_by(*ordering)
+        .limit(1)
+    )
+
+
+def _owntracks_total_miles_for_datetime_range(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> Decimal:
+    """Calculate total driven distance from rolling OwnTracks odometer points."""
+
+    first_location = _owntracks_odometer_location_in_range(
+        db,
+        start_dt,
+        end_dt,
+        ascending=True,
+    )
+    if first_location is None:
+        return Decimal("0.0")
+
+    previous_location = _owntracks_odometer_location_before(db, start_dt)
+    last_location = _owntracks_odometer_location_in_range(
+        db,
+        start_dt,
+        end_dt,
+        ascending=False,
+    )
+    if last_location is None or last_location.odometer_miles is None:
+        return Decimal("0.0")
+
+    baseline_location = previous_location or first_location
+    if baseline_location.odometer_miles is None:
+        return Decimal("0.0")
+
+    driven_miles = Decimal(last_location.odometer_miles) - Decimal(
+        baseline_location.odometer_miles
+    )
+    return _quantize_distance(max(driven_miles, Decimal("0.0")))
+
+
+def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: int) -> dict:
+    """Return dashboard distance totals for today and the current month."""
+
+    tomorrow = today + timedelta(days=1)
+    today_start_dt, today_end_dt = local_day_bounds(today)
+    month_start_date, month_end_date = _month_date_bounds(year, month)
+    month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
+    return {
+        "today_total": _owntracks_total_miles_for_datetime_range(
+            db,
+            today_start_dt,
+            today_end_dt,
+        ),
+        "today_trips": _trip_miles_for_date_range(db, today, tomorrow),
+        "month_total": _owntracks_total_miles_for_datetime_range(
+            db,
+            month_start_dt,
+            month_end_dt,
+        ),
+        "month_trips": _trip_miles_for_date_range(db, month_start_date, month_end_date),
+    }
 
 
 def _pagination_context(total: int, page: int, page_size: int) -> dict[str, int | bool]:
@@ -448,6 +581,12 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
     app_now = local_now()
     year, month = _current_year_month()
     monthly_gas, _ = _monthly_gas_context(db, year, month)
+    distance_summary = _dashboard_distance_summary(
+        db,
+        today=app_now.date(),
+        year=year,
+        month=month,
+    )
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
     site_count = db.scalar(select(func.count(Site.id))) or 0
     trip_count = db.scalar(select(func.count(Trip.id))) or 0
@@ -469,6 +608,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "location_count": location_count,
             "site_count": site_count,
             "trip_count": trip_count,
+            "distance_summary": distance_summary,
             "latest_odometer": latest_odometer,
             "recent_trips": recent_trips,
             "monthly_gas": monthly_gas,
@@ -632,10 +772,10 @@ def delete_trip_suppression_form(
     _validate_month(redirect_month)
     deleted_trip = db.get(DeletedTrip, deleted_trip_id)
     if deleted_trip is None:
-        raise HTTPException(status_code=404, detail="Trip suppression rule not found")
+        raise HTTPException(status_code=404, detail="Deleted trip record not found")
 
     logger.info(
-        "Removed trip suppression rule deleted_trip_id=%s origin=%s destination=%s "
+        "Removed deleted trip record deleted_trip_id=%s origin=%s destination=%s "
         "started_at=%s ended_at=%s",
         deleted_trip.id,
         deleted_trip.origin_name or "",

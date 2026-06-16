@@ -287,8 +287,8 @@ If a trip window has only transition events and no location updates between them
 back to estimated odometer, then waypoint distance. Edit a trip's miles on the `Trips` page when
 the generated mileage needs correction. A distance correction resequences that month's displayed
 start and end odometers in chronological trip order. Deleting a trip from the
-`Trips` page also saves a suppression record so the same OwnTracks transition pair is not
-generated again.
+`Trips` page also saves an exact deleted-trip record so only that same OwnTracks transition pair
+is not generated again; future trips with the same route are still generated normally.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
 odometer value for that point, and generated trips use those rolling values for start and end

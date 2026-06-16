@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added Dashboard distance cards for today's total driven miles, today's trip miles, this month's
+  total driven miles, and this month's trip miles.
+- Changed trip deletion records to be documented and displayed as exact deleted-trip records, not
+  route-pattern rules, so future trips with the same route are still generated normally.
+- Changed trip deletion to preserve the rolling odometer checkpoint from the deleted trip when that
+  trip has the most recent odometer reading.
 - Added a stored OwnTracks odometer timeline so every processed location row records the rolling
   odometer value used by later trip generation.
 - Changed automatic trip processing to advance the rolling OwnTracks odometer before generating
@@ -22,8 +28,8 @@
 - Added a simple session-based web login for rendered pages, configured by Docker environment
   variables while leaving `/api/` routes outside the web login.
 - Removed visible app branding from the login page and added temporary failed-login lockouts.
-- Added an editable trip suppression rules list on the Trips page so mistaken automatic-trip
-  suppression records can be removed.
+- Added an editable deleted-trip records list on the Trips page so mistaken automatic-trip
+  deletion records can be removed.
 - Added Diagnostics current OwnTracks state detection for inside-waypoint and travel statuses,
   plus a state-change log limited to waypoint arrivals, waypoint departures, and travel detected.
 - Added a Trips page manual-entry form and trip-date editing so date, origin, destination, and
@@ -34,8 +40,8 @@
   is purged after the configured retention window without deleting trips or other app data.
 - Changed generated trip mileage to prefer summed OwnTracks location path distance between
   waypoint leave/enter events before falling back to estimated odometer or waypoint distance.
-- Added a Trips page delete button and deleted-trip suppression records so user-deleted automatic
-  trips are not recreated from the same OwnTracks transition events.
+- Added a Trips page delete button and exact deleted-trip records so user-deleted automatic trips
+  are not recreated from the same OwnTracks transition events.
 - Fixed automatic trip generation so unchanged existing trips are not rewritten and counted as
   generated on every processing pass.
 - Added `cloudflared` to the normal Docker Compose stack as a required Cloudflare Tunnel service

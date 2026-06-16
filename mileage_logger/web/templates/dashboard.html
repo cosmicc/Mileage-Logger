@@ -14,6 +14,41 @@
   </div>
 </section>
 
+<section class="distance-grid" aria-label="Distance driven summary">
+  <div class="distance-card distance-card-primary">
+    <div>
+      <span>Today</span>
+      <strong>{{ "%.1f"|format(distance_summary.today_total) }}</strong>
+      <small>Trips + non-trips</small>
+    </div>
+    <span class="distance-unit">mi</span>
+  </div>
+  <div class="distance-card">
+    <div>
+      <span>Today</span>
+      <strong>{{ "%.1f"|format(distance_summary.today_trips) }}</strong>
+      <small>Trips only</small>
+    </div>
+    <span class="distance-unit">mi</span>
+  </div>
+  <div class="distance-card distance-card-primary">
+    <div>
+      <span>This Month</span>
+      <strong>{{ "%.1f"|format(distance_summary.month_total) }}</strong>
+      <small>Trips + non-trips</small>
+    </div>
+    <span class="distance-unit">mi</span>
+  </div>
+  <div class="distance-card">
+    <div>
+      <span>This Month</span>
+      <strong>{{ "%.1f"|format(distance_summary.month_trips) }}</strong>
+      <small>Trips only</small>
+    </div>
+    <span class="distance-unit">mi</span>
+  </div>
+</section>
+
 <section class="stats-grid">
   <div class="stat">
     <span>OwnTracks Events</span>

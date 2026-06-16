@@ -1259,6 +1259,8 @@ def mark_trip_manually_reviewed(trip: Trip) -> None:
 
 
 def suppress_trip_generation_for_deleted_trip(db: Session, trip: Trip) -> DeletedTrip | None:
+    """Save an exact source-event tombstone for one deleted automatic trip."""
+
     trip_key = _trip_generation_key(
         trip.origin_site_id,
         trip.destination_site_id,
@@ -1297,7 +1299,36 @@ def suppress_trip_generation_for_deleted_trip(db: Session, trip: Trip) -> Delete
     return deleted_trip
 
 
+def _preserve_checkpoint_from_deleted_trip(db: Session, trip: Trip) -> None:
+    """Keep the rolling odometer current when deleting the newest visible trip."""
+
+    if trip.end_odometer_miles is None:
+        return
+
+    checkpoint = _latest_checkpoint(db)
+    if checkpoint is None:
+        checkpoint = TripProcessingCheckpoint(name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
+        db.add(checkpoint)
+        db.flush()
+
+    trip_ended_at = datetime_to_utc(trip.ended_at)
+    checkpoint_recorded_at = (
+        datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
+        if checkpoint.odometer_anchor_recorded_at is not None
+        else None
+    )
+    if checkpoint_recorded_at is not None and checkpoint_recorded_at >= trip_ended_at:
+        return
+
+    checkpoint.odometer_anchor_miles = Decimal(trip.end_odometer_miles).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    checkpoint.odometer_anchor_recorded_at = trip_ended_at
+
+
 def delete_trip(db: Session, trip: Trip) -> DeletedTrip | None:
+    _preserve_checkpoint_from_deleted_trip(db, trip)
     deleted_trip = suppress_trip_generation_for_deleted_trip(db, trip)
     db.delete(trip)
     return deleted_trip

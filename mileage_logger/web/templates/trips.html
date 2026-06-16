@@ -100,7 +100,7 @@
 </section>
 
 <section class="panel">
-  <h2>Trip Suppression Rules</h2>
+  <h2>Deleted Trip Records</h2>
   <table>
     <thead>
       <tr>
@@ -128,12 +128,12 @@
           <form action="/trips/suppression/{{ suppressed_trip.id }}/delete" method="post">
             <input type="hidden" name="redirect_year" value="{{ year }}">
             <input type="hidden" name="redirect_month" value="{{ month }}">
-            <button class="small-button danger" type="submit">Remove Rule</button>
+            <button class="small-button danger" type="submit">Remove Record</button>
           </form>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="8">No trip suppression rules for this month.</td></tr>
+      <tr><td colspan="8">No deleted trip records for this month.</td></tr>
       {% endfor %}
     </tbody>
   </table>

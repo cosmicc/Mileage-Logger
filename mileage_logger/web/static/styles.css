@@ -188,6 +188,75 @@ p {
   margin-bottom: 22px;
 }
 
+.distance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.distance-card {
+  display: flex;
+  min-height: 142px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(59, 130, 246, 0.08), transparent 64%),
+    linear-gradient(180deg, var(--surface-strong), var(--surface-soft));
+  box-shadow: var(--shadow);
+}
+
+.distance-card-primary {
+  border-color: rgba(59, 130, 246, 0.38);
+  background:
+    linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(226, 173, 69, 0.08)),
+    linear-gradient(180deg, var(--surface-strong), var(--surface-soft));
+}
+
+.distance-card span:not(.distance-unit) {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.distance-card strong {
+  display: block;
+  margin-top: 10px;
+  color: var(--text);
+  font-size: clamp(34px, 5vw, 48px);
+  font-weight: 850;
+  line-height: 0.95;
+}
+
+.distance-card small {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.distance-unit {
+  display: inline-grid;
+  min-width: 34px;
+  min-height: 28px;
+  place-items: center;
+  border: 1px solid rgba(59, 130, 246, 0.34);
+  border-radius: 7px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+}
+
 .stat,
 .panel {
   background: linear-gradient(180deg, var(--surface), var(--surface-soft));
@@ -765,6 +834,10 @@ td input[type="text"] {
 }
 
 @media (max-width: 900px) {
+  .distance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -817,6 +890,7 @@ td input[type="text"] {
 }
 
 @media (max-width: 480px) {
+  .distance-grid,
   .stats-grid {
     grid-template-columns: 1fr;
   }

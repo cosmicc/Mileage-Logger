@@ -1,5 +1,6 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -59,12 +60,15 @@ def _location(
     raw_payload: dict,
     latitude: str = "42.3314000",
     longitude: str = "-83.0458000",
+    odometer_miles: Decimal | None = None,
 ) -> OwnTracksLocation:
     return OwnTracksLocation(
         captured_at=captured_at,
         received_at=received_at,
         latitude=Decimal(latitude),
         longitude=Decimal(longitude),
+        odometer_miles=odometer_miles,
+        odometer_source="owntracks_rolling" if odometer_miles is not None else None,
         raw_payload=raw_payload,
     )
 
@@ -244,6 +248,88 @@ def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
         assert "<title>Sign In</title>" in response.text
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
+    dashboard_now = datetime(
+        2026,
+        6,
+        16,
+        10,
+        0,
+        tzinfo=ZoneInfo("America/Detroit"),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.local_now", lambda: dashboard_now)
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: dashboard_now.date())
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    _location(
+                        datetime(2026, 6, 1, 3, 30, tzinfo=UTC),
+                        datetime(2026, 6, 1, 3, 30, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("80.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 3, 50, tzinfo=UTC),
+                        datetime(2026, 6, 16, 3, 50, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("100.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 5, 0, tzinfo=UTC),
+                        datetime(2026, 6, 16, 5, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("102.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 16, 0, tzinfo=UTC),
+                        datetime(2026, 6, 16, 16, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                        odometer_miles=Decimal("108.5"),
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 12),
+                        started_at=datetime(2026, 6, 12, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 12, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("4.0"),
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 16),
+                        started_at=datetime(2026, 6, 16, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("5.5"),
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "Distance driven summary" in response.text
+        assert "Trips + non-trips" in response.text
+        assert "Trips only" in response.text
+        assert "<strong>8.5</strong>" in response.text
+        assert "<strong>5.5</strong>" in response.text
+        assert "<strong>28.5</strong>" in response.text
+        assert "<strong>9.5</strong>" in response.text
+    finally:
         app.dependency_overrides.clear()
 
 
@@ -589,7 +675,7 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
         app.dependency_overrides.clear()
 
 
-def test_trips_page_delete_button_removes_trip_and_blocks_regeneration() -> None:
+def test_trips_page_delete_button_removes_trip_and_records_exact_deletion() -> None:
     client, session_factory = _test_client_session()
     trip_date = datetime(2026, 6, 11, 12, 0, tzinfo=UTC).date()
     try:
@@ -646,7 +732,7 @@ def test_trips_page_delete_button_removes_trip_and_blocks_regeneration() -> None
         app.dependency_overrides.clear()
 
 
-def test_trips_page_removes_trip_suppression_rule() -> None:
+def test_trips_page_removes_deleted_trip_record() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
@@ -689,12 +775,12 @@ def test_trips_page_removes_trip_suppression_rule() -> None:
         )
 
         assert page_response.status_code == 200
-        assert "Trip Suppression Rules" in page_response.text
-        assert "Remove Rule" in page_response.text
+        assert "Deleted Trip Records" in page_response.text
+        assert "Remove Record" in page_response.text
         assert "Home" in page_response.text
         assert "Client" in page_response.text
         assert delete_response.status_code == 200
-        assert "No trip suppression rules for this month." in delete_response.text
+        assert "No deleted trip records for this month." in delete_response.text
         with session_factory() as db:
             assert db.get(DeletedTrip, 1) is None
     finally:

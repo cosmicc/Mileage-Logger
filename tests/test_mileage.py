@@ -537,6 +537,117 @@ def test_deleted_generated_trip_is_not_recreated_from_same_transitions() -> None
     assert stored_deleted_trip.ended_at == _naive(day + timedelta(minutes=24))
 
 
+def test_deleted_generated_trip_does_not_block_future_matching_route() -> None:
+    db = _session()
+    first_day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    second_day = first_day + timedelta(days=1)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(first_day, home, "leave"),
+            _transition(first_day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(first_day + timedelta(minutes=24), client),
+        ]
+    )
+    db.commit()
+    first_trip = generate_trips(db, first_day.date(), first_day.date())[0]
+
+    deleted_trip = delete_trip(db, first_trip)
+    db.add_all(
+        [
+            _transition(second_day, home, "leave"),
+            _transition(second_day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(second_day + timedelta(minutes=24), client),
+        ]
+    )
+    db.commit()
+    regenerated_first_day = generate_trips(db, first_day.date(), first_day.date())
+    future_trips = generate_trips(db, second_day.date(), second_day.date())
+
+    assert deleted_trip is not None
+    assert regenerated_first_day == []
+    assert len(future_trips) == 1
+    assert future_trips[0].origin_site_id == home.id
+    assert future_trips[0].destination_site_id == client.id
+    assert future_trips[0].started_at == _naive(second_day)
+    assert future_trips[0].ended_at == _naive(second_day + timedelta(minutes=24))
+
+
+def test_delete_trip_preserves_latest_odometer_checkpoint() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    trip = Trip(
+        trip_date=day.date(),
+        started_at=day,
+        ended_at=day + timedelta(minutes=24),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("5.0"),
+        start_odometer_miles=Decimal("1000.0"),
+        end_odometer_miles=Decimal("1005.0"),
+        source="auto",
+    )
+    db.add(trip)
+    db.add(
+        TripProcessingCheckpoint(
+            name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+            odometer_anchor_miles=Decimal("999.0"),
+            odometer_anchor_recorded_at=day - timedelta(hours=1),
+        )
+    )
+    db.commit()
+
+    delete_trip(db, trip)
+    db.commit()
+
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert db.scalar(select(Trip)) is None
+    assert checkpoint is not None
+    assert checkpoint.odometer_anchor_miles == Decimal("1005.0")
+    assert checkpoint.odometer_anchor_recorded_at == _naive(day + timedelta(minutes=24))
+
+
+def test_delete_trip_does_not_move_newer_odometer_checkpoint_backward() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    trip = Trip(
+        trip_date=day.date(),
+        started_at=day,
+        ended_at=day + timedelta(minutes=24),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("5.0"),
+        start_odometer_miles=Decimal("1000.0"),
+        end_odometer_miles=Decimal("1005.0"),
+        source="auto",
+    )
+    db.add(trip)
+    db.add(
+        TripProcessingCheckpoint(
+            name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+            odometer_anchor_miles=Decimal("1010.0"),
+            odometer_anchor_recorded_at=day + timedelta(hours=1),
+        )
+    )
+    db.commit()
+
+    delete_trip(db, trip)
+    db.commit()
+
+    checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert db.scalar(select(Trip)) is None
+    assert checkpoint is not None
+    assert checkpoint.odometer_anchor_miles == Decimal("1010.0")
+    assert checkpoint.odometer_anchor_recorded_at == _naive(day + timedelta(hours=1))
+
+
 def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
