@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
@@ -68,6 +68,8 @@ from mileage_logger.web.auth import (
 router = APIRouter()
 logger = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parent
+STATIC_DIR = WEB_DIR / "static"
+ICON_DIR = STATIC_DIR / "icons"
 templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"])
 
 
@@ -119,6 +121,52 @@ LOG_LINE_LEVEL_VALUES = {
     "ERROR": 40,
     "CRITICAL": 50,
 }
+
+
+@router.get("/manifest.webmanifest", include_in_schema=False)
+def web_manifest() -> FileResponse:
+    """Serve the installable web-app manifest from a root URL for phone browsers."""
+
+    return FileResponse(
+        STATIC_DIR / "manifest.webmanifest",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+@router.get("/site.webmanifest", include_in_schema=False)
+def site_manifest() -> FileResponse:
+    """Serve the same manifest at the common fallback path used by some browsers."""
+
+    return web_manifest()
+
+
+@router.get("/service-worker.js", include_in_schema=False)
+def service_worker() -> FileResponse:
+    """Serve the install service worker without caching sensitive app responses."""
+
+    return FileResponse(
+        STATIC_DIR / "service-worker.js",
+        media_type="text/javascript; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    """Serve the launcher icon as the browser favicon at the standard root path."""
+
+    return FileResponse(ICON_DIR / "favicon.ico", media_type="image/x-icon")
+
+
+@router.get("/apple-touch-icon.png", include_in_schema=False)
+def apple_touch_icon() -> FileResponse:
+    """Serve the iOS home-screen icon at Apple's default discovery path."""
+
+    return FileResponse(ICON_DIR / "mileage-logger-apple-touch-icon.png", media_type="image/png")
 
 
 @dataclass(frozen=True)

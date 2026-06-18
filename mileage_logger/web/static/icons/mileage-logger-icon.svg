@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Mileage Logger app icon</title>
+  <desc id="desc">A waypoint pin over a curved road for trip mileage tracking.</desc>
+  <rect width="512" height="512" rx="108" fill="#11100e"/>
+  <path d="M123 405c50-70 98-107 144-111 38-3 74 14 122 52" fill="none" stroke="#3b82f6" stroke-width="46" stroke-linecap="round"/>
+  <path d="M126 404c50-70 97-106 141-110" fill="none" stroke="#93c5fd" stroke-width="12" stroke-linecap="round" opacity=".95"/>
+  <path d="M256 78c-67 0-121 53-121 119 0 86 94 176 112 192a14 14 0 0 0 18 0c18-16 112-106 112-192 0-66-54-119-121-119Z" fill="#3b82f6"/>
+  <path d="M256 107c-49 0-89 39-89 87 0 62 63 130 89 155 26-25 89-93 89-155 0-48-40-87-89-87Z" fill="#1d4ed8"/>
+  <circle cx="256" cy="194" r="49" fill="#11100e"/>
+  <circle cx="256" cy="194" r="25" fill="#e2ad45"/>
+</svg>

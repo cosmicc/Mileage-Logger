@@ -10,9 +10,13 @@ from mileage_logger.config import Settings, get_settings
 
 WEB_AUTH_SESSION_KEY = "web_authenticated"
 WEB_AUTH_OPEN_PATHS = {
+    "/apple-touch-icon.png",
     "/login",
     "/logout",
     "/favicon.ico",
+    "/manifest.webmanifest",
+    "/service-worker.js",
+    "/site.webmanifest",
 }
 
 

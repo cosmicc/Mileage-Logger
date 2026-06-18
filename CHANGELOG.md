@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added installable mobile web-app metadata, home-screen icons, and full-screen mobile shell styling
+  so Mileage Logger opens like a phone app when saved to the home screen.
 - Changed automatic trip generation so same-waypoint trips under 1.0 mile are
   suppressed as invalid non-trips. Existing automatic rows matching that rule
   are removed with an exact deleted-trip suppression record so the same

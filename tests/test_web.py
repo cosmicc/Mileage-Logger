@@ -251,6 +251,70 @@ def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert "viewport-fit=cover" in response.text
+        assert 'name="apple-mobile-web-app-capable" content="yes"' in response.text
+        assert (
+            'name="apple-mobile-web-app-status-bar-style" content="black-translucent"'
+            in response.text
+        )
+        assert 'rel="manifest" href="/manifest.webmanifest"' in response.text
+        assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' in response.text
+        assert "/static/icons/mileage-logger-icon.svg" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        manifest_response = client.get("/manifest.webmanifest", follow_redirects=False)
+        service_worker_response = client.get("/service-worker.js", follow_redirects=False)
+        favicon_response = client.get("/favicon.ico", follow_redirects=False)
+        apple_icon_response = client.get("/apple-touch-icon.png", follow_redirects=False)
+
+        assert manifest_response.status_code == 200
+        assert manifest_response.headers["content-type"].startswith("application/manifest+json")
+        manifest = manifest_response.json()
+        assert manifest["display"] == "fullscreen"
+        assert manifest["display_override"][:2] == ["fullscreen", "standalone"]
+        assert manifest["start_url"] == "/"
+        assert manifest["scope"] == "/"
+        assert {icon["purpose"] for icon in manifest["icons"]} == {"any", "maskable"}
+        assert "/static/icons/mileage-logger-icon-512.png" in {
+            icon["src"] for icon in manifest["icons"]
+        }
+
+        assert service_worker_response.status_code == 200
+        assert service_worker_response.headers["service-worker-allowed"] == "/"
+        assert "fetch(event.request)" in service_worker_response.text
+        assert "caches.open" not in service_worker_response.text
+
+        assert favicon_response.status_code == 200
+        assert favicon_response.headers["content-type"].startswith("image/x-icon")
+        assert apple_icon_response.status_code == 200
+        assert apple_icon_response.headers["content-type"].startswith("image/png")
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
 def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
     dashboard_now = datetime(
         2026,

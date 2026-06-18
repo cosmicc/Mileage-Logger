@@ -1,0 +1,74 @@
+{
+  "id": "/",
+  "name": "Mileage Logger",
+  "short_name": "Mileage",
+  "description": "Track OwnTracks trips, odometer estimates, and mileage reimbursement reports.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": [
+    "fullscreen",
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "portrait",
+  "background_color": "#11100e",
+  "theme_color": "#11100e",
+  "categories": [
+    "navigation",
+    "productivity",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "/static/icons/mileage-logger-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/mileage-logger-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/mileage-logger-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/static/icons/mileage-logger-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Trips",
+      "short_name": "Trips",
+      "url": "/trips",
+      "icons": [
+        {
+          "src": "/static/icons/mileage-logger-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Waypoints",
+      "short_name": "Waypoints",
+      "url": "/waypoints",
+      "icons": [
+        {
+          "src": "/static/icons/mileage-logger-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
