@@ -38,6 +38,7 @@ ODOMETER_SOURCE_ESTIMATED = "estimated"
 ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 ODOMETER_SOURCE_OWNTRACKS_ROLLING = "owntracks_rolling"
 HOME_WAYPOINT_NAME = "Home"
+SAME_WAYPOINT_MINIMUM_TRIP_MILES = Decimal("1.0")
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
 MANUAL_TRIP_NOTE = "Manually added from Trips page."
@@ -706,7 +707,15 @@ def _site_longitude(site: Site) -> Decimal:
     return Decimal(site.longitude)
 
 
+def _is_same_waypoint_under_minimum_miles(origin: Site, destination: Site, miles: Decimal) -> bool:
+    """Return true when a same-waypoint automatic trip is too short to be valid."""
+
+    return origin.id == destination.id and miles < SAME_WAYPOINT_MINIMUM_TRIP_MILES
+
+
 def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decimal) -> bool:
+    if _is_same_waypoint_under_minimum_miles(origin, destination, miles):
+        return True
     if origin.id == destination.id:
         return False
     return miles < get_settings().min_trip_miles
@@ -849,6 +858,36 @@ def _add_or_update_trip(
         odometer_anchor_miles=odometer_anchor_miles,
     )
     notes = _trip_notes(inferred_leave=inferred_leave)
+
+    if _is_same_waypoint_under_minimum_miles(origin, destination, calculation.miles):
+        if existing_auto_trip is not None:
+            suppress_trip_generation_for_deleted_trip(
+                db,
+                existing_auto_trip,
+                reason="invalid_same_waypoint_under_one_mile",
+            )
+            db.delete(existing_auto_trip)
+            existing_auto_trips.pop(trip_key, None)
+            trip_logger.info(
+                "trip removed reason=invalid_same_waypoint_under_one_mile "
+                "origin=%s destination=%s miles=%s started_at=%s ended_at=%s",
+                origin.name,
+                destination.name,
+                calculation.miles,
+                started_at.isoformat(),
+                ended_at.isoformat(),
+            )
+        else:
+            trip_logger.debug(
+                "trip skipped reason=invalid_same_waypoint_under_one_mile "
+                "origin=%s destination=%s miles=%s started_at=%s ended_at=%s",
+                origin.name,
+                destination.name,
+                calculation.miles,
+                started_at.isoformat(),
+                ended_at.isoformat(),
+            )
+        return None
 
     if existing_auto_trip is not None and not _calculation_improves_existing_trip(
         existing_auto_trip,
@@ -1265,7 +1304,12 @@ def mark_trip_manually_reviewed(trip: Trip) -> None:
         trip.source = MANUAL_TRIP_SOURCE
 
 
-def suppress_trip_generation_for_deleted_trip(db: Session, trip: Trip) -> DeletedTrip | None:
+def suppress_trip_generation_for_deleted_trip(
+    db: Session,
+    trip: Trip,
+    *,
+    reason: str = "user_deleted",
+) -> DeletedTrip | None:
     """Save an exact source-event tombstone for one deleted automatic trip."""
 
     trip_key = _trip_generation_key(
@@ -1301,7 +1345,7 @@ def suppress_trip_generation_for_deleted_trip(db: Session, trip: Trip) -> Delete
     deleted_trip.miles = trip.miles
     deleted_trip.source = trip.source
     deleted_trip.mileage_source = trip.mileage_source
-    deleted_trip.reason = "user_deleted"
+    deleted_trip.reason = reason
     deleted_trip.notes = trip.notes or ""
     return deleted_trip
 

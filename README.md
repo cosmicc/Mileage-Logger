@@ -175,8 +175,8 @@ The app generates trips directly from OwnTracks waypoint transitions:
   The default is 5 minutes so driving through a waypoint does not create a trip.
 - `Home` is the exact waypoint name for home.
 - `Home` to `Home` is never a trip.
-- Trips between the same non-home waypoint are kept, because they can represent work travel that
-  returns to the same waypoint.
+- Trips between the same non-home waypoint are kept only when the calculated distance is at least
+  1.0 mile, because shorter same-waypoint loops are treated as invalid GPS drift or non-trips.
 - If an `enter` event arrives without a matching `leave`, the app infers the most likely origin
   from the previous waypoint. If there is no previous waypoint and the destination is not `Home`,
   the app assumes the missed origin was `Home`.
@@ -205,6 +205,8 @@ when the generated mileage needs correction. A distance correction resequences t
 displayed start and end odometers in chronological trip order. Deleting a trip from the `Trips`
 page also saves an exact deleted-trip record so only that same OwnTracks transition pair is not
 generated again; future trips with the same route are still generated normally.
+Automatic same-waypoint trips under 1.0 mile are also removed with an exact suppression record so
+older invalid rows do not return from the same OwnTracks transition pair.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
 odometer value for that point, and generated trips use those rolling values for start and end

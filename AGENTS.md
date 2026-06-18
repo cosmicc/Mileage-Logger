@@ -99,6 +99,7 @@ docker compose up -d --build
    - `leave` from waypoint A + `enter` to waypoint B = one trip
    - Requires at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5) of data inside destination
    - Home → Home never generates a trip
+   - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
 3. Mileage is calculated from location updates between the two events
 4. Odometer values are estimated if not available
 5. Trip is stored and shown on `/trips` page for review/editing

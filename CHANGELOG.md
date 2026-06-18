@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed automatic trip generation so same-waypoint trips under 1.0 mile are
+  suppressed as invalid non-trips. Existing automatic rows matching that rule
+  are removed with an exact deleted-trip suppression record so the same
+  OwnTracks transition pair does not recreate them.
 - Fixed Dashboard Today distance cards so the trip and non-trip totals stay on the
   `LOCAL_TIMEZONE` day until local midnight instead of rolling over with UTC.
 - Fixed automatic trip processing so a waypoint arrival can create the trip after the dwell timer

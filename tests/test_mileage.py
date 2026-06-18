@@ -767,7 +767,7 @@ def test_generate_trips_estimates_from_prior_odometer_anchor() -> None:
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
-def test_generate_trips_ignores_home_to_home_but_allows_same_work_waypoint() -> None:
+def test_generate_trips_ignores_same_waypoint_trip_under_one_mile() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     home = _site("Home", "42.3314", "-83.0458")
@@ -788,10 +788,78 @@ def test_generate_trips_ignores_home_to_home_but_allows_same_work_waypoint() -> 
 
     trips = generate_trips(db, day.date(), day.date())
 
+    assert trips == []
+    assert db.scalar(select(Trip.id)) is None
+
+
+def test_generate_trips_allows_same_waypoint_trip_at_least_one_mile() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client = _site("Client", "42.3440", "-83.0600")
+    route_point_one = _location(day + timedelta(minutes=15), "42.3440", "-83.0800")
+    route_point_two = _location(day + timedelta(minutes=30), "42.3520", "-83.0900")
+    db.add_all(
+        [
+            client,
+            _transition(day, client, "leave"),
+            route_point_one,
+            route_point_two,
+            _transition(day + timedelta(hours=1), client, "enter"),
+            _dwell_confirmation(day + timedelta(hours=1), client),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+
     assert len(trips) == 1
     assert trips[0].origin_site_id == client.id
     assert trips[0].destination_site_id == client.id
-    assert trips[0].miles == Decimal("0.0")
+    assert trips[0].miles >= Decimal("1.0")
+    assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
+
+
+def test_generate_trips_removes_existing_same_waypoint_trip_under_one_mile() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add(client)
+    db.flush()
+    existing_trip = Trip(
+        trip_date=day.date(),
+        origin_site_id=client.id,
+        destination_site_id=client.id,
+        started_at=_naive(day),
+        ended_at=_naive(day + timedelta(hours=1)),
+        start_latitude=client.latitude,
+        start_longitude=client.longitude,
+        end_latitude=client.latitude,
+        end_longitude=client.longitude,
+        origin_name=client.name,
+        destination_name=client.name,
+        miles=Decimal("0.5"),
+        mileage_source=MILEAGE_SOURCE_WAYPOINT_DISTANCE,
+        source="auto",
+    )
+    db.add_all(
+        [
+            existing_trip,
+            _transition(day, client, "leave"),
+            _transition(day + timedelta(hours=1), client, "enter"),
+            _dwell_confirmation(day + timedelta(hours=1), client),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+
+    assert trips == []
+    assert db.scalar(select(Trip.id)) is None
+    deleted_trip = db.scalar(select(DeletedTrip))
+    assert deleted_trip is not None
+    assert deleted_trip.reason == "invalid_same_waypoint_under_one_mile"
+    assert deleted_trip.origin_site_id == client.id
+    assert deleted_trip.destination_site_id == client.id
 
 
 def test_generate_trips_assumes_missing_first_leave_was_from_home() -> None:
