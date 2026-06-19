@@ -177,6 +177,16 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 
 [mileage_logger/web/routes.py](mileage_logger/web/routes.py)
 
+### Trips Page Form Boundary
+
+- Existing rows on `trips.html` intentionally keep the trip date, origin, destination, and odometer
+  values read-only. The `/trips/{trip_id}` web form accepts mileage edits only, so a posted
+  `trip_date` value must not move an existing trip.
+- The Add Trip form remains the place to enter a new manual trip date.
+- `layout.html` includes a mobile-only full-screen web-app close control. It calls
+  `window.close()`, which is a browser-controlled best-effort action and may be ignored outside
+  installed app contexts.
+
 ### Basic Pattern
 
 ```python

@@ -27,17 +27,20 @@
         </span>
         <span>Mileage Logger</span>
       </a>
-      <nav>
-        <a href="/">Home</a>
-        <a href="/trips">Trips</a>
-        <a href="/waypoints">Waypoints</a>
-        <a href="/diagnostics">Diagnostics</a>
-        {% if web_login_enabled() %}
-        <form action="/logout" method="post" class="nav-form">
-          <button type="submit" class="nav-logout">Logout</button>
-        </form>
-        {% endif %}
-      </nav>
+      <div class="topbar-actions">
+        <nav>
+          <a href="/">Home</a>
+          <a href="/trips">Trips</a>
+          <a href="/waypoints">Waypoints</a>
+          <a href="/diagnostics">Diagnostics</a>
+          {% if web_login_enabled() %}
+          <form action="/logout" method="post" class="nav-form">
+            <button type="submit" class="nav-logout">Logout</button>
+          </form>
+          {% endif %}
+        </nav>
+        <button type="button" class="app-close-button" data-app-close aria-label="Close app" title="Close app">&times;</button>
+      </div>
     </header>
     <main class="page">
       {% block content %}{% endblock %}
@@ -48,6 +51,19 @@
           navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(() => {});
         });
       }
+
+      (() => {
+        // Close button element for full-screen installed web-app sessions.
+        const closeAppButton = document.querySelector("[data-app-close]");
+
+        if (closeAppButton === null) {
+          return;
+        }
+
+        closeAppButton.addEventListener("click", () => {
+          window.close();
+        });
+      })();
     </script>
   </body>
 </html>

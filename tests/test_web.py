@@ -270,6 +270,11 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert 'rel="manifest" href="/manifest.webmanifest"' in response.text
         assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' in response.text
         assert "/static/icons/mileage-logger-icon.svg" in response.text
+        assert 'class="app-close-button"' in response.text
+        assert 'data-app-close aria-label="Close app"' in response.text
+        assert ".app-close-button {\n  display: none;" in response.text
+        assert ".app-close-button {\n    display: inline-flex;" in response.text
+        assert "window.close()" in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -1009,7 +1014,7 @@ def test_trips_page_creates_manual_trip() -> None:
         app.dependency_overrides.clear()
 
 
-def test_trips_page_updates_existing_trip_date_and_values() -> None:
+def test_trips_page_updates_existing_trip_distance_without_editing_date() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
@@ -1045,13 +1050,14 @@ def test_trips_page_updates_existing_trip_date_and_values() -> None:
         )
 
         assert response.status_code == 200
-        assert "2026-06-16" in response.text
+        assert "2026-06-10" in response.text
+        assert "2026-06-16" not in response.text
         assert "Old Home" in response.text
         assert "Old Client" in response.text
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
-            assert trip.trip_date == datetime(2026, 6, 16, tzinfo=UTC).date()
+            assert trip.trip_date == datetime(2026, 6, 10, tzinfo=UTC).date()
             assert trip.origin_name == "Old Home"
             assert trip.destination_name == "Old Client"
             assert trip.miles == Decimal("15.50")
@@ -1099,6 +1105,8 @@ def test_trips_page_odometer_values_are_read_only() -> None:
         )
 
         assert page_response.status_code == 200
+        assert '<span class="trip-date">2026-06-10</span>' in page_response.text
+        assert 'class="date-input" type="date" name="trip_date"' not in page_response.text
         assert '<td class="trip-name">Home</td>' in page_response.text
         assert '<td class="trip-name">Client</td>' in page_response.text
         assert 'name="origin_name" maxlength="160" required value="Home"' not in page_response.text

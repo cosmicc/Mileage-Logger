@@ -70,7 +70,7 @@
       <tr>
         <td>
           <form id="{{ form_id }}" action="/trips/{{ trip.id }}" method="post"></form>
-          <input form="{{ form_id }}" class="date-input" type="date" name="trip_date" required value="{{ trip.trip_date }}">
+          <span class="trip-date">{{ trip.trip_date }}</span>
         </td>
         <td class="trip-name">{{ trip.origin_display_name }}</td>
         <td class="trip-name">{{ trip.destination_display_name }}</td>

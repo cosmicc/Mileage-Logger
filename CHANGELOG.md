@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed Trips page row editing so existing trip dates render as read-only text and cannot be
+  changed by the row update form.
+- Added a mobile-only top-bar close button that calls the browser close action for installed full-screen
+  mobile web-app sessions.
 - Added installable mobile web-app metadata, home-screen icons, and full-screen mobile shell styling
   so Mileage Logger opens like a phone app when saved to the home screen.
 - Changed automatic trip generation so same-waypoint trips under 1.0 mile are

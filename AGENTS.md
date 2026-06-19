@@ -145,6 +145,14 @@ docker compose up -d --build
 3. Use `authenticate_web_credentials` if page should require login
 4. Pass context dict to `templates.TemplateResponse()`
 
+### Trips Page Editing Boundaries
+- Existing trip rows display trip dates, origin names, destination names, and odometers as
+  read-only values; row update forms only accept mileage edits.
+- Manual trip creation still uses an editable date field in the Add Trip form.
+- The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
+  installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
+  contexts they allow scripts to close.
+
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs
 2. View app logs: `docker compose logs -f app`

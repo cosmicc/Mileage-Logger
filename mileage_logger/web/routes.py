@@ -424,31 +424,15 @@ def _api_test_result(
     return ApiTestResult(status=status, message=cleaned_message, value=cleaned_value)
 
 
-def _manual_trip_datetime(trip_date: date) -> datetime:
-    """Return the local-day start used for web edits that manually move a trip date."""
-
-    start_dt, _ = local_day_bounds(trip_date)
-    return start_dt
-
-
 def _update_trip_row_values(
     trip: Trip,
     *,
-    trip_date: date,
     miles: Decimal,
 ) -> set[tuple[int, int]]:
     """Apply only the editable Trips-page fields to one trip row."""
 
     manual_review_needed = False
     resequence_months: set[tuple[int, int]] = set()
-    if trip.trip_date != trip_date:
-        resequence_months.add((trip.trip_date.year, trip.trip_date.month))
-        trip.trip_date = trip_date
-        trip.started_at = _manual_trip_datetime(trip_date)
-        trip.ended_at = trip.started_at
-        resequence_months.add((trip.trip_date.year, trip.trip_date.month))
-        manual_review_needed = True
-
     rounded_miles = Decimal(str(miles)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
     if trip.miles != rounded_miles:
         trip.miles = rounded_miles
@@ -754,7 +738,6 @@ def trips(
 @router.post("/trips/{trip_id}")
 def update_trip_form(
     trip_id: int,
-    trip_date: date = Form(...),
     miles: Decimal = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
@@ -766,7 +749,6 @@ def update_trip_form(
 
     resequence_months = _update_trip_row_values(
         trip,
-        trip_date=trip_date,
         miles=miles,
     )
     for resequence_year, resequence_month in sorted(resequence_months):
