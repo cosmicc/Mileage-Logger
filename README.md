@@ -188,8 +188,9 @@ all Mileage Logger database tables plus an OwnTracks waypoint export. Treat this
 location history.
 
 To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
-file first, then replaces the current app table rows in one transaction. It does not restore Docker
-volumes, PostgreSQL users, passwords, or host log files.
+file first, then replaces the current app table rows in one transaction. Restore is a replace, not
+a merge: matching existing rows are overwritten from the backup and should not create duplicates.
+It does not restore Docker volumes, PostgreSQL users, passwords, or host log files.
 
 ## MQTT Setup
 
@@ -244,9 +245,13 @@ Keep OwnTracks location reporting enabled so the app can sum the actual path bet
 events. If a trip window has only transition events and no location updates between them, the app
 falls back to estimated odometer, then waypoint distance. Edit a trip's miles on the `Trips` page
 when the generated mileage needs correction. A distance correction resequences that month's
-displayed start and end odometers in chronological trip order. Deleting a trip from the `Trips`
-page also saves an exact deleted-trip record so only that same OwnTracks transition pair is not
-generated again; future trips with the same route are still generated normally.
+displayed start and end odometers in chronological trip order. Manual trips entered from the
+`Trips` page now save start/end odometers immediately from the latest known odometer reading plus
+the entered trip miles. If the manual trip is inserted before existing trips, the app resequences
+that trip and every later trip so odometers remain cumulative across month boundaries. Deleting a
+trip from the `Trips` page also saves an exact deleted-trip record so only that same OwnTracks
+transition pair is not generated again; future trips with the same route are still generated
+normally.
 Automatic same-waypoint trips under 1.0 mile are also removed with an exact suppression record so
 older invalid rows do not return from the same OwnTracks transition pair.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when

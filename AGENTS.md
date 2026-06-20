@@ -162,7 +162,9 @@ docker compose up -d --build
 ### Trips Page Editing Boundaries
 - Existing trip rows display trip dates, origin names, destination names, and odometers as
   read-only values; row update forms only accept mileage edits.
-- Manual trip creation still uses an editable date field in the Add Trip form.
+- Manual trip creation still uses an editable date field in the Add Trip form. Manual inserts
+  calculate and save start/end odometers immediately, then resequence that trip and all later
+  trips when the inserted date is before existing trip rows.
 - The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
   installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
   contexts they allow scripts to close.

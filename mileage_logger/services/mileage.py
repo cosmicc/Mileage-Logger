@@ -1,10 +1,10 @@
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from math import asin, cos, radians, sin, sqrt
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
@@ -1050,6 +1050,65 @@ def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal |
     )
 
 
+def _latest_trip_odometer_before_trip(db: Session, trip: Trip) -> Decimal | None:
+    """Return the latest trip odometer before one trip in chronological order."""
+
+    if trip.id is None:
+        return None
+    return db.scalar(
+        select(Trip.end_odometer_miles)
+        .where(Trip.id != trip.id)
+        .where(Trip.end_odometer_miles.is_not(None))
+        .where(
+            or_(
+                Trip.ended_at < trip.started_at,
+                and_(Trip.ended_at == trip.started_at, Trip.id < trip.id),
+            )
+        )
+        .order_by(Trip.ended_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+
+
+def _latest_current_odometer(db: Session) -> Decimal | None:
+    """Return the most recent odometer known from trips or the rolling checkpoint."""
+
+    candidates: list[tuple[datetime, int, Decimal]] = []
+    latest_trip = db.scalar(
+        select(Trip)
+        .where(Trip.end_odometer_miles.is_not(None))
+        .order_by(Trip.ended_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+    if latest_trip is not None and latest_trip.end_odometer_miles is not None:
+        candidates.append(
+            (
+                datetime_to_utc(latest_trip.ended_at),
+                latest_trip.id or 0,
+                Decimal(latest_trip.end_odometer_miles),
+            )
+        )
+
+    checkpoint = _latest_checkpoint(db)
+    if checkpoint is not None and checkpoint.odometer_anchor_miles is not None:
+        checkpoint_recorded_at = (
+            datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
+            if checkpoint.odometer_anchor_recorded_at is not None
+            else datetime.min.replace(tzinfo=UTC)
+        )
+        candidates.append(
+            (
+                checkpoint_recorded_at,
+                checkpoint.id or 0,
+                Decimal(checkpoint.odometer_anchor_miles),
+            )
+        )
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
 def _month_date_bounds(year: int, month: int) -> tuple[date, date]:
     """Return inclusive start and exclusive end dates for one local report month."""
 
@@ -1067,6 +1126,25 @@ def _month_trips_ordered(db: Session, year: int, month: int) -> list[Trip]:
             select(Trip)
             .where(Trip.trip_date >= start_date)
             .where(Trip.trip_date < end_date)
+            .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
+        )
+    )
+
+
+def _trips_from_trip_ordered(db: Session, first_trip: Trip) -> list[Trip]:
+    """Load one trip and every chronologically later trip."""
+
+    if first_trip.id is None:
+        return []
+    return list(
+        db.scalars(
+            select(Trip)
+            .where(
+                or_(
+                    Trip.started_at > first_trip.started_at,
+                    and_(Trip.started_at == first_trip.started_at, Trip.id >= first_trip.id),
+                )
+            )
             .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
         )
     )
@@ -1162,6 +1240,89 @@ def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
         month_trips[-1].end_odometer_miles,
     )
     return len(month_trips)
+
+
+def _manual_trip_start_odometer(db: Session, trip: Trip) -> tuple[Decimal, str]:
+    """Return the starting odometer and source for a newly added manual trip."""
+
+    prior_trip_odometer = _latest_trip_odometer_before_trip(db, trip)
+    if prior_trip_odometer is not None:
+        return (
+            Decimal(prior_trip_odometer).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP),
+            ODOMETER_SOURCE_PREVIOUS_TRIP,
+        )
+
+    prior_timed_odometer = _latest_odometer_before(db, trip.started_at)
+    if prior_timed_odometer is not None:
+        return (
+            Decimal(prior_timed_odometer).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP),
+            ODOMETER_SOURCE_PREVIOUS_TRIP,
+        )
+
+    current_odometer = _latest_current_odometer(db)
+    if current_odometer is not None:
+        return (
+            Decimal(current_odometer).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP),
+            ODOMETER_SOURCE_MANUAL,
+        )
+
+    return Decimal("0.0"), ODOMETER_SOURCE_MANUAL
+
+
+def resequence_trip_odometers_from(
+    db: Session,
+    first_trip: Trip,
+    *,
+    start_odometer_miles: Decimal | None = None,
+    start_odometer_source: str | None = None,
+) -> int:
+    """Recalculate one trip and every later trip from ordered trip distances."""
+
+    db.flush()
+    ordered_trips = _trips_from_trip_ordered(db, first_trip)
+    if not ordered_trips:
+        return 0
+
+    if start_odometer_miles is None:
+        start_odometer_miles = first_trip.start_odometer_miles
+    if start_odometer_miles is None:
+        start_odometer_miles, start_odometer_source = _manual_trip_start_odometer(db, first_trip)
+
+    current_odometer = Decimal(start_odometer_miles).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    first_start_source = (
+        start_odometer_source
+        or first_trip.start_odometer_source
+        or ODOMETER_SOURCE_PREVIOUS_TRIP
+    )
+
+    for index, trip in enumerate(ordered_trips):
+        trip_distance = Decimal(trip.miles).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
+        start_odometer = current_odometer.quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
+        end_odometer = (start_odometer + trip_distance).quantize(
+            ODOMETER_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        trip.start_odometer_miles = start_odometer
+        trip.end_odometer_miles = end_odometer
+        trip.start_odometer_source = (
+            first_start_source if index == 0 else ODOMETER_SOURCE_PREVIOUS_TRIP
+        )
+        trip.end_odometer_source = ODOMETER_SOURCE_ESTIMATED
+        current_odometer = end_odometer
+
+    _update_checkpoint_after_resequence(db, ordered_trips[-1])
+    trip_logger.info(
+        "Resequenced future trip odometers from_trip_id=%s trips=%s "
+        "start_odometer=%s end_odometer=%s",
+        first_trip.id,
+        len(ordered_trips),
+        ordered_trips[0].start_odometer_miles,
+        ordered_trips[-1].end_odometer_miles,
+    )
+    return len(ordered_trips)
 
 
 def generate_trips(
@@ -1417,6 +1578,14 @@ def create_manual_trip(
         notes=MANUAL_TRIP_NOTE,
     )
     db.add(trip)
+    db.flush()
+    start_odometer, start_source = _manual_trip_start_odometer(db, trip)
+    resequence_trip_odometers_from(
+        db,
+        trip,
+        start_odometer_miles=start_odometer,
+        start_odometer_source=start_source,
+    )
     return trip
 
 

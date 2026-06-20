@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed manual trip creation so new manual trips save start/end odometers from the latest known
+  odometer reading, and prior-date manual inserts resequence every later trip odometer
+  cumulatively across month boundaries.
+- Added a restore regression check proving full backup restore replaces changed same-row data
+  instead of creating duplicate rows.
 - Changed public nginx routing so only rendered web pages and OwnTracks ingestion endpoints are
   internet-facing; all other `/api/` routes and generated FastAPI docs are blocked at nginx while
   internal container health checks still use `/api/health`.

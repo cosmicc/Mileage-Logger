@@ -21,6 +21,7 @@ from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_OWNTRACKS_PATH,
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
     ODOMETER_SOURCE_ESTIMATED,
+    ODOMETER_SOURCE_MANUAL,
     ODOMETER_SOURCE_OWNTRACKS_ROLLING,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
     create_manual_trip,
@@ -136,6 +137,98 @@ def test_create_manual_trip_saves_editable_manual_values() -> None:
     assert trip.mileage_source == MILEAGE_SOURCE_MANUAL
     assert trip.origin_site_id is None
     assert trip.destination_site_id is None
+
+
+def test_create_manual_trip_saves_odometer_from_current_checkpoint() -> None:
+    db = _session()
+    trip_date = date(2026, 6, 15)
+    current_odometer_at = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    db.add(
+        TripProcessingCheckpoint(
+            name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+            odometer_anchor_miles=Decimal("1234.4"),
+            odometer_anchor_recorded_at=current_odometer_at,
+        )
+    )
+    db.commit()
+
+    trip = create_manual_trip(
+        db,
+        trip_date=trip_date,
+        origin_name="Home",
+        destination_name="Client",
+        miles=Decimal("12.34"),
+    )
+    db.commit()
+
+    assert trip.start_odometer_miles == Decimal("1234.4")
+    assert trip.end_odometer_miles == Decimal("1246.7")
+    assert trip.start_odometer_source == ODOMETER_SOURCE_MANUAL
+    assert trip.end_odometer_source == ODOMETER_SOURCE_ESTIMATED
+
+
+def test_create_manual_prior_trip_resequences_all_later_trip_odometers() -> None:
+    db = _session()
+    june_twentieth = datetime(2026, 6, 20, 9, 0, tzinfo=UTC)
+    july_first = datetime(2026, 7, 1, 9, 0, tzinfo=UTC)
+    later_june_trip = Trip(
+        trip_date=june_twentieth.date(),
+        started_at=june_twentieth,
+        ended_at=june_twentieth + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("5.0"),
+        start_odometer_miles=Decimal("2000.0"),
+        end_odometer_miles=Decimal("2005.0"),
+        start_odometer_source=ODOMETER_SOURCE_PREVIOUS_TRIP,
+        end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
+        source="auto",
+    )
+    later_july_trip = Trip(
+        trip_date=july_first.date(),
+        started_at=july_first,
+        ended_at=july_first + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("7.0"),
+        start_odometer_miles=Decimal("2005.0"),
+        end_odometer_miles=Decimal("2012.0"),
+        start_odometer_source=ODOMETER_SOURCE_PREVIOUS_TRIP,
+        end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
+        source="auto",
+    )
+    db.add_all(
+        [
+            later_june_trip,
+            later_july_trip,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("5000.0"),
+                odometer_anchor_recorded_at=july_first + timedelta(days=1),
+            ),
+        ]
+    )
+    db.commit()
+
+    manual_trip = create_manual_trip(
+        db,
+        trip_date=date(2026, 6, 10),
+        origin_name="Home",
+        destination_name="Client",
+        miles=Decimal("3.5"),
+    )
+    db.commit()
+
+    assert manual_trip.start_odometer_miles == Decimal("5000.0")
+    assert manual_trip.end_odometer_miles == Decimal("5003.5")
+    assert later_june_trip.start_odometer_miles == Decimal("5003.5")
+    assert later_june_trip.end_odometer_miles == Decimal("5008.5")
+    assert later_july_trip.start_odometer_miles == Decimal("5008.5")
+    assert later_july_trip.end_odometer_miles == Decimal("5015.5")
 
 
 def test_generate_trips_from_leave_and_enter_transitions() -> None:

@@ -193,7 +193,9 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - Existing rows on `trips.html` intentionally keep the trip date, origin, destination, and odometer
   values read-only. The `/trips/{trip_id}` web form accepts mileage edits only, so a posted
   `trip_date` value must not move an existing trip.
-- The Add Trip form remains the place to enter a new manual trip date.
+- The Add Trip form remains the place to enter a new manual trip date. Its service path calculates
+  start/end odometers from the latest known odometer reading and resequences that trip plus every
+  later trip when a prior-date manual trip is inserted.
 - `layout.html` includes a mobile-only full-screen web-app close control. It calls
   `window.close()`, which is a browser-controlled best-effort action and may be ignored outside
   installed app contexts.

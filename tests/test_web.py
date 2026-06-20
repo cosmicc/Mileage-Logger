@@ -978,6 +978,9 @@ def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tm
         assert payload["owntracks_waypoints"]["waypoints"][0]["desc"] == "Client"
 
         with session_factory() as db:
+            existing_site = db.scalar(select(Site))
+            assert existing_site is not None
+            existing_site.name = "Changed Client"
             db.add(
                 Site(
                     name="Temporary",

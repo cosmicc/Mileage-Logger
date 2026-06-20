@@ -213,10 +213,6 @@ trip = create_manual_trip(
     trip_date=date(2026, 6, 15),
     origin_name="Home",
     destination_name="Work",
-    start_latitude=Decimal("42.3314"),
-    start_longitude=Decimal("-83.0458"),
-    end_latitude=Decimal("42.3314"),
-    end_longitude=Decimal("-83.0417"),
     miles=Decimal("5.2"),
 )
 ```
@@ -224,8 +220,11 @@ trip = create_manual_trip(
 Creates a `Trip` with:
 - `source="manual"`
 - `mileage_source="manual"`
-- Odometer values: `None` (user can edit later)
-- Auto-calculates `start_odometer`/`end_odometer` based on checkpoint if available
+- Start odometer from the latest chronological trip odometer, or the latest known current
+  odometer/checkpoint when no earlier trip odometer exists
+- End odometer = start odometer + entered trip miles
+- Automatic resequencing of this manual trip and every later trip, even across later months, so
+  future odometer fields remain cumulative after inserting a prior-date manual trip
 
 ---
 
@@ -257,6 +256,12 @@ When trip miles change, all trips in that month are reordered by date/time, then
 
 ```python
 resequence_month_trip_odometers(db, trip.trip_date)
+```
+
+When a manual trip is newly inserted, use the broader forward resequence:
+
+```python
+resequence_trip_odometers_from(db, trip)
 ```
 
 This ensures:
