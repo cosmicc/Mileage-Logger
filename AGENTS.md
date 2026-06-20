@@ -120,6 +120,8 @@ docker compose up -d --build
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
 - Manual odometer readings reset the anchor to an exact value
+- Diagnostics shows the current odometer inside the Manual Odometer card before a new manual
+  checkpoint value is saved
 - Useful when actual odometer reading differs from GPS distance estimate
 - Stored in `TripProcessingCheckpoint` table
 

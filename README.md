@@ -13,7 +13,8 @@ monthly reimbursement PDF logs.
   are available.
 - OwnTracks waypoint transition model used to turn leave/enter events into trips, with
   location updates between those events used as the primary trip distance.
-- Manual current-odometer entry from the Diagnostics page.
+- Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
+  the latest current reading before saving a new checkpoint.
 - Manual trip entry and review for trip dates, waypoint names, and mileage.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
@@ -261,6 +262,8 @@ odometers. The trip end odometer is always advanced from the start odometer by t
 distance so the odometer difference matches the trip miles. Segments fully inside the same saved
 waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
 the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
+The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
+the existing checkpoint can be checked before entering a correction.
 
 ## Cloudflare Tunnel
 

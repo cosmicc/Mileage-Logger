@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed the Diagnostics manual odometer card to show the current odometer reading before saving
+  a new manual checkpoint.
 - Fixed manual trip creation so new manual trips save start/end odometers from the latest known
   odometer reading, and prior-date manual inserts resequence every later trip odometer
   cumulatively across month boundaries.

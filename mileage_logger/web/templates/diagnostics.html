@@ -181,6 +181,19 @@
       <button type="submit" class="small-button">Save</button>
     </form>
     <dl class="diagnostic-list">
+      <dt>Current Odometer</dt>
+      <dd>
+        {% if latest_odometer %}
+        {{ latest_odometer.value|odometer }} miles
+        <span class="diagnostic-value">
+          {{ latest_odometer.source|odometer_source }}
+          {{ latest_odometer.position }}
+          at {{ latest_odometer.recorded_at|local_datetime }}
+        </span>
+        {% else %}
+        No reading yet
+        {% endif %}
+      </dd>
       <dt>Save Result</dt>
       <dd>
         {% if manual_odometer_result %}

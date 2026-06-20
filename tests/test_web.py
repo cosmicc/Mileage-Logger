@@ -2,6 +2,7 @@ import gzip
 import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, func, select
@@ -29,7 +30,7 @@ from mileage_logger.services.diagnostics import (
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
-from mileage_logger.web.routes import _human_duration_since
+from mileage_logger.web.routes import _human_duration_since, templates
 
 
 def _session() -> Session:
@@ -1561,6 +1562,66 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
             assert checkpoint.odometer_anchor_miles == Decimal("12345.7")
     finally:
         app.dependency_overrides.clear()
+
+
+def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
+    now = datetime(2026, 6, 20, 13, 30, tzinfo=UTC)
+    rendered = templates.env.get_template("diagnostics.html").render(
+        {
+            "settings": Settings(database_url="sqlite://"),
+            "database_url": "sqlite://",
+            "location_count": 0,
+            "site_count": 0,
+            "trip_count": 0,
+            "gas_snapshot_count": 0,
+            "latest_location": None,
+            "last_owntracks_received_at": None,
+            "last_owntracks_received_age": "Never",
+            "latest_snapshot": None,
+            "latest_monthly_gas": None,
+            "latest_odometer": {
+                "value": Decimal("43210.4"),
+                "source": "owntracks_estimate",
+                "position": "Rolling",
+                "recorded_at": now,
+            },
+            "recent_locations": [],
+            "owntracks_entries_page": SimpleNamespace(
+                first_item=0,
+                last_item=0,
+                total=0,
+                has_previous=False,
+                has_next=False,
+                page=1,
+                total_pages=1,
+            ),
+            "movement_state": SimpleNamespace(
+                state="none",
+                label="No data",
+                site_name=None,
+                arrived_at=None,
+                detected_at=None,
+                distance_miles=None,
+            ),
+            "movement_state_changes": [],
+            "app_log_lines": [],
+            "login_failure_log_path": "/tmp/mileage-logger-login-failures.log",
+            "login_failure_entries": [],
+            "manual_odometer_result": None,
+            "eia_test_result": None,
+            "restore_result": None,
+            "backup_restore_enabled": False,
+            "backup_upload_max_mb": 10,
+        }
+    )
+
+    manual_card_start = rendered.index("<h2>Manual Odometer</h2>")
+    manual_card_end = rendered.index("<h2>EIA API</h2>")
+    manual_card = rendered[manual_card_start:manual_card_end]
+    assert "Current Odometer" in manual_card
+    assert "43210.4 miles" in manual_card
+    assert "OwnTracks estimate" in manual_card
+    assert "Rolling" in manual_card
 
 
 def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:
