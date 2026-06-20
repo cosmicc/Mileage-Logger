@@ -63,8 +63,8 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
   OwnTracks state in the configured local timezone.
-- Failed web-login audit records shown on Diagnostics and written to
-  `/var/log/mileage-logger-login-failures.log` on the Docker host.
+- Failed web-login audit records shown on Diagnostics and written into the host log directory, with
+  an optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping `/api/` reachable for OwnTracks.
 
 Create a production `.env` with generated passwords:
@@ -80,12 +80,21 @@ start the stack:
 docker compose up -d --build
 ```
 
-`scripts/init_docker_env.sh` tries to create the host log directory and login-failure log file. If
-your user cannot write to `/var/log`, create them before starting Docker:
+`scripts/init_docker_env.sh` tries to create the host log directory, login-failure log file, and
+the short `/var/log/mileage-logger-login-failures.log` symlink. If your user cannot write to
+`/var/log`, create them before starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/log/mileage-logger
-sudo install -m 0640 /dev/null /var/log/mileage-logger-login-failures.log
+sudo install -m 0640 /dev/null /var/log/mileage-logger/mileage-logger-login-failures.log
+sudo ln -sfn /var/log/mileage-logger/mileage-logger-login-failures.log /var/log/mileage-logger-login-failures.log
+```
+
+If an earlier failed start created `/var/log/mileage-logger-login-failures.log` as a directory,
+remove that empty directory first:
+
+```bash
+sudo rmdir /var/log/mileage-logger-login-failures.log
 ```
 
 Useful commands:
@@ -273,7 +282,7 @@ WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
 HOST_LOG_DIR=/var/log/mileage-logger
-LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
@@ -281,9 +290,10 @@ Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on render
 leaving `/api/` outside the web login. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
-`trip-calculation.log`, and worker logs directly. The failed-login audit file is bound separately
-at `LOGIN_FAILURE_LOG_PATH`, default `/var/log/mileage-logger-login-failures.log`, and is also
-shown and downloadable from Diagnostics.
+`trip-calculation.log`, worker logs, and `mileage-logger-login-failures.log` directly. The app
+writes failed-login audit records inside the mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH`
+is only a host-side symlink alias for the shorter `/var/log/mileage-logger-login-failures.log`
+path. The same failed-login entries are shown and downloadable from Diagnostics.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
 `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.

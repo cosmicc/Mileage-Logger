@@ -23,9 +23,8 @@ COPY scripts/gas-snapshot-loop.sh /usr/local/bin/gas-snapshot-loop
 RUN pip install . \
     && chmod +x /usr/local/bin/docker-entrypoint /usr/local/bin/gas-snapshot-loop \
     && useradd --system --home-dir /app --shell /usr/sbin/nologin app \
-    && touch /var/log/mileage-logger-login-failures.log \
     && mkdir -p /data/logs \
-    && chown -R app:app /app /data /var/log/mileage-logger-login-failures.log
+    && chown -R app:app /app /data
 
 EXPOSE 8000
 

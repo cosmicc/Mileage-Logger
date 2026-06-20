@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- Added structured failed-login audit logging to `/var/log/mileage-logger-login-failures.log`,
-  including client IP details, submitted username, password length, user agent, lockout state, and
-  timestamps without storing raw passwords; Diagnostics now shows and downloads those entries.
+- Fixed Docker startup by removing the individual failed-login log file bind mount; failed-login
+  audit records now use the shared host log directory with an optional `/var/log/...` symlink.
+- Added structured failed-login audit logging, including client IP details, submitted username,
+  password length, user agent, lockout state, and timestamps without storing raw passwords;
+  Diagnostics now shows and downloads those entries.
 - Changed Docker logging so app and worker logs bind to a host log directory and the container
   prepares mounted log paths before dropping to the non-root app user.
 - Changed Docker environment generation so `WEB_LOGIN_PASSWORD` is generated instead of leaving

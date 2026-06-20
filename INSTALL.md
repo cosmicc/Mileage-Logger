@@ -68,12 +68,21 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
 
-It also tries to prepare `HOST_LOG_DIR` and `LOGIN_FAILURE_LOG_PATH` on the Docker host. If your
-user cannot write to `/var/log`, create them before starting Docker:
+It also tries to prepare `HOST_LOG_DIR`, the failed-login log file inside that directory, and the
+optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the Docker host. If your user cannot write to
+`/var/log`, create them before starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/log/mileage-logger
-sudo install -m 0640 /dev/null /var/log/mileage-logger-login-failures.log
+sudo install -m 0640 /dev/null /var/log/mileage-logger/mileage-logger-login-failures.log
+sudo ln -sfn /var/log/mileage-logger/mileage-logger-login-failures.log /var/log/mileage-logger-login-failures.log
+```
+
+If an earlier failed container start created `/var/log/mileage-logger-login-failures.log` as a
+directory, remove that empty directory before creating the symlink:
+
+```bash
+sudo rmdir /var/log/mileage-logger-login-failures.log
 ```
 
 Review the file before starting, and set `CLOUDFLARED_TUNNEL_TOKEN` to the token from the
@@ -102,7 +111,7 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
 LOG_DIR=/data/logs
 HOST_LOG_DIR=/var/log/mileage-logger
-LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
@@ -355,7 +364,7 @@ WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
 HOST_LOG_DIR=/var/log/mileage-logger
-LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 ```
 
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
@@ -366,8 +375,9 @@ web login so OwnTracks can continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
 the app name before authentication and temporarily locks out repeated failed attempts. Failed login
 attempts and lockout rejections are written as structured JSON-lines records to
-`LOGIN_FAILURE_LOG_PATH` and shown on Diagnostics. The submitted password value is never stored;
-only its length is recorded.
+`/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
+`HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
+The submitted password value is never stored; only its length is recorded.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
 least `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 
@@ -422,8 +432,10 @@ PDF reports are generated only when you click `Download PDF Report`; they are st
 browser and are not saved on the server.
 
 Runtime logs are written to `/data/logs` inside the app and gas-snapshot containers, and Docker
-binds that directory to `HOST_LOG_DIR` on the server. The failed-login audit file is bound
-separately at `LOGIN_FAILURE_LOG_PATH`, default `/var/log/mileage-logger-login-failures.log`.
+binds that directory to `HOST_LOG_DIR` on the server. The failed-login audit file is stored in the
+same mounted directory as `mileage-logger-login-failures.log`; do not bind-mount that file
+individually because Docker can create a directory at the source path and prevent the container
+from starting.
 Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also sets the container `TZ`
 value from `LOCAL_TIMEZONE`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.

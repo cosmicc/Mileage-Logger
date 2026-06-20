@@ -165,8 +165,10 @@ docker compose up -d --build
 2. View app logs: `docker compose logs -f app`
 3. App logs are stored at `LOG_DIR`; Docker binds `/data/logs` to the host path in
    `HOST_LOG_DIR` so the Docker server can view `app.log`, `trip-calculation.log`, and worker logs.
-4. Failed web login attempts are written to `LOGIN_FAILURE_LOG_PATH`, default
-   `/var/log/mileage-logger-login-failures.log`, and shown on `/diagnostics`.
+4. Failed web login attempts are written to `LOGIN_FAILURE_LOG_PATH` and shown on `/diagnostics`.
+   In Docker, this is `/data/logs/mileage-logger-login-failures.log`, backed by `HOST_LOG_DIR`.
+   `HOST_LOGIN_FAILURE_LOG_PATH` may point to a host symlink such as
+   `/var/log/mileage-logger-login-failures.log`.
 5. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---
@@ -196,8 +198,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Environment variables in `.env` control all configuration
 - Migrations run automatically on app startup
 - Diagnostics page available at `http://server/diagnostics`
-- Runtime app logs are host bind-mounted through `HOST_LOG_DIR`, and failed-login audit records are
-  host bind-mounted at `/var/log/mileage-logger-login-failures.log`.
+- Runtime app logs and failed-login audit records are host bind-mounted through `HOST_LOG_DIR`.
+  Do not bind-mount the failed-login log as an individual file; use the host symlink documented in
+  `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.
 
 ---
 

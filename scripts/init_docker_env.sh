@@ -60,7 +60,8 @@ PY
 chmod 0600 "${target}"
 
 host_log_dir="$(get_env_value HOST_LOG_DIR)"
-login_failure_log_path="$(get_env_value LOGIN_FAILURE_LOG_PATH)"
+host_login_failure_log_path="$(get_env_value HOST_LOGIN_FAILURE_LOG_PATH)"
+login_failure_log_filename="mileage-logger-login-failures.log"
 
 if [[ -n "${host_log_dir}" ]]; then
   if mkdir -p "${host_log_dir}" 2>/dev/null; then
@@ -72,15 +73,33 @@ if [[ -n "${host_log_dir}" ]]; then
   fi
 fi
 
-if [[ -n "${login_failure_log_path}" ]]; then
-  if [[ -d "${login_failure_log_path}" ]]; then
-    echo "Login failure log path is a directory, expected a file: ${login_failure_log_path}" >&2
-  elif touch "${login_failure_log_path}" 2>/dev/null; then
+if [[ -n "${host_log_dir}" ]]; then
+  login_failure_log_path="${host_log_dir%/}/${login_failure_log_filename}"
+  if touch "${login_failure_log_path}" 2>/dev/null; then
     echo "Prepared host login failure log file: ${login_failure_log_path}"
   else
     echo "Could not create host login failure log file: ${login_failure_log_path}" >&2
     echo "Create it before starting Docker, for example:" >&2
     echo "  sudo install -m 0640 /dev/null ${login_failure_log_path}" >&2
+  fi
+fi
+
+if [[ -n "${host_login_failure_log_path}" && -n "${host_log_dir}" ]]; then
+  login_failure_log_path="${host_log_dir%/}/${login_failure_log_filename}"
+  if [[ -d "${host_login_failure_log_path}" ]]; then
+    echo "Host login failure log alias is a directory, expected a file or symlink: ${host_login_failure_log_path}" >&2
+    echo "If it is empty, remove it and create the symlink with:" >&2
+    echo "  sudo rmdir ${host_login_failure_log_path}" >&2
+    echo "  sudo ln -sfn ${login_failure_log_path} ${host_login_failure_log_path}" >&2
+  elif [[ -e "${host_login_failure_log_path}" && ! -L "${host_login_failure_log_path}" ]]; then
+    echo "Host login failure log alias already exists as a regular file: ${host_login_failure_log_path}" >&2
+    echo "The app writes to ${login_failure_log_path}; replace the alias manually if you want the short /var/log path." >&2
+  elif ln -sfn "${login_failure_log_path}" "${host_login_failure_log_path}" 2>/dev/null; then
+    echo "Prepared host login failure log alias: ${host_login_failure_log_path} -> ${login_failure_log_path}"
+  else
+    echo "Could not create host login failure log alias: ${host_login_failure_log_path}" >&2
+    echo "Create it before starting Docker, for example:" >&2
+    echo "  sudo ln -sfn ${login_failure_log_path} ${host_login_failure_log_path}" >&2
   fi
 fi
 
