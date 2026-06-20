@@ -60,9 +60,11 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Nginx reverse proxy on port `80`.
 - Daily gas price snapshot worker.
 - Cloudflare Tunnel connector using the configured tunnel token.
-- Persistent Docker volumes for database data and runtime logs.
-- In-app diagnostics page for app, trip calculation, and gas price query logs in the configured
-  local timezone.
+- Persistent Docker volume for database data and host bind mounts for runtime logs.
+- In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
+  OwnTracks state in the configured local timezone.
+- Failed web-login audit records shown on Diagnostics and written to
+  `/var/log/mileage-logger-login-failures.log` on the Docker host.
 - Optional web UI IP allowlist while keeping `/api/` reachable for OwnTracks.
 
 Create a production `.env` with generated passwords:
@@ -76,6 +78,14 @@ start the stack:
 
 ```bash
 docker compose up -d --build
+```
+
+`scripts/init_docker_env.sh` tries to create the host log directory and login-failure log file. If
+your user cannot write to `/var/log`, create them before starting Docker:
+
+```bash
+sudo install -d -m 0750 /var/log/mileage-logger
+sudo install -m 0640 /dev/null /var/log/mileage-logger-login-failures.log
 ```
 
 Useful commands:
@@ -129,6 +139,10 @@ Routes under `/api/` stay outside the web login so OwnTracks can continue using 
 authentication. If you access the app over plain HTTP for local testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
 not show the app name before authentication and temporarily locks out repeated failed attempts.
+Each failed login attempt and lockout rejection is appended to `LOGIN_FAILURE_LOG_PATH` as a
+structured JSON-lines record with client IP details, submitted username, password length, user
+agent, request path, reason, attempt count, lockout state, and timestamps. The raw submitted
+password is never stored.
 
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
@@ -258,12 +272,18 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+HOST_LOG_DIR=/var/log/mileage-logger
+LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
 leaving `/api/` outside the web login. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
+Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
+`trip-calculation.log`, and worker logs directly. The failed-login audit file is bound separately
+at `LOGIN_FAILURE_LOG_PATH`, default `/var/log/mileage-logger-login-failures.log`, and is also
+shown and downloadable from Diagnostics.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
 `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.

@@ -55,11 +55,28 @@ def login_client_key(request: Request) -> str:
 def login_is_locked(request: Request) -> bool:
     """Return whether the current client is temporarily locked out after failed logins."""
 
-    attempt_state = FAILED_LOGIN_ATTEMPTS.get(login_client_key(request))
+    attempt_state = login_failure_state(request)
     return bool(attempt_state and attempt_state.locked_until > time.monotonic())
 
 
-def record_login_failure(request: Request, settings: Settings | None = None) -> None:
+def login_failure_state(request: Request) -> LoginAttemptState | None:
+    """Return the tracked failed-login state for the current client, if present."""
+
+    return FAILED_LOGIN_ATTEMPTS.get(login_client_key(request))
+
+
+def login_lockout_remaining_seconds(attempt_state: LoginAttemptState | None) -> int:
+    """Return whole seconds remaining in the current lockout window."""
+
+    if attempt_state is None:
+        return 0
+    return max(0, int(attempt_state.locked_until - time.monotonic()))
+
+
+def record_login_failure(
+    request: Request,
+    settings: Settings | None = None,
+) -> LoginAttemptState:
     """Record a failed login and lock the client after the configured number of failures."""
 
     active_settings = settings or get_settings()
@@ -69,6 +86,7 @@ def record_login_failure(request: Request, settings: Settings | None = None) -> 
         attempt_state.failed_count += 1
     if attempt_state.failed_count >= active_settings.web_login_max_attempts:
         attempt_state.locked_until = time.monotonic() + active_settings.web_login_lockout_seconds
+    return attempt_state
 
 
 def clear_login_failures(request: Request) -> None:

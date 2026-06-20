@@ -267,6 +267,78 @@
   </table>
 </section>
 
+<section id="login-failures" class="panel">
+  <div class="panel-toolbar">
+    <div>
+      <h2>Failed Login Attempts</h2>
+      <p class="panel-meta">Newest first from {{ login_failure_log_path }}. Password values are not stored.</p>
+    </div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Date/time</th>
+        <th>Client IP</th>
+        <th>Username</th>
+        <th>Password length</th>
+        <th>Web client</th>
+        <th>Reason</th>
+        <th>Attempts</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in login_failure_entries %}
+      <tr>
+        <td>{{ entry.occurred_at_local or entry.occurred_at_utc }}</td>
+        <td>{{ entry.client_ip or "-" }}</td>
+        <td>{{ entry.username or "-" }}{% if entry.username_truncated %}...{% endif %}</td>
+        <td>{{ entry.password_length }}</td>
+        <td>{{ entry.user_agent or "-" }}</td>
+        <td>
+          <span class="pill bad">{{ entry.reason.replace("_", " ").title() }}</span>
+          {% if entry.lockout_applied %}
+          <span class="pill warning">Lockout</span>
+          {% endif %}
+        </td>
+        <td>{{ entry.failed_count }}{% if entry.max_attempts %} / {{ entry.max_attempts }}{% endif %}</td>
+        <td>
+          <details class="payload-details">
+            <summary>View</summary>
+            <dl class="diagnostic-list compact-list">
+              <dt>UTC</dt>
+              <dd>{{ entry.occurred_at_utc or "-" }}</dd>
+              <dt>Request</dt>
+              <dd>{{ entry.method }} {{ entry.path }}{% if entry.next_url %} next={{ entry.next_url }}{% endif %}</dd>
+              <dt>Direct client</dt>
+              <dd>{{ entry.direct_client_ip or "-" }}</dd>
+              <dt>X-Real-IP</dt>
+              <dd>{{ entry.x_real_ip or "-" }}</dd>
+              <dt>X-Forwarded-For</dt>
+              <dd>{{ entry.x_forwarded_for or "-" }}</dd>
+              <dt>Forwarded proto</dt>
+              <dd>{{ entry.forwarded_proto or "-" }}</dd>
+              <dt>Host</dt>
+              <dd>{{ entry.host or "-" }}</dd>
+              <dt>Username length</dt>
+              <dd>{{ entry.username_length }}</dd>
+              <dt>Lockout remaining</dt>
+              <dd>{{ entry.lockout_remaining_seconds }} seconds</dd>
+            </dl>
+          </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No failed login attempts found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="log-actions">
+    <a class="button-link secondary" href="/diagnostics#login-failures">Refresh Login Failures</a>
+    <a class="button-link secondary" href="/diagnostics/logs/login-failures">Download Login Failure Log</a>
+  </div>
+</section>
+
 <section id="app-log" class="panel log-panel">
   <div class="panel-toolbar">
     <div>

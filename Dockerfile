@@ -9,6 +9,7 @@ WORKDIR /app
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         build-essential \
+        gosu \
         tzdata \
     && rm -rf /var/lib/apt/lists/*
 
@@ -22,12 +23,11 @@ COPY scripts/gas-snapshot-loop.sh /usr/local/bin/gas-snapshot-loop
 RUN pip install . \
     && chmod +x /usr/local/bin/docker-entrypoint /usr/local/bin/gas-snapshot-loop \
     && useradd --system --home-dir /app --shell /usr/sbin/nologin app \
+    && touch /var/log/mileage-logger-login-failures.log \
     && mkdir -p /data/logs \
-    && chown -R app:app /app /data
+    && chown -R app:app /app /data /var/log/mileage-logger-login-failures.log
 
 EXPOSE 8000
-
-USER app
 
 ENTRYPOINT ["docker-entrypoint"]
 CMD ["uvicorn", "mileage_logger.app:app", "--host", "0.0.0.0", "--port", "8000"]

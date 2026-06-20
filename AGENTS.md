@@ -84,6 +84,12 @@ docker compose up -d --build
 - Validates required fields: `lat`, `lon`, `tst`
 - Supports both HTTP Basic Auth and API token authentication
 
+**[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
+- Writes structured JSON-lines records for failed web UI login attempts
+- Saves client IP details, submitted username, password length, user agent, request path,
+  lockout state, and UTC/local timestamps without storing the raw password
+- Feeds the Diagnostics failed-login table and download endpoint
+
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates landscape PDF with trip table
 - Shows start/end odometers, miles, and location names
@@ -120,7 +126,8 @@ docker compose up -d --build
 
 ### Configuration
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
-- **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`
+- **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
+  `LOGIN_FAILURE_LOG_PATH`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -156,8 +163,11 @@ docker compose up -d --build
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs
 2. View app logs: `docker compose logs -f app`
-3. Log file stored at path in `LOG_DIR` (default `logs/`)
-4. Trip calculation details logged to `mileage_logger.trip_calculation` logger
+3. App logs are stored at `LOG_DIR`; Docker binds `/data/logs` to the host path in
+   `HOST_LOG_DIR` so the Docker server can view `app.log`, `trip-calculation.log`, and worker logs.
+4. Failed web login attempts are written to `LOGIN_FAILURE_LOG_PATH`, default
+   `/var/log/mileage-logger-login-failures.log`, and shown on `/diagnostics`.
+5. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---
 
@@ -182,10 +192,12 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
-- Uses `docker-compose.yml` with 6 services (postgres, app, nginx, cloudflared, gas-snapshot, logs volume)
+- Uses `docker-compose.yml` with 5 services (postgres, app, nginx, cloudflared, gas-snapshot)
 - Environment variables in `.env` control all configuration
 - Migrations run automatically on app startup
 - Diagnostics page available at `http://server/diagnostics`
+- Runtime app logs are host bind-mounted through `HOST_LOG_DIR`, and failed-login audit records are
+  host bind-mounted at `/var/log/mileage-logger-login-failures.log`.
 
 ---
 

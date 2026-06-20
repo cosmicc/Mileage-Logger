@@ -56,8 +56,10 @@ services:
       EIA_SERIES_ID: "${EIA_SERIES_ID:-}"
       VEHICLE_MPG: "${VEHICLE_MPG:-25.0}"
       LOG_DIR: /data/logs
+      LOGIN_FAILURE_LOG_PATH: "${LOGIN_FAILURE_LOG_PATH:-/var/log/mileage-logger-login-failures.log}"
     volumes:
-      - logs_data:/data/logs
+      - ${HOST_LOG_DIR:-/var/log/mileage-logger}:/data/logs
+      - ${LOGIN_FAILURE_LOG_PATH:-/var/log/mileage-logger-login-failures.log}:${LOGIN_FAILURE_LOG_PATH:-/var/log/mileage-logger-login-failures.log}
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,7 +137,7 @@ services:
       LOG_DIR: /data/logs
       RUN_MIGRATIONS: "false"
     volumes:
-      - logs_data:/data/logs
+      - ${HOST_LOG_DIR:-/var/log/mileage-logger}:/data/logs
     depends_on:
       app:
         condition: service_healthy
@@ -143,4 +145,3 @@ services:
 
 volumes:
   postgres_data:
-  logs_data:

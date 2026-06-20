@@ -51,6 +51,7 @@ class Settings(BaseSettings):
 
     log_dir: str = "logs"
     log_level: LogLevel = "info"
+    login_failure_log_path: str = "/var/log/mileage-logger-login-failures.log"
     min_trip_miles: Decimal = Field(default=Decimal("0.10"), ge=Decimal("0"))
 
     @field_validator("log_level", mode="before")

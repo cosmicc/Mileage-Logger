@@ -819,6 +819,11 @@ td input[type="text"] {
   overflow-wrap: anywhere;
 }
 
+.compact-list {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
 .diagnostic-value {
   display: block;
   margin-top: 5px;

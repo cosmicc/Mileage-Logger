@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added structured failed-login audit logging to `/var/log/mileage-logger-login-failures.log`,
+  including client IP details, submitted username, password length, user agent, lockout state, and
+  timestamps without storing raw passwords; Diagnostics now shows and downloads those entries.
+- Changed Docker logging so app and worker logs bind to a host log directory and the container
+  prepares mounted log paths before dropping to the non-root app user.
+- Changed Docker environment generation so `WEB_LOGIN_PASSWORD` is generated instead of leaving
+  the template placeholder in new `.env` files.
 - Changed Trips page row editing so existing trip dates render as read-only text and cannot be
   changed by the row update form.
 - Added a mobile-only top-bar close button that calls the browser close action for installed full-screen

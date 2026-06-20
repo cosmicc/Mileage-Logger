@@ -37,6 +37,10 @@ from mileage_logger.services.gas_prices import (
     get_or_create_monthly_price,
     refresh_current_monthly_price,
 )
+from mileage_logger.services.login_failures import (
+    record_web_login_failure,
+    tail_login_failure_entries,
+)
 from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_MANUAL,
     create_manual_trip,
@@ -58,7 +62,9 @@ from mileage_logger.web.auth import (
     authenticate_web_credentials,
     clear_login_failures,
     clear_request_authentication,
+    login_failure_state,
     login_is_locked,
+    login_lockout_remaining_seconds,
     mark_request_authenticated,
     record_login_failure,
     valid_next_path,
@@ -605,6 +611,20 @@ def login_form(
     if not web_login_enabled(settings):
         return RedirectResponse(url=safe_next, status_code=303)
     if login_is_locked(request):
+        attempt_state = login_failure_state(request)
+        lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
+        record_web_login_failure(
+            request=request,
+            username=username,
+            password=password,
+            reason="locked_out",
+            failed_count=attempt_state.failed_count if attempt_state else 0,
+            max_attempts=settings.web_login_max_attempts,
+            lockout_applied=True,
+            lockout_remaining_seconds=lockout_remaining_seconds,
+            next_url=safe_next,
+            settings=settings,
+        )
         logger.warning("Web login rejected reason=locked_out")
         return templates.TemplateResponse(
             request,
@@ -621,7 +641,20 @@ def login_form(
         logger.info("Web login succeeded")
         return RedirectResponse(url=safe_next, status_code=303)
 
-    record_login_failure(request, settings)
+    attempt_state = record_login_failure(request, settings)
+    lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
+    record_web_login_failure(
+        request=request,
+        username=username,
+        password=password,
+        reason="invalid_credentials",
+        failed_count=attempt_state.failed_count,
+        max_attempts=settings.web_login_max_attempts,
+        lockout_applied=lockout_remaining_seconds > 0,
+        lockout_remaining_seconds=lockout_remaining_seconds,
+        next_url=safe_next,
+        settings=settings,
+    )
     logger.warning("Web login failed")
     return templates.TemplateResponse(
         request,
@@ -996,6 +1029,7 @@ def diagnostics(
 ) -> HTMLResponse:
     settings = get_settings()
     log_dir = Path(settings.log_dir)
+    login_failure_log_path = Path(settings.login_failure_log_path)
     latest_location = db.scalar(
         select(OwnTracksLocation).order_by(OwnTracksLocation.captured_at.desc()).limit(1)
     )
@@ -1038,12 +1072,29 @@ def diagnostics(
             "movement_state": movement_diagnostics.current_state,
             "movement_state_changes": movement_diagnostics.state_changes,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
+            "login_failure_log_path": login_failure_log_path,
+            "login_failure_entries": tail_login_failure_entries(login_failure_log_path),
             "manual_odometer_result": _api_test_result(
                 odometer_test,
                 odometer_message,
                 odometer_value,
             ),
             "eia_test_result": _api_test_result(eia_test, eia_message, eia_value),
+        },
+    )
+
+
+@router.get("/diagnostics/logs/login-failures")
+def download_login_failure_log() -> Response:
+    log_path = Path(get_settings().login_failure_log_path)
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="Login failure log not found")
+    return Response(
+        content=redact_sensitive_text(log_path.read_text(encoding="utf-8", errors="replace")),
+        media_type="application/jsonl; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="mileage-logger-login-failures.log"',
+            "Cache-Control": "no-store",
         },
     )
 

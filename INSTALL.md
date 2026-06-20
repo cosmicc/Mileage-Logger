@@ -7,7 +7,7 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 - `nginx`: reverse proxy that serves the web app on HTTP port `80`.
 - `cloudflared`: Cloudflare Tunnel connector for public HTTPS access.
 - `gas-snapshot`: daily Michigan gas price snapshot worker.
-- `logs_data`: shared Docker volume for diagnostics logs.
+- Host log bind mounts for diagnostics logs and failed web-login audit records.
 
 ## Requirements
 
@@ -63,10 +63,18 @@ Generate a production `.env` file:
 This creates `.env` from `.env.docker.example` and generates values for:
 
 - `SECRET_KEY`
+- `WEB_LOGIN_PASSWORD`
 - `POSTGRES_PASSWORD`
 - `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
-- `LOG_DIR`
+
+It also tries to prepare `HOST_LOG_DIR` and `LOGIN_FAILURE_LOG_PATH` on the Docker host. If your
+user cannot write to `/var/log`, create them before starting Docker:
+
+```bash
+sudo install -d -m 0750 /var/log/mileage-logger
+sudo install -m 0640 /dev/null /var/log/mileage-logger-login-failures.log
+```
 
 Review the file before starting, and set `CLOUDFLARED_TUNNEL_TOKEN` to the token from the
 Cloudflare dashboard:
@@ -93,6 +101,8 @@ AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
 LOG_DIR=/data/logs
+HOST_LOG_DIR=/var/log/mileage-logger
+LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
@@ -209,7 +219,7 @@ The diagnostics page is available at:
 http://your-server/diagnostics
 ```
 
-It shows app status, recent database records, recent app logs, and recent gas price query logs.
+It shows app status, recent database records, failed web-login attempts, and recent app logs.
 
 ## Configure OwnTracks
 
@@ -344,6 +354,8 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+HOST_LOG_DIR=/var/log/mileage-logger
+LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 ```
 
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
@@ -352,7 +364,10 @@ create new waypoints.
 The web login protects rendered browser pages only. Routes under `/api/` are not placed behind the
 web login so OwnTracks can continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
-the app name before authentication and temporarily locks out repeated failed attempts.
+the app name before authentication and temporarily locks out repeated failed attempts. Failed login
+attempts and lockout rejections are written as structured JSON-lines records to
+`LOGIN_FAILURE_LOG_PATH` and shown on Diagnostics. The submitted password value is never stored;
+only its length is recorded.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
 least `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 
@@ -406,9 +421,11 @@ reimbursement gallons * Michigan monthly average gas price = total reimbursement
 PDF reports are generated only when you click `Download PDF Report`; they are streamed to the
 browser and are not saved on the server.
 
-Runtime logs are stored in the Docker volume `logs_data` at `/data/logs` inside the app and
-gas-snapshot containers. Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also
-sets the container `TZ` value from `LOCAL_TIMEZONE`.
+Runtime logs are written to `/data/logs` inside the app and gas-snapshot containers, and Docker
+binds that directory to `HOST_LOG_DIR` on the server. The failed-login audit file is bound
+separately at `LOGIN_FAILURE_LOG_PATH`, default `/var/log/mileage-logger-login-failures.log`.
+Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also sets the container `TZ`
+value from `LOCAL_TIMEZONE`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.
 
 ## Gas Price Worker
@@ -435,7 +452,8 @@ View gas worker logs:
 docker compose logs -f gas-snapshot
 ```
 
-You can also view recent gas price query logs from the in-app `Diagnostics` page.
+You can also view recent app logs and failed-login audit records from the in-app `Diagnostics`
+page.
 
 ## MQTT Mode
 

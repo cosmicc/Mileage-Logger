@@ -319,6 +319,12 @@ def protected_page(request: Request) -> TemplateResponse:
 3. System checks against `WEB_LOGIN_USERNAME` / `WEB_LOGIN_PASSWORD`
 4. On match: Session cookie set, user allowed access
 5. Failed attempts: Temporary lockout (`WEB_LOGIN_MAX_ATTEMPTS` x `WEB_LOGIN_LOCKOUT_SECONDS`)
+   and a structured JSON-lines audit record written to `LOGIN_FAILURE_LOG_PATH`
+6. Lockout rejections are also failed login attempts and must be written to the same audit log
+
+The failed-login audit log must never store the submitted password value. Keep the submitted
+username, password length, client IP/header details, user agent, request path, reason, attempt
+count, lockout state, and UTC/local timestamps available for Diagnostics.
 
 ---
 
@@ -482,6 +488,11 @@ def update_trip(...):
     logger.info("Updated trip trip_id=%s miles=%s", trip_id, update.miles)
     # Shows in logs and `/diagnostics` page
 ```
+
+The Diagnostics page also reads `LOGIN_FAILURE_LOG_PATH` through
+`mileage_logger.services.login_failures.tail_login_failure_entries()`. When changing login,
+diagnostics, or web authentication behavior, preserve the failed-login table and
+`/diagnostics/logs/login-failures` download endpoint.
 
 ---
 

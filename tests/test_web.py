@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -200,12 +201,14 @@ def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
-def test_web_login_rejects_invalid_credentials(monkeypatch) -> None:
+def test_web_login_rejects_invalid_credentials(monkeypatch, tmp_path) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
         web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -224,6 +227,53 @@ def test_web_login_rejects_invalid_credentials(monkeypatch) -> None:
         assert login_response.status_code == 401
         assert "Invalid username or password." in login_response.text
         assert page_response.status_code == 303
+        assert login_failure_log_path.exists()
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "wrong-password",
+                "next_url": "/diagnostics",
+            },
+            headers={
+                "User-Agent": "ExampleBrowser/1.0",
+                "X-Real-IP": "203.0.113.10",
+                "X-Forwarded-For": "203.0.113.10, 10.0.0.8",
+                "X-Forwarded-Proto": "https",
+            },
+        )
+
+        log_text = login_failure_log_path.read_text(encoding="utf-8")
+        payload = json.loads(log_text.splitlines()[0])
+
+        assert response.status_code == 401
+        assert payload["event"] == "web_login_failed"
+        assert payload["client_ip"] == "203.0.113.10"
+        assert payload["username"] == "admin"
+        assert payload["password_length"] == len("wrong-password")
+        assert payload["user_agent"] == "ExampleBrowser/1.0"
+        assert payload["reason"] == "invalid_credentials"
+        assert payload["next_url"] == "/diagnostics"
+        assert payload["failed_count"] == 1
+        assert "wrong-password" not in log_text
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -527,14 +577,16 @@ def test_dashboard_replaces_vehicle_mpg_with_location_state(monkeypatch) -> None
         app.dependency_overrides.clear()
 
 
-def test_web_login_temporarily_locks_repeated_failures(monkeypatch) -> None:
+def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=2,
         web_login_lockout_seconds=300,
+        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -562,6 +614,17 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch) -> None:
 
         assert locked_response.status_code == 429
         assert "Login is temporarily unavailable." in locked_response.text
+        payloads = [
+            json.loads(line)
+            for line in login_failure_log_path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert [payload["reason"] for payload in payloads] == [
+            "invalid_credentials",
+            "invalid_credentials",
+            "locked_out",
+        ]
+        assert payloads[-1]["lockout_applied"] is True
+        assert payloads[-1]["password_length"] == len("secret-password")
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -714,6 +777,66 @@ def test_diagnostics_shows_single_colored_app_log_and_download(
         assert download_response.text == log_text
         assert "attachment" in download_response.headers["content-disposition"]
         assert "app.log" in download_response.headers["content-disposition"]
+        assert download_response.headers["cache-control"] == "no-store"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_shows_failed_login_attempts_and_download(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-19T12:00:00Z",
+        "occurred_at_local": "2026-06-19T08:00:00-04:00",
+        "client_ip": "203.0.113.10",
+        "direct_client_ip": "10.0.0.12",
+        "x_real_ip": "203.0.113.10",
+        "x_forwarded_for": "203.0.113.10, 10.0.0.12",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "reason": "invalid_credentials",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "password_length": 14,
+        "failed_count": 1,
+        "max_attempts": 5,
+        "lockout_applied": False,
+        "lockout_remaining_seconds": 0,
+    }
+    login_failure_log_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            log_dir=str(tmp_path),
+            login_failure_log_path=str(login_failure_log_path),
+        ),
+    )
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/diagnostics")
+        download_response = client.get("/diagnostics/logs/login-failures")
+
+        assert response.status_code == 200
+        assert "Failed Login Attempts" in response.text
+        assert "203.0.113.10" in response.text
+        assert "admin" in response.text
+        assert "ExampleBrowser/1.0" in response.text
+        assert "Download Login Failure Log" in response.text
+        assert download_response.status_code == 200
+        assert "web_login_failed" in download_response.text
+        assert "attachment" in download_response.headers["content-disposition"]
+        assert "mileage-logger-login-failures.log" in download_response.headers[
+            "content-disposition"
+        ]
         assert download_response.headers["cache-control"] == "no-store"
     finally:
         app.dependency_overrides.clear()
