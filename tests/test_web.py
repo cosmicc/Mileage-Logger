@@ -1,9 +1,10 @@
+import gzip
 import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
@@ -15,6 +16,8 @@ from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     Base,
     DeletedTrip,
+    GasPriceSnapshot,
+    MonthlyGasPrice,
     OwnTracksLocation,
     Site,
     Trip,
@@ -72,6 +75,104 @@ def _location(
         odometer_source="owntracks_rolling" if odometer_miles is not None else None,
         raw_payload=raw_payload,
     )
+
+
+def _seed_full_backup_data(db: Session) -> None:
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=UTC)
+    site = Site(
+        name="Client",
+        latitude=Decimal("42.3314000"),
+        longitude=Decimal("-83.0458000"),
+        radius_m=175,
+        active=True,
+        created_at=now,
+        last_visited_at=now,
+    )
+    db.add(site)
+    db.flush()
+
+    location = _location(
+        now,
+        now + timedelta(seconds=5),
+        {"_type": "transition", "event": "enter", "desc": "Client"},
+        odometer_miles=Decimal("1000.0"),
+    )
+    db.add(location)
+    db.flush()
+
+    db.add_all(
+        [
+            Trip(
+                trip_date=now.date(),
+                origin_site_id=site.id,
+                destination_site_id=site.id,
+                started_at=now,
+                ended_at=now + timedelta(minutes=20),
+                start_latitude=site.latitude,
+                start_longitude=site.longitude,
+                end_latitude=site.latitude,
+                end_longitude=site.longitude,
+                origin_name="Client",
+                destination_name="Client",
+                miles=Decimal("12.3"),
+                start_odometer_miles=Decimal("1000.0"),
+                end_odometer_miles=Decimal("1012.3"),
+                start_odometer_source="manual",
+                end_odometer_source="estimated",
+                mileage_source="owntracks_path",
+                source="auto",
+                notes="backup test trip",
+                created_at=now,
+                updated_at=now,
+            ),
+            DeletedTrip(
+                deleted_trip_id=99,
+                trip_date=now.date(),
+                origin_site_id=site.id,
+                destination_site_id=site.id,
+                started_at=now + timedelta(hours=1),
+                ended_at=now + timedelta(hours=2),
+                origin_name="Client",
+                destination_name="Client",
+                miles=Decimal("0.4"),
+                source="auto",
+                mileage_source="owntracks_path",
+                reason="invalid_same_waypoint_under_one_mile",
+                deleted_at=now,
+                notes="suppressed test trip",
+            ),
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                last_owntracks_location_id=location.id,
+                odometer_anchor_miles=Decimal("1012.3"),
+                odometer_anchor_recorded_at=now,
+                created_at=now,
+                updated_at=now,
+            ),
+            GasPriceSnapshot(
+                observed_on=now.date(),
+                state="MI",
+                grade="regular",
+                price_per_gallon=Decimal("3.250"),
+                source="test",
+                source_detail="backup test",
+                created_at=now,
+            ),
+            MonthlyGasPrice(
+                year=2026,
+                month=6,
+                state="MI",
+                average_price_per_gallon=Decimal("3.250"),
+                buffer_per_gallon=Decimal("0.50"),
+                effective_rate=Decimal("3.750"),
+                source="test",
+                source_detail="backup test",
+                created_at=now,
+                updated_at=now,
+            ),
+        ]
+    )
+    db.commit()
 
 
 def test_recent_owntracks_entries_include_travel_entries() -> None:
@@ -838,6 +939,127 @@ def test_diagnostics_shows_failed_login_attempts_and_download(
             "content-disposition"
         ]
         assert download_response.headers["cache-control"] == "no-store"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(tmp_path / "login-failures.log"),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+        with session_factory() as db:
+            _seed_full_backup_data(db)
+
+        backup_response = client.get("/diagnostics/backup")
+        payload = json.loads(gzip.decompress(backup_response.content).decode("utf-8"))
+        assert backup_response.status_code == 200
+        assert backup_response.headers["cache-control"] == "no-store"
+        assert "mileage-logger-full-backup" in backup_response.headers["content-disposition"]
+        assert payload["format"] == "mileage_logger.full_backup"
+        assert payload["table_counts"]["sites"] == 1
+        assert payload["owntracks_waypoints"]["waypoints"][0]["desc"] == "Client"
+
+        with session_factory() as db:
+            db.add(
+                Site(
+                    name="Temporary",
+                    latitude=Decimal("40.0000000"),
+                    longitude=Decimal("-80.0000000"),
+                    radius_m=100,
+                )
+            )
+            db.commit()
+
+        restore_response = client.post(
+            "/diagnostics/restore",
+            data={"confirmation": "RESTORE"},
+            files={
+                "backup_file": (
+                    "mileage-logger-full-backup.json.gz",
+                    backup_response.content,
+                    "application/gzip",
+                )
+            },
+        )
+
+        assert restore_response.status_code == 200
+        assert "Full database restore completed." in restore_response.text
+        assert "rows restored across" in restore_response.text
+        with session_factory() as db:
+            assert db.scalar(select(func.count(Site.id))) == 1
+            assert db.scalar(select(Site.name)) == "Client"
+            assert db.scalar(select(func.count(Trip.id))) == 1
+            assert db.scalar(select(func.count(DeletedTrip.id))) == 1
+            assert db.scalar(select(func.count(OwnTracksLocation.id))) == 1
+            assert db.scalar(select(func.count(TripProcessingCheckpoint.id))) == 1
+            assert db.scalar(select(func.count(GasPriceSnapshot.id))) == 1
+            assert db.scalar(select(func.count(MonthlyGasPrice.id))) == 1
+            trip = db.scalar(select(Trip))
+            assert trip is not None
+            assert trip.miles == Decimal("12.3")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_full_restore_requires_confirmation(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(tmp_path / "login-failures.log"),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+        )
+        with session_factory() as db:
+            _seed_full_backup_data(db)
+
+        backup_response = client.get("/diagnostics/backup")
+        response = client.post(
+            "/diagnostics/restore",
+            data={"confirmation": "restore"},
+            files={
+                "backup_file": (
+                    "mileage-logger-full-backup.json.gz",
+                    backup_response.content,
+                    "application/gzip",
+                )
+            },
+        )
+
+        assert response.status_code == 200
+        assert "Type RESTORE to confirm full database restore." in response.text
+        with session_factory() as db:
+            assert db.scalar(select(func.count(Site.id))) == 1
+            assert db.scalar(select(Site.name)) == "Client"
     finally:
         app.dependency_overrides.clear()
 

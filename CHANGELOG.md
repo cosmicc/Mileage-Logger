@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Changed public nginx routing so only rendered web pages and OwnTracks ingestion endpoints are
+  internet-facing; all other `/api/` routes and generated FastAPI docs are blocked at nginx while
+  internal container health checks still use `/api/health`.
+- Documented that PostgreSQL data persists in the named Docker `postgres_data` volume across normal
+  rebuilds, and warned against `down -v`, volume pruning, or stack-name changes without backup.
+- Added Diagnostics full app data backup and restore controls. Backups download as sensitive
+  `.json.gz` files containing all app database tables plus OwnTracks waypoint export, while restore
+  requires web login, a validated file, and typed confirmation before replacing current app rows.
 - Fixed Docker startup by removing the individual failed-login log file bind mount; failed-login
   audit records now use the shared host log directory with an optional `/var/log/...` symlink.
 - Added structured failed-login audit logging, including client IP details, submitted username,
@@ -53,7 +61,7 @@
 - Changed Trips page row editing so trip names and odometers are read-only, while distance edits
   automatically resequence that month's trip odometers.
 - Added a simple session-based web login for rendered pages, configured by Docker environment
-  variables while leaving `/api/` routes outside the web login.
+  variables while leaving `/api/` routes outside the app-level web login.
 - Removed visible app branding from the login page and added temporary failed-login lockouts.
 - Added an editable deleted-trip records list on the Trips page so mistaken automatic-trip
   deletion records can be removed.

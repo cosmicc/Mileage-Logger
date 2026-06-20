@@ -82,7 +82,18 @@ async def owntracks_http(
     # ... process OwnTracks payload ...
 ```
 
-The `/api/health` endpoint is public; `/api/owntracks` requires authentication.
+The `/api/health` endpoint is unauthenticated inside the app for container health checks;
+`/api/owntracks` requires authentication.
+
+In Docker deployment, public nginx only forwards OwnTracks ingestion endpoints:
+
+- `POST /api/owntracks`
+- `POST /api/owntracks/`
+- `POST /api/pub`
+
+Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` remain reachable only inside the app
+container or Docker network unless a future change explicitly reopens them at nginx. Do not add
+new internet-facing API paths without updating `deploy/nginx/default.conf`, docs, and tests.
 
 ### Credentials Configuration
 
@@ -493,6 +504,21 @@ The Diagnostics page also reads `LOGIN_FAILURE_LOG_PATH` through
 `mileage_logger.services.login_failures.tail_login_failure_entries()`. When changing login,
 diagnostics, or web authentication behavior, preserve the failed-login table and
 `/diagnostics/logs/login-failures` download endpoint.
+
+### Diagnostics Full Backup And Restore
+
+Diagnostics exposes full app data backup and restore through:
+
+- `GET /diagnostics/backup`
+- `POST /diagnostics/restore`
+- `mileage_logger.services.backups`
+
+These routes are sensitive because backups contain location history and restore replaces current
+app rows. Keep them behind configured web login, keep `Cache-Control: no-store` on backup
+downloads, validate the uploaded backup before deleting current rows, and require the typed
+confirmation value `RESTORE` for restore forms. The backup format is gzip-compressed JSON of all
+SQLAlchemy app tables plus an OwnTracks waypoint export; it is not a raw PostgreSQL cluster,
+Docker volume, role, password, or host-log backup.
 
 ---
 

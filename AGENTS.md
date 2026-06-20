@@ -83,6 +83,8 @@ docker compose up -d --build
 - Parses `location` and `transition` event types
 - Validates required fields: `lat`, `lon`, `tst`
 - Supports both HTTP Basic Auth and API token authentication
+- Public nginx exposes only `POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub`;
+  other API routes stay internal to the app container and Docker network.
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
 - Writes structured JSON-lines records for failed web UI login attempts
@@ -94,6 +96,11 @@ docker compose up -d --build
 - Generates landscape PDF with trip table
 - Shows start/end odometers, miles, and location names
 - Calculates total miles and total reimbursement amount
+
+**[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
+- Creates a gzip-compressed JSON backup of every SQLAlchemy app table plus OwnTracks waypoint export
+- Restores validated backup files transactionally by replacing current app table rows
+- Backs Diagnostics full backup/restore controls; restore requires web login and typed confirmation
 
 ---
 
@@ -169,7 +176,10 @@ docker compose up -d --build
    In Docker, this is `/data/logs/mileage-logger-login-failures.log`, backed by `HOST_LOG_DIR`.
    `HOST_LOGIN_FAILURE_LOG_PATH` may point to a host symlink such as
    `/var/log/mileage-logger-login-failures.log`.
-5. Trip calculation details logged to `mileage_logger.trip_calculation` logger
+5. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
+   restore control replaces all app table data from a validated `.json.gz` backup and is enabled
+   only when web login is configured.
+6. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---
 
@@ -195,9 +205,16 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
 - Uses `docker-compose.yml` with 5 services (postgres, app, nginx, cloudflared, gas-snapshot)
+- PostgreSQL data is stored in the named `postgres_data` Docker volume and persists across normal
+  `docker compose up -d --build` rebuilds. Do not use `docker compose down -v`, prune volumes, or
+  change the Compose/Portainer stack name unless you have a verified backup and migration plan.
 - Environment variables in `.env` control all configuration
 - Migrations run automatically on app startup
 - Diagnostics page available at `http://server/diagnostics`
+- Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
+  routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
+- Diagnostics includes authenticated full data backup and restore controls for app database rows
+  and saved OwnTracks waypoint export. Treat backup files as sensitive location history.
 - Runtime app logs and failed-login audit records are host bind-mounted through `HOST_LOG_DIR`.
   Do not bind-mount the failed-login log as an individual file; use the host symlink documented in
   `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.

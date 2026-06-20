@@ -8,7 +8,7 @@ from math import ceil
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -26,6 +26,13 @@ from mileage_logger.models import (
     Site,
     Trip,
     TripProcessingCheckpoint,
+)
+from mileage_logger.services.backups import (
+    BACKUP_MEDIA_TYPE,
+    BACKUP_UPLOAD_MAX_BYTES,
+    BackupValidationError,
+    create_full_backup,
+    restore_full_backup,
 )
 from mileage_logger.services.diagnostics import (
     owntracks_movement_diagnostics,
@@ -67,6 +74,7 @@ from mileage_logger.web.auth import (
     login_lockout_remaining_seconds,
     mark_request_authenticated,
     record_login_failure,
+    request_is_authenticated,
     valid_next_path,
     web_login_enabled,
 )
@@ -454,6 +462,18 @@ def _update_trip_row_values(
 def _diagnostics_redirect(fragment: str, params: dict[str, str]) -> RedirectResponse:
     query = urlencode(params)
     return RedirectResponse(url=f"/diagnostics?{query}#{fragment}", status_code=303)
+
+
+def _require_backup_restore_auth(request: Request) -> None:
+    """Require a logged-in web session before exporting or restoring sensitive app data."""
+
+    settings = get_settings()
+    if web_login_enabled(settings) and request_is_authenticated(request):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Full backup and restore require WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD login.",
+    )
 
 
 def _log_line_is_visible(line: str, min_level: int) -> bool:
@@ -1025,6 +1045,9 @@ def diagnostics(
     eia_test: str | None = Query(default=None),
     eia_message: str | None = Query(default=None),
     eia_value: str | None = Query(default=None),
+    restore_test: str | None = Query(default=None),
+    restore_message: str | None = Query(default=None),
+    restore_value: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     settings = get_settings()
@@ -1080,6 +1103,98 @@ def diagnostics(
                 odometer_value,
             ),
             "eia_test_result": _api_test_result(eia_test, eia_message, eia_value),
+            "restore_result": _api_test_result(
+                restore_test,
+                restore_message,
+                restore_value,
+            ),
+            "backup_restore_enabled": web_login_enabled(settings),
+            "backup_upload_max_mb": BACKUP_UPLOAD_MAX_BYTES // (1024 * 1024),
+        },
+    )
+
+
+@router.get("/diagnostics/backup")
+def download_full_backup(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    _require_backup_restore_auth(request)
+    backup = create_full_backup(db)
+    logger.warning(
+        "Created full database backup filename=%s total_rows=%s",
+        backup.filename,
+        backup.total_rows,
+    )
+    return Response(
+        content=backup.content,
+        media_type=BACKUP_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{backup.filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/diagnostics/restore")
+async def restore_full_backup_form(
+    request: Request,
+    backup_file: UploadFile = File(...),
+    confirmation: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    _require_backup_restore_auth(request)
+    if confirmation.strip() != "RESTORE":
+        return _diagnostics_redirect(
+            "data-backup",
+            {
+                "restore_test": "fail",
+                "restore_message": "Type RESTORE to confirm full database restore.",
+            },
+        )
+
+    content = await backup_file.read(BACKUP_UPLOAD_MAX_BYTES + 1)
+    await backup_file.close()
+    if len(content) > BACKUP_UPLOAD_MAX_BYTES:
+        max_upload_mb = BACKUP_UPLOAD_MAX_BYTES // (1024 * 1024)
+        return _diagnostics_redirect(
+            "data-backup",
+            {
+                "restore_test": "fail",
+                "restore_message": f"Backup file is larger than {max_upload_mb} MB.",
+            },
+        )
+
+    try:
+        summary = restore_full_backup(db, content)
+    except BackupValidationError as exc:
+        logger.warning("Rejected full database restore upload: %s", exc)
+        return _diagnostics_redirect(
+            "data-backup",
+            {
+                "restore_test": "fail",
+                "restore_message": str(exc),
+            },
+        )
+    except Exception:
+        logger.exception("Full database restore failed unexpectedly")
+        return _diagnostics_redirect(
+            "data-backup",
+            {
+                "restore_test": "fail",
+                "restore_message": "Restore failed. Check the app log before trying again.",
+            },
+        )
+
+    return _diagnostics_redirect(
+        "data-backup",
+        {
+            "restore_test": "pass",
+            "restore_message": "Full database restore completed.",
+            "restore_value": (
+                f"{summary.total_rows} rows restored across "
+                f"{len(summary.table_counts)} tables."
+            ),
         },
     )
 

@@ -819,6 +819,10 @@ td input[type="text"] {
   overflow-wrap: anywhere;
 }
 
+.backup-details {
+  margin-top: 14px;
+}
+
 .compact-list {
   margin-top: 10px;
   font-size: 12px;

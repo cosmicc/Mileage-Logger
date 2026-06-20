@@ -8,6 +8,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mileage}
       TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
     volumes:
+      # Persistent database storage. Rebuilds and container recreates keep this volume;
+      # changing the Compose/Portainer stack name or using `down -v` creates/removes data.
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]

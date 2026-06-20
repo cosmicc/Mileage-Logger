@@ -124,10 +124,19 @@ CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 The generated `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are what you enter in OwnTracks HTTP
 mode.
 
-## Restrict Web UI By IP
+## Public Web And API Exposure
 
-The nginx container can leave OwnTracks/API endpoints open while restricting the browser UI to
-specific IP blocks.
+The nginx container exposes rendered web pages and the OwnTracks ingestion API. Public nginx only
+forwards these API requests:
+
+- `POST /api/owntracks`
+- `POST /api/owntracks/`
+- `POST /api/pub`
+
+All other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` return `404` through nginx.
+Internal app health checks still call `/api/health` directly inside the app container.
+
+You can restrict browser UI pages to specific IP blocks while keeping OwnTracks ingestion open.
 
 Set `WEB_ALLOWED_CIDRS` to comma-separated CIDR blocks:
 
@@ -137,7 +146,7 @@ WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
 
 With this set:
 
-- `/api/` remains reachable from any IP so OwnTracks can keep sending data.
+- OwnTracks ingestion endpoints remain reachable from any IP so OwnTracks can keep sending data.
 - `/`, `/trips`, `/waypoints`, `/diagnostics`, `/static/`, and other web UI paths require a matching
   client IP.
 
@@ -209,7 +218,8 @@ docker-compose.yml
    - `OWNTRACKS_API_TOKEN`
    - `OWNTRACKS_PASSWORD`
    - `CLOUDFLARED_TUNNEL_TOKEN`
-8. Optional: set `WEB_ALLOWED_CIDRS` to restrict web UI access while keeping `/api/` open.
+8. Optional: set `WEB_ALLOWED_CIDRS` to restrict web UI access while keeping OwnTracks ingestion
+   open.
 9. Deploy the stack.
 
 If you change `POSTGRES_PASSWORD`, make sure `DATABASE_URL` uses the same password:
@@ -370,8 +380,9 @@ HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
 waypoints. Location `inregions` values are only used to match already-saved waypoints; they do not
 create new waypoints.
-The web login protects rendered browser pages only. Routes under `/api/` are not placed behind the
-web login so OwnTracks can continue to use its existing API authentication. Set
+The web login protects rendered browser pages only. The app leaves `/api/` outside web login
+internally, while public nginx exposes only the OwnTracks ingestion endpoints so OwnTracks can
+continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
 the app name before authentication and temporarily locks out repeated failed attempts. Failed login
 attempts and lockout rejections are written as structured JSON-lines records to
@@ -399,10 +410,10 @@ Expected response:
 []
 ```
 
-View the newest stored point:
+View the newest stored point on Diagnostics:
 
-```bash
-curl "http://127.0.0.1:${HTTP_PORT:-80}/api/locations?limit=1"
+```text
+http://127.0.0.1:${HTTP_PORT:-80}/diagnostics
 ```
 
 ## Configure Waypoints And Reports
@@ -520,6 +531,10 @@ Stop:
 docker compose down
 ```
 
+`docker compose down` stops and removes containers but keeps the named PostgreSQL volume. Do not
+run `docker compose down -v` or Docker volume prune unless you have a verified full backup and
+intend to delete the database.
+
 Update from GitHub:
 
 ```bash
@@ -527,13 +542,28 @@ git pull
 docker compose up -d --build
 ```
 
+Normal rebuilds keep database rows because PostgreSQL stores data in the named Docker volume
+`postgres_data` mounted at `/var/lib/postgresql/data`. In Portainer, keep the same stack name when
+redeploying; changing the Compose project or stack name can make Docker create a different
+`postgres_data` volume and look like a fresh install.
+
 ## Backups
+
+The Diagnostics page includes authenticated full app data backup and restore controls. Use
+`Download Full Backup` before updates or database work. The downloaded `.json.gz` file contains all
+Mileage Logger app tables plus an OwnTracks waypoint export. To restore it, open Diagnostics,
+upload the file, and type `RESTORE`; the app validates the backup before replacing current app
+table rows in one transaction. Backup files contain sensitive location history and should be stored
+securely.
 
 Back up PostgreSQL:
 
 ```bash
 docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > mileage_logger.sql
 ```
+
+The in-app backup is the preferred quick recovery file for this application. `pg_dump` remains
+useful for low-level PostgreSQL administration or migration outside the app.
 
 Volume names may differ if your Compose project name is not `mileage-logger`. Check with:
 
@@ -558,7 +588,8 @@ docker compose logs app
 Validate Nginx proxy:
 
 ```bash
-curl -i "http://127.0.0.1:${HTTP_PORT:-80}/api/health"
+curl -i "http://127.0.0.1:${HTTP_PORT:-80}/"
+curl -i "http://127.0.0.1:${HTTP_PORT:-80}/api/health" # Expected public result: 404
 ```
 
 If OwnTracks returns unauthorized, confirm `.env` values and restart:
@@ -581,4 +612,5 @@ docker compose up -d
 ```
 
 If the web UI returns `403 Forbidden`, your client IP does not match `WEB_ALLOWED_CIDRS`.
-The `/api/health` endpoint should still be reachable because API paths are intentionally open.
+OwnTracks ingestion endpoints should still be reachable; other public `/api/` routes are
+intentionally blocked by nginx.

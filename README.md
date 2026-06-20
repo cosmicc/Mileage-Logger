@@ -65,7 +65,7 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
   OwnTracks state in the configured local timezone.
 - Failed web-login audit records shown on Diagnostics and written into the host log directory, with
   an optional `/var/log/mileage-logger-login-failures.log` host symlink.
-- Optional web UI IP allowlist while keeping `/api/` reachable for OwnTracks.
+- Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
 
 Create a production `.env` with generated passwords:
 
@@ -106,6 +106,12 @@ docker compose logs -f nginx
 docker compose down
 ```
 
+Database rows live in the Docker named volume `postgres_data`, mounted at
+`/var/lib/postgresql/data` inside the PostgreSQL container. Normal rebuilds such as
+`docker compose up -d --build` keep that volume. Do not use `docker compose down -v`, Docker volume
+prune, or a different Compose/Portainer stack name unless you have a verified backup and intend to
+move or recreate the database.
+
 OwnTracks HTTP mode should point at:
 
 ```text
@@ -122,16 +128,18 @@ http://owntracks:password@your-server/api/owntracks
 For internet-facing use, put TLS in front of this stack or extend the Nginx container
 with certificates so OwnTracks sends location data over HTTPS.
 
-To restrict the browser UI while leaving OwnTracks/API access open, set `WEB_ALLOWED_CIDRS`
+To restrict the browser UI while leaving OwnTracks ingestion open, set `WEB_ALLOWED_CIDRS`
 to comma-separated IP blocks:
 
 ```env
 WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
 ```
 
-When this is blank, the web UI is open to all clients. When set, `/api/` stays reachable from any
-IP, but pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/static/` require a matching
-client IP.
+When this is blank, the web UI is open to all clients. When set, only
+`POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub` stay reachable from any IP for
+OwnTracks. Pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/static/` require a
+matching client IP. Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` are blocked at
+the public nginx reverse proxy.
 
 To require a simple username/password login for browser pages, set both web login variables:
 
@@ -144,8 +152,8 @@ WEB_LOGIN_LOCKOUT_SECONDS=300
 ```
 
 The login protects rendered web pages such as `/`, `/trips`, `/waypoints`, and `/diagnostics`.
-Routes under `/api/` stay outside the web login so OwnTracks can continue using its own API
-authentication. If you access the app over plain HTTP for local testing, set
+The app still leaves `/api/` outside the web login internally, but public nginx only exposes the
+OwnTracks ingestion endpoints. If you access the app over plain HTTP for local testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
 not show the app name before authentication and temporarily locks out repeated failed attempts.
 Each failed login attempt and lockout rejection is appended to `LOGIN_FAILURE_LOG_PATH` as a
@@ -171,6 +179,17 @@ The `/api/pub` alias is also available for Recorder-style setups.
 OwnTracks waypoints are saved as read-only work waypoints. When `OWNTRACKS_SYNC_WAYPOINTS=true`,
 published OwnTracks waypoint payloads create or update matching app waypoints. The web app can
 export the saved list as OwnTracks waypoint JSON for backup/import.
+
+## Full Data Backup And Restore
+
+Diagnostics includes a full app data backup and restore panel when `WEB_LOGIN_USERNAME` and
+`WEB_LOGIN_PASSWORD` are configured. `Download Full Backup` creates a `.json.gz` file containing
+all Mileage Logger database tables plus an OwnTracks waypoint export. Treat this file as sensitive
+location history.
+
+To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
+file first, then replaces the current app table rows in one transaction. It does not restore Docker
+volumes, PostgreSQL users, passwords, or host log files.
 
 ## MQTT Setup
 
@@ -287,7 +306,7 @@ HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
-leaving `/api/` outside the web login. `WEB_LOGIN_MAX_ATTEMPTS` and
+public nginx exposes only the OwnTracks ingestion endpoints under `/api/`. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
 `trip-calculation.log`, worker logs, and `mileage-logger-login-failures.log` directly. The app
