@@ -63,7 +63,9 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
-  OwnTracks state in the configured local timezone.
+  OwnTracks state in the configured local timezone. The Diagnostics Manual Odometer, EIA API, and
+  OwnTracks State cards share one equal-width status row, while Full Data Backup stays at the
+  bottom under the App Log.
 - Failed web-login audit records shown on Diagnostics and written into the host log directory, with
   an optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
@@ -183,10 +185,10 @@ export the saved list as OwnTracks waypoint JSON for backup/import.
 
 ## Full Data Backup And Restore
 
-Diagnostics includes a full app data backup and restore panel when `WEB_LOGIN_USERNAME` and
-`WEB_LOGIN_PASSWORD` are configured. `Download Full Backup` creates a `.json.gz` file containing
-all Mileage Logger database tables plus an OwnTracks waypoint export. Treat this file as sensitive
-location history.
+Diagnostics includes a full app data backup and restore panel at the bottom of the page under the
+App Log when `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. `Download Full Backup`
+creates a `.json.gz` file containing all Mileage Logger database tables plus an OwnTracks waypoint
+export. Treat this file as sensitive location history.
 
 To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
 file first, then replaces the current app table rows in one transaction. Restore is a replace, not
@@ -263,7 +265,8 @@ distance so the odometer difference matches the trip miles. Segments fully insid
 waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
 the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
-the existing checkpoint can be checked before entering a correction.
+the existing checkpoint can be checked before entering a correction. That card sits in the same
+Diagnostics row as the EIA API test card and the current OwnTracks State card.
 
 ## Cloudflare Tunnel
 

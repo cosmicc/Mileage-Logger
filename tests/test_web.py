@@ -1623,6 +1623,19 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "OwnTracks estimate" in manual_card
     assert "Rolling" in manual_card
 
+    api_tests_start = rendered.index('<section id="api-tests" class="diagnostics-grid">')
+    owntracks_card_start = rendered.index('<div id="owntracks-current-state" class="panel">')
+    state_log_start = rendered.index('<section id="owntracks-state-log" class="panel">')
+    api_tests_section = rendered[api_tests_start:state_log_start]
+    assert api_tests_start < manual_card_start < manual_card_end < owntracks_card_start
+    assert api_tests_section.count('class="panel"') == 3
+    assert "OwnTracks State" in api_tests_section
+
+    app_log_start = rendered.index('<section id="app-log" class="panel log-panel">')
+    backup_start = rendered.index('<section id="data-backup" class="panel">')
+    assert app_log_start < backup_start
+    assert "Full Data Backup" in rendered[backup_start:]
+
 
 def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:
     client, session_factory = _test_client_session()

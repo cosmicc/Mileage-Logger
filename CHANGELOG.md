@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Moved the Diagnostics Full Data Backup card to the bottom of the page under the App Log.
+- Changed the Diagnostics layout so Manual Odometer, EIA API, and OwnTracks State share one
+  equal-width card row.
 - Changed the Diagnostics manual odometer card to show the current odometer reading before saving
   a new manual checkpoint.
 - Fixed manual trip creation so new manual trips save start/end odometers from the latest known

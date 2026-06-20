@@ -181,9 +181,11 @@ docker compose up -d --build
    `HOST_LOGIN_FAILURE_LOG_PATH` may point to a host symlink such as
    `/var/log/mileage-logger-login-failures.log`.
 5. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
-   restore control replaces all app table data from a validated `.json.gz` backup and is enabled
-   only when web login is configured.
-6. Trip calculation details logged to `mileage_logger.trip_calculation` logger
+   backup/restore card is at the bottom of the page under App Log; restore replaces all app table
+   data from a validated `.json.gz` backup and is enabled only when web login is configured.
+6. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
+   before the detailed OwnTracks state-change log.
+7. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---
 

@@ -66,98 +66,6 @@
   </div>
 </section>
 
-<section id="data-backup" class="panel">
-  <div class="panel-toolbar">
-    <div>
-      <h2>Full Data Backup</h2>
-      <p class="panel-meta">Application database tables and OwnTracks waypoint export.</p>
-    </div>
-    {% if backup_restore_enabled %}
-    <a class="button-link secondary" href="/diagnostics/backup">Download Full Backup</a>
-    {% endif %}
-  </div>
-  {% if backup_restore_enabled %}
-  <form
-    method="post"
-    action="/diagnostics/restore"
-    enctype="multipart/form-data"
-    class="form-row"
-    onsubmit="return confirm('Restore this backup and replace all current app data?');"
-  >
-    <label>
-      Backup File
-      <input
-        type="file"
-        name="backup_file"
-        accept=".json,.gz,.json.gz,application/json,application/gzip"
-        required
-      >
-    </label>
-    <label>
-      Confirmation
-      <input
-        type="text"
-        name="confirmation"
-        pattern="RESTORE"
-        placeholder="RESTORE"
-        autocomplete="off"
-        required
-      >
-    </label>
-    <button type="submit" class="small-button danger">Restore</button>
-  </form>
-  {% else %}
-  <p class="panel-meta">Set WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD to enable backup and restore.</p>
-  {% endif %}
-  <dl class="diagnostic-list backup-details">
-    <dt>Restore Result</dt>
-    <dd>
-      {% if restore_result %}
-      <span class="pill {{ 'good' if restore_result.passed else 'bad' }}">{{ "Pass" if restore_result.passed else "Fail" }}</span>
-      {{ restore_result.message }}
-      {% if restore_result.value %}<span class="diagnostic-value">{{ restore_result.value }}</span>{% endif %}
-      {% else %}
-      Not run
-      {% endif %}
-    </dd>
-    <dt>Upload Limit</dt>
-    <dd>{{ backup_upload_max_mb }} MB</dd>
-  </dl>
-</section>
-
-<section id="owntracks-current-state" class="panel">
-  <div class="panel-toolbar">
-    <div>
-      <h2>OwnTracks State</h2>
-      <p class="panel-meta">Current waypoint or travel state from recent OwnTracks events.</p>
-    </div>
-  </div>
-  <dl class="diagnostic-list">
-    <dt>Status</dt>
-    <dd>
-      <span class="pill {{ 'good' if movement_state.state == 'waypoint' else 'warning' if movement_state.state == 'travel' else 'muted' }}">
-        {{ movement_state.label }}
-      </span>
-    </dd>
-    {% if movement_state.site_name %}
-    <dt>Waypoint</dt>
-    <dd>{{ movement_state.site_name }}</dd>
-    {% endif %}
-    {% if movement_state.arrived_at %}
-    <dt>Arrived</dt>
-    <dd>{{ movement_state.arrived_at|local_datetime }}</dd>
-    {% endif %}
-    {% if movement_state.detected_at %}
-    <dt>Detected</dt>
-    <dd>{{ movement_state.detected_at|local_datetime }}</dd>
-    {% endif %}
-    {% if movement_state.distance_miles is not none %}
-    <dt>Distance</dt>
-    <dd>{{ "%.1f"|format(movement_state.distance_miles) }} miles</dd>
-    {% endif %}
-  </dl>
-</section>
-
 <section id="api-tests" class="diagnostics-grid">
   <div class="panel">
     <div class="panel-toolbar">
@@ -234,6 +142,39 @@
         Not run
         {% endif %}
       </dd>
+    </dl>
+  </div>
+
+  <div id="owntracks-current-state" class="panel">
+    <div class="panel-toolbar">
+      <div>
+        <h2>OwnTracks State</h2>
+        <p class="panel-meta">Current waypoint or travel state from recent OwnTracks events.</p>
+      </div>
+    </div>
+    <dl class="diagnostic-list">
+      <dt>Status</dt>
+      <dd>
+        <span class="pill {{ 'good' if movement_state.state == 'waypoint' else 'warning' if movement_state.state == 'travel' else 'muted' }}">
+          {{ movement_state.label }}
+        </span>
+      </dd>
+      {% if movement_state.site_name %}
+      <dt>Waypoint</dt>
+      <dd>{{ movement_state.site_name }}</dd>
+      {% endif %}
+      {% if movement_state.arrived_at %}
+      <dt>Arrived</dt>
+      <dd>{{ movement_state.arrived_at|local_datetime }}</dd>
+      {% endif %}
+      {% if movement_state.detected_at %}
+      <dt>Detected</dt>
+      <dd>{{ movement_state.detected_at|local_datetime }}</dd>
+      {% endif %}
+      {% if movement_state.distance_miles is not none %}
+      <dt>Distance</dt>
+      <dd>{{ "%.1f"|format(movement_state.distance_miles) }} miles</dd>
+      {% endif %}
     </dl>
   </div>
 </section>
@@ -425,5 +366,64 @@
     <a class="button-link secondary" href="/diagnostics#app-log">Refresh App Log</a>
     <a class="button-link secondary" href="/diagnostics/logs/app">Download App Log</a>
   </div>
+</section>
+
+<section id="data-backup" class="panel">
+  <div class="panel-toolbar">
+    <div>
+      <h2>Full Data Backup</h2>
+      <p class="panel-meta">Application database tables and OwnTracks waypoint export.</p>
+    </div>
+    {% if backup_restore_enabled %}
+    <a class="button-link secondary" href="/diagnostics/backup">Download Full Backup</a>
+    {% endif %}
+  </div>
+  {% if backup_restore_enabled %}
+  <form
+    method="post"
+    action="/diagnostics/restore"
+    enctype="multipart/form-data"
+    class="form-row"
+    onsubmit="return confirm('Restore this backup and replace all current app data?');"
+  >
+    <label>
+      Backup File
+      <input
+        type="file"
+        name="backup_file"
+        accept=".json,.gz,.json.gz,application/json,application/gzip"
+        required
+      >
+    </label>
+    <label>
+      Confirmation
+      <input
+        type="text"
+        name="confirmation"
+        pattern="RESTORE"
+        placeholder="RESTORE"
+        autocomplete="off"
+        required
+      >
+    </label>
+    <button type="submit" class="small-button danger">Restore</button>
+  </form>
+  {% else %}
+  <p class="panel-meta">Set WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD to enable backup and restore.</p>
+  {% endif %}
+  <dl class="diagnostic-list backup-details">
+    <dt>Restore Result</dt>
+    <dd>
+      {% if restore_result %}
+      <span class="pill {{ 'good' if restore_result.passed else 'bad' }}">{{ "Pass" if restore_result.passed else "Fail" }}</span>
+      {{ restore_result.message }}
+      {% if restore_result.value %}<span class="diagnostic-value">{{ restore_result.value }}</span>{% endif %}
+      {% else %}
+      Not run
+      {% endif %}
+    </dd>
+    <dt>Upload Limit</dt>
+    <dd>{{ backup_upload_max_mb }} MB</dd>
+  </dl>
 </section>
 {% endblock %}
