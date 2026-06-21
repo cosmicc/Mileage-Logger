@@ -190,10 +190,19 @@ App Log when `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. `Down
 creates a `.json.gz` file containing all Mileage Logger database tables plus an OwnTracks waypoint
 export. Treat this file as sensitive location history.
 
+The app also creates automatic full-data backups every hour when
+`AUTOMATIC_BACKUPS_ENABLED=true`, which is the default. Automatic backups are stored in
+`AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups` such as `/data/logs/backups` in Docker.
+Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
+retention policy keeps the newest 6 hourly backups plus one daily backup for today and each of the
+prior 2 days.
+
 To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
 file first, then replaces the current app table rows in one transaction. Restore is a replace, not
 a merge: matching existing rows are overwritten from the backup and should not create duplicates.
-It does not restore Docker volumes, PostgreSQL users, passwords, or host log files.
+Uploaded restore files and retained automatic backup files are limited by
+`MAX_BACKUP_RESTORE_BYTES`, default `262144000` bytes. In-app restore does not restore Docker
+volumes, PostgreSQL users, passwords, or host log files.
 
 ## MQTT Setup
 
@@ -239,15 +248,13 @@ Generated mileage uses this order:
 
 1. OwnTracks location path distance from the location updates received between the waypoint
    `leave` and `enter` events.
-2. Estimated start/end odometer values using this trip's OwnTracks path distance or waypoint
-   distance and any available
-   odometer anchor.
-3. Waypoint-to-waypoint distance when no odometer anchor is available.
+2. Waypoint-to-waypoint distance when OwnTracks path data is not available.
 
 Keep OwnTracks location reporting enabled so the app can sum the actual path between waypoint
 events. If a trip window has only transition events and no location updates between them, the app
-falls back to estimated odometer, then waypoint distance. Edit a trip's miles on the `Trips` page
-when the generated mileage needs correction. A distance correction resequences that month's
+falls back to waypoint distance. Odometer values are never used to calculate trip distance,
+Dashboard trip plus non-trip totals, or monthly trip plus non-trip totals. Edit a trip's miles on
+the `Trips` page when the generated mileage needs correction. A distance correction resequences that month's
 displayed start and end odometers in chronological trip order. Manual trips entered from the
 `Trips` page now save start/end odometers immediately from the latest known odometer reading plus
 the entered trip miles. If the manual trip is inserted before existing trips, the app resequences
@@ -261,9 +268,11 @@ The checkpoint odometer is advanced from OwnTracks path distance between receive
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
 odometer value for that point, and generated trips use those rolling values for start and end
 odometers. The trip end odometer is always advanced from the start odometer by the stored trip
-distance so the odometer difference matches the trip miles. Segments fully inside the same saved
+distance so the odometer display follows the trip miles. Segments fully inside the same saved
 waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
 the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
+Dashboard total-driven cards sum OwnTracks coordinate segments directly for the selected local day
+or month, so manual odometer resets do not affect trip plus non-trip totals.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. That card sits in the same
 Diagnostics row as the EIA API test card and the current OwnTracks State card.
@@ -313,6 +322,9 @@ WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+AUTOMATIC_BACKUPS_ENABLED=true
+AUTOMATIC_BACKUP_DIR=/data/logs/backups
+MAX_BACKUP_RESTORE_BYTES=262144000
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
@@ -324,6 +336,8 @@ Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log
 writes failed-login audit records inside the mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH`
 is only a host-side symlink alias for the shorter `/var/log/mileage-logger-login-failures.log`
 path. The same failed-login entries are shown and downloadable from Diagnostics.
+Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
+mount, and are listed/restorable from Diagnostics after web login.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
 `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.

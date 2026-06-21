@@ -69,7 +69,8 @@ docker compose up -d --build
 - `generate_trips()` - Core trip generation from waypoint transitions
 - `haversine_miles()` - Calculates distance between GPS coordinates
 - `site_for_location()` - Matches OwnTracks event to saved waypoint site
-- Mileage priority: OwnTracks path distance → estimated odometer → waypoint distance
+- Mileage priority: OwnTracks path distance → waypoint distance; odometer values are not a
+  distance source
 - Supports manual trip entry and deletion with suppression records
 
 **[gas_prices.py](mileage_logger/services/gas_prices.py)** — Reimbursement calculation
@@ -100,7 +101,11 @@ docker compose up -d --build
 **[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
 - Creates a gzip-compressed JSON backup of every SQLAlchemy app table plus OwnTracks waypoint export
 - Restores validated backup files transactionally by replacing current app table rows
-- Backs Diagnostics full backup/restore controls; restore requires web login and typed confirmation
+- Creates hourly automatic full-data backups when `AUTOMATIC_BACKUPS_ENABLED=true`, stores them in
+  `AUTOMATIC_BACKUP_DIR`, and prunes to the newest 6 hourly backups plus one daily backup for today
+  and each of the prior 2 days
+- Backs Diagnostics full backup/restore controls and retained automatic-backup restore; restore
+  requires web login and typed confirmation
 
 ---
 
@@ -113,9 +118,10 @@ docker compose up -d --build
    - Requires at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5) of data inside destination
    - Home → Home never generates a trip
    - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
-3. Mileage is calculated from location updates between the two events
-4. Odometer values are estimated if not available
-5. Trip is stored and shown on `/trips` page for review/editing
+3. Mileage is calculated from OwnTracks location updates between the two events
+4. If OwnTracks path data is unavailable, trip distance falls back to waypoint-to-waypoint distance
+5. Odometer values are display/checkpoint values estimated from the selected distance
+6. Trip is stored and shown on `/trips` page for review/editing
 
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
@@ -136,7 +142,8 @@ docker compose up -d --build
 ### Configuration
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
 - **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
-  `LOGIN_FAILURE_LOG_PATH`
+  `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
+  `MAX_BACKUP_RESTORE_BYTES`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -183,6 +190,8 @@ docker compose up -d --build
 5. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log; restore replaces all app table
    data from a validated `.json.gz` backup and is enabled only when web login is configured.
+   Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR` and can restore
+   the selected file after typed `RESTORE` confirmation.
 6. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
    before the detailed OwnTracks state-change log.
 7. Trip calculation details logged to `mileage_logger.trip_calculation` logger
@@ -220,7 +229,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
 - Diagnostics includes authenticated full data backup and restore controls for app database rows
-  and saved OwnTracks waypoint export. Treat backup files as sensitive location history.
+  and saved OwnTracks waypoint export. Automatic hourly backups are stored under
+  `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups`; treat backup files as sensitive location
+  history.
 - Runtime app logs and failed-login audit records are host bind-mounted through `HOST_LOG_DIR`.
   Do not bind-mount the failed-login log as an individual file; use the host symlink documented in
   `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.
@@ -233,7 +244,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES` and OwnTracks event timestamps.
 
-3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Manual edits override all calculations.
+3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Odometer values are never a distance source; manual distance edits override generated calculations.
 
 4. **Odometer Precision**: Values stored and displayed as 0.1 mile precision. Manual entries are quantized during update.
 

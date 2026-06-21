@@ -1,8 +1,8 @@
 from decimal import Decimal
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["debug", "info", "warning"]
@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     log_dir: str = "logs"
     log_level: LogLevel = "info"
     login_failure_log_path: str = "/var/log/mileage-logger-login-failures.log"
+    max_backup_restore_bytes: int = Field(default=250 * 1024 * 1024, ge=1)
+    automatic_backups_enabled: bool = True
+    automatic_backup_dir: str = ""
     min_trip_miles: Decimal = Field(default=Decimal("0.10"), ge=Decimal("0"))
 
     @field_validator("log_level", mode="before")
@@ -61,6 +64,14 @@ class Settings(BaseSettings):
         if normalized not in {"debug", "info", "warning"}:
             raise ValueError("LOG_LEVEL must be debug, info, or warning")
         return normalized
+
+    @model_validator(mode="after")
+    def default_automatic_backup_dir(self) -> Self:
+        """Default automatic backups under the configured runtime log directory."""
+
+        if not self.automatic_backup_dir.strip():
+            self.automatic_backup_dir = f"{self.log_dir.rstrip('/')}/backups"
+        return self
 
 
 @lru_cache

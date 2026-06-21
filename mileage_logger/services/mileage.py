@@ -497,18 +497,6 @@ def _overlaps_preserved_trip(
     )
 
 
-def _odometer_miles(
-    start_odometer_miles: Decimal | None,
-    end_odometer_miles: Decimal | None,
-) -> Decimal | None:
-    if start_odometer_miles is None or end_odometer_miles is None:
-        return None
-    miles = end_odometer_miles - start_odometer_miles
-    if miles < 0:
-        return None
-    return miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
-
-
 def _odometer_reading_miles(reading: OdometerReading | None) -> Decimal | None:
     return reading.miles if reading is not None else None
 
@@ -552,6 +540,7 @@ def _distance_estimate_miles(origin: Site, destination: Site) -> Decimal:
 def _estimated_odometer_calculation(
     distance_miles: Decimal,
     *,
+    mileage_source: str,
     start_odometer_miles: Decimal | None,
     end_odometer_miles: Decimal | None,
     start_odometer_source: str | None,
@@ -566,7 +555,7 @@ def _estimated_odometer_calculation(
         )
         return MileageCalculation(
             miles=distance,
-            mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
+            mileage_source=mileage_source,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=estimated_end,
             start_odometer_source=start_odometer_source or ODOMETER_SOURCE_PREVIOUS_TRIP,
@@ -580,7 +569,7 @@ def _estimated_odometer_calculation(
         )
         return MileageCalculation(
             miles=distance,
-            mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
+            mileage_source=mileage_source,
             start_odometer_miles=estimated_start,
             end_odometer_miles=end_odometer_miles,
             start_odometer_source=ODOMETER_SOURCE_ESTIMATED,
@@ -597,7 +586,7 @@ def _estimated_odometer_calculation(
     )
     return MileageCalculation(
         miles=distance,
-        mileage_source=MILEAGE_SOURCE_ESTIMATED_ODOMETER,
+        mileage_source=mileage_source,
         start_odometer_miles=estimated_start,
         end_odometer_miles=estimated_end,
         start_odometer_source=ODOMETER_SOURCE_PREVIOUS_TRIP,
@@ -622,6 +611,7 @@ def _mileage_calculation(
     if path_miles is not None:
         path_odometer = _estimated_odometer_calculation(
             path_miles,
+            mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
             start_odometer_miles=start_odometer_miles,
             end_odometer_miles=end_odometer_miles,
             start_odometer_source=start_odometer_source,
@@ -670,20 +660,10 @@ def _mileage_calculation(
             ),
         )
 
-    odometer_miles = _odometer_miles(start_odometer_miles, end_odometer_miles)
-    if odometer_miles is not None:
-        return MileageCalculation(
-            miles=odometer_miles,
-            mileage_source=MILEAGE_SOURCE_MANUAL,
-            start_odometer_miles=start_odometer_miles,
-            end_odometer_miles=end_odometer_miles,
-            start_odometer_source=start_odometer_source or ODOMETER_SOURCE_MANUAL,
-            end_odometer_source=end_odometer_source or ODOMETER_SOURCE_MANUAL,
-        )
-
     distance_miles = _distance_estimate_miles(origin, destination)
     estimated = _estimated_odometer_calculation(
         distance_miles,
+        mileage_source=MILEAGE_SOURCE_WAYPOINT_DISTANCE,
         start_odometer_miles=start_odometer_miles,
         end_odometer_miles=end_odometer_miles,
         start_odometer_source=start_odometer_source,
@@ -726,9 +706,9 @@ def _mileage_source_rank(value: str | None) -> int:
         return 4
     if value == MILEAGE_SOURCE_MANUAL:
         return 3
-    if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
-        return 2
     if value == MILEAGE_SOURCE_WAYPOINT_DISTANCE:
+        return 2
+    if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
         return 1
     return 0
 
@@ -903,12 +883,13 @@ def _add_or_update_trip(
         )
         return existing_auto_trip
 
-    if calculation.mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
-        notes = _append_note(notes, "Estimated odometer from waypoint distance.")
-    elif calculation.mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH:
+    if calculation.mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH:
         notes = _append_note(notes, "Used OwnTracks location path between waypoint events.")
     elif calculation.mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE:
-        notes = _append_note(notes, "Used waypoint distance because odometer data was unavailable.")
+        notes = _append_note(
+            notes,
+            "Used waypoint distance because OwnTracks path data was unavailable.",
+        )
 
     if existing_auto_trip is None and _should_skip_for_minimum_miles(
         origin,

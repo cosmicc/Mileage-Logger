@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added hourly automatic full-data backups under `AUTOMATIC_BACKUP_DIR`, with Diagnostics listing
+  retained files and supporting typed-confirmation restore from a selected automatic backup.
+- Fixed Dashboard today and month trip plus non-trip totals so they are summed from OwnTracks
+  coordinate path data instead of rolling odometer differences, preventing manual odometer resets
+  from inflating driven-mile totals.
+- Changed automatic trip generation so odometer deltas are never used as the trip distance source;
+  transition-only trips fall back to waypoint distance while odometer fields remain display values.
 - Moved the Diagnostics Full Data Backup card to the bottom of the page under the App Log.
 - Changed the Diagnostics layout so Manual Odometer, EIA API, and OwnTracks State share one
   equal-width card row.
@@ -56,8 +63,8 @@
 - Added a stored OwnTracks odometer timeline so every processed location row records the rolling
   odometer value used by later trip generation.
 - Changed automatic trip processing to advance the rolling OwnTracks odometer before generating
-  trips, ensuring generated trip start/end odometers come from the rolling odometer and the
-  odometer difference always matches trip distance.
+  trips, allowing generated trip start/end odometer displays to follow OwnTracks-derived movement
+  without making odometer deltas a distance source.
 - Changed automatic trip generation so waypoint arrivals require a five-minute OwnTracks dwell
   confirmation before a trip is created, preventing drive-through waypoint trips.
 - Added rolling checkpoint odometer updates from OwnTracks path distance outside generated trips,
@@ -84,7 +91,7 @@
 - Added automatic checkpoint-aware OwnTracks location retention so old processed raw location data
   is purged after the configured retention window without deleting trips or other app data.
 - Changed generated trip mileage to prefer summed OwnTracks location path distance between
-  waypoint leave/enter events before falling back to estimated odometer or waypoint distance.
+  waypoint leave/enter events before falling back to waypoint distance.
 - Added a Trips page delete button and exact deleted-trip records so user-deleted automatic trips
   are not recreated from the same OwnTracks transition events.
 - Fixed automatic trip generation so unchanged existing trips are not rewritten and counted as

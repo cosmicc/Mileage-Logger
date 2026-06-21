@@ -5,7 +5,7 @@
 ## Overview
 
 The mileage calculation system in [mileage_logger/services/mileage.py](mileage_logger/services/mileage.py) is responsible for:
-1. Calculating trip distance from multiple data sources
+1. Calculating trip distance from OwnTracks coordinates or waypoint coordinates
 2. Estimating start/end odometer values
 3. Managing the rolling odometer checkpoint
 4. Handling manual trip edits and suppression records
@@ -22,25 +22,22 @@ When a trip is generated, mileage is determined by this priority order:
 - **Advantage**: Most accurate; reflects actual path taken
 - **Fallback**: If fewer than 2 location updates, use next priority
 
-### 2. Estimated Odometer (Secondary)
-- **Source**: Rolling checkpoint odometer advanced by OwnTracks distances
-- **Calculation**: `end_odometer = checkpoint_at_trip_start + path_sum`
-- **Advantage**: Works when location updates are sparse
-- **Fallback**: If no checkpoint or path data, use next priority
-
-### 3. Waypoint Distance (Fallback)
+### 2. Waypoint Distance (Fallback)
 - **Source**: Direct distance between waypoint coordinates
 - **Calculation**: Haversine distance between origin/destination sites
 - **Advantage**: Always available; simple calculation
 - **Limitation**: Doesn't reflect actual travel path
 
+Odometer values are not a distance source. They are display/checkpoint values derived from
+OwnTracks path distance, waypoint distance, and manual distance entries.
+
 ### Mileage Source Constants
 
 ```python
 MILEAGE_SOURCE_OWNTRACKS_PATH = "owntracks_path"           # Primary
-MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"   # Secondary
 MILEAGE_SOURCE_WAYPOINT_DISTANCE = "waypoint_distance"     # Fallback
 MILEAGE_SOURCE_MANUAL = "manual"                            # User override
+MILEAGE_SOURCE_ESTIMATED_ODOMETER = "estimated_odometer"   # Legacy existing rows only
 ```
 
 ---
@@ -134,8 +131,8 @@ def generate_trips(
    - Skip if both are "Home" waypoint
 3. **For each valid pair**:
    - Load location updates between T1 and T2
-   - Calculate mileage using priority system
-   - Estimate start/end odometers
+   - Calculate mileage from OwnTracks path distance or waypoint distance
+   - Estimate start/end odometers from the selected distance
    - Create Trip record
 
 ### Mileage Calculation Function
@@ -402,9 +399,9 @@ print(f"Reimbursement: ${reimbursement}")
 
 On `/trips` page, hover over the "Trip Mi" column or check `trip.mileage_source`:
 - `"owntracks_path"` — Based on location path (best)
-- `"estimated_odometer"` — Estimated from checkpoint (good)
 - `"waypoint_distance"` — Direct waypoint distance (fallback)
 - `"manual"` — User manually edited
+- `"estimated_odometer"` — Legacy label on older rows; do not use for new distance calculations
 
 ### Inspect Odometer Chain
 

@@ -103,8 +103,8 @@ If user then enters "manual odometer: 50010.0":
 **2. Trips generated but with wrong mileage**
 - Check mileage priority:
   1. OwnTracks path distance (preferred)
-  2. Estimated odometer (if path sparse)
-  3. Waypoint-to-waypoint distance (fallback)
+  2. Waypoint-to-waypoint distance (fallback)
+- Odometer values are display/checkpoint values and must not be used as generated trip distance
 - Manual edit on `/trips` page overrides calculation
 
 **3. Trip dwell time not met**

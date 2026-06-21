@@ -1,21 +1,30 @@
 """Portable full-data backup and restore helpers for Mileage Logger."""
 
+import asyncio
 import gzip
 import json
 import logging
+import os
 import threading
+import uuid
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import insert, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.schema import Column, Table
 from sqlalchemy.sql.sqltypes import Date, DateTime, Numeric
 
+from mileage_logger import database
 from mileage_logger.models import Base, Site
+from mileage_logger.services.timezone import datetime_to_local
 from mileage_logger.services.waypoints import owntracks_waypoints_export
+
+if TYPE_CHECKING:
+    from mileage_logger.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +34,12 @@ BACKUP_MEDIA_TYPE = "application/gzip"
 BACKUP_UPLOAD_MAX_BYTES = 250 * 1024 * 1024
 BACKUP_TABLES = tuple(Base.metadata.sorted_tables)
 BACKUP_TABLE_NAMES = tuple(table.name for table in BACKUP_TABLES)
-_BACKUP_RESTORE_LOCK = threading.Lock()
+AUTOMATIC_BACKUP_FILENAME_PREFIX = "mileage-logger-auto-backup-"
+AUTOMATIC_BACKUP_FILENAME_SUFFIX = ".json.gz"
+AUTOMATIC_BACKUP_INTERVAL_SECONDS = 60 * 60
+AUTOMATIC_HOURLY_BACKUPS_TO_KEEP = 6
+AUTOMATIC_DAILY_BACKUP_DAYS_TO_KEEP = 3
+_BACKUP_RESTORE_LOCK = threading.RLock()
 
 
 class BackupValidationError(ValueError):
@@ -56,12 +70,38 @@ class RestoreSummary:
         return sum(self.table_counts.values())
 
 
+@dataclass(frozen=True)
+class AutomaticBackupFile:
+    """One retained automatic backup file available for Diagnostics restore."""
+
+    filename: str
+    path: Path
+    created_at_utc: datetime
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class AutomaticBackupResult:
+    """Result of creating one automatic backup and pruning expired files."""
+
+    backup_file: AutomaticBackupFile
+    deleted_filenames: tuple[str, ...]
+
+
 def full_backup_filename(now: datetime | None = None) -> str:
     """Return a timestamped backup filename safe for browser downloads."""
 
     current_dt = (now or datetime.now(UTC)).astimezone(UTC)
     timestamp = current_dt.strftime("%Y%m%d-%H%M%SZ")
     return f"mileage-logger-full-backup-{timestamp}.json.gz"
+
+
+def automatic_backup_filename(now: datetime | None = None) -> str:
+    """Return a timestamped automatic backup filename safe for filesystem use."""
+
+    current_dt = (now or datetime.now(UTC)).astimezone(UTC)
+    timestamp = current_dt.strftime("%Y%m%d-%H%M%SZ")
+    return f"{AUTOMATIC_BACKUP_FILENAME_PREFIX}{timestamp}{AUTOMATIC_BACKUP_FILENAME_SUFFIX}"
 
 
 def create_full_backup(db: Session, *, now: datetime | None = None) -> FullBackup:
@@ -71,12 +111,17 @@ def create_full_backup(db: Session, *, now: datetime | None = None) -> FullBacku
     table_payloads: dict[str, list[dict[str, Any]]] = {}
     table_counts: dict[str, int] = {}
 
-    for table in BACKUP_TABLES:
-        rows = [_serialize_row(table, row) for row in db.execute(_select_table(table)).mappings()]
-        table_payloads[table.name] = rows
-        table_counts[table.name] = len(rows)
+    with _BACKUP_RESTORE_LOCK:
+        for table in BACKUP_TABLES:
+            rows = [
+                _serialize_row(table, row)
+                for row in db.execute(_select_table(table)).mappings()
+            ]
+            table_payloads[table.name] = rows
+            table_counts[table.name] = len(rows)
 
-    sites = list(db.scalars(select(Site).order_by(Site.name.asc(), Site.id.asc())))
+        sites = list(db.scalars(select(Site).order_by(Site.name.asc(), Site.id.asc())))
+
     payload = {
         "format": BACKUP_FORMAT,
         "version": BACKUP_VERSION,
@@ -99,6 +144,135 @@ def create_full_backup(db: Session, *, now: datetime | None = None) -> FullBacku
         content=gzip.compress(raw_content, mtime=0),
         table_counts=table_counts,
     )
+
+
+def list_automatic_backup_files(backup_directory: str | Path) -> tuple[AutomaticBackupFile, ...]:
+    """Return available automatic backups newest-first, ignoring unknown files."""
+
+    directory = Path(backup_directory)
+    try:
+        entries = tuple(directory.iterdir())
+    except FileNotFoundError:
+        return ()
+    except OSError:
+        logger.exception("Could not list automatic backup directory path=%s", directory)
+        return ()
+
+    backup_files: list[AutomaticBackupFile] = []
+    for entry in entries:
+        backup_file = _automatic_backup_file_from_path(entry)
+        if backup_file is not None:
+            backup_files.append(backup_file)
+
+    return tuple(sorted(backup_files, key=lambda item: item.created_at_utc, reverse=True))
+
+
+def create_automatic_backup(
+    db: Session,
+    backup_directory: str | Path,
+    *,
+    now: datetime | None = None,
+) -> AutomaticBackupResult:
+    """Write one full-data automatic backup file and purge expired backups."""
+
+    current_dt = (now or datetime.now(UTC)).astimezone(UTC)
+    directory = _ensure_private_backup_directory(Path(backup_directory))
+    backup = create_full_backup(db, now=current_dt)
+    backup_path = directory / automatic_backup_filename(current_dt)
+    _write_private_file_atomically(backup_path, backup.content)
+    backup_file = _automatic_backup_file_from_path(backup_path)
+    if backup_file is None:
+        raise BackupValidationError("Automatic backup could not be verified after writing.")
+
+    deleted_filenames = prune_automatic_backups(directory, now=current_dt)
+    return AutomaticBackupResult(backup_file=backup_file, deleted_filenames=deleted_filenames)
+
+
+def prune_automatic_backups(
+    backup_directory: str | Path,
+    *,
+    now: datetime | None = None,
+) -> tuple[str, ...]:
+    """Delete automatic backup files outside the hourly and daily retention windows."""
+
+    current_dt = (now or datetime.now(UTC)).astimezone(UTC)
+    backup_files = list_automatic_backup_files(backup_directory)
+    retained_filenames = _retained_automatic_backup_filenames(backup_files, current_dt)
+    deleted_filenames: list[str] = []
+
+    for backup_file in backup_files:
+        if backup_file.filename in retained_filenames:
+            continue
+        try:
+            backup_file.path.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            logger.exception("Could not delete expired automatic backup path=%s", backup_file.path)
+            continue
+        deleted_filenames.append(backup_file.filename)
+
+    return tuple(deleted_filenames)
+
+
+def read_automatic_backup_content(
+    backup_directory: str | Path,
+    filename: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Read a named automatic backup after strict filename and size checks."""
+
+    safe_filename = filename.strip()
+    _validate_automatic_backup_filename(safe_filename)
+    backup_path = Path(backup_directory) / safe_filename
+    if backup_path.is_symlink():
+        raise BackupValidationError("Automatic backup file is not a regular file.")
+    try:
+        stat_result = backup_path.stat()
+    except FileNotFoundError as exc:
+        raise BackupValidationError("Automatic backup file was not found.") from exc
+    if not backup_path.is_file():
+        raise BackupValidationError("Automatic backup file is not a regular file.")
+    if stat_result.st_size > max_bytes:
+        raise BackupValidationError("Automatic backup file is larger than the restore limit.")
+
+    try:
+        return backup_path.read_bytes()
+    except OSError as exc:
+        raise BackupValidationError("Automatic backup file could not be read.") from exc
+
+
+def run_automatic_backup_once(application_settings: "Settings") -> AutomaticBackupResult:
+    """Create one scheduled backup using an isolated database session."""
+
+    with database.SessionLocal() as db:
+        result = create_automatic_backup(
+            db,
+            application_settings.automatic_backup_dir,
+        )
+
+    logger.info(
+        "Created automatic Mileage Logger backup filename=%s size_bytes=%s deleted=%s",
+        result.backup_file.filename,
+        result.backup_file.size_bytes,
+        len(result.deleted_filenames),
+    )
+    return result
+
+
+async def automatic_backup_scheduler(application_settings: "Settings") -> None:
+    """Run automatic full-data backups until the application shuts down."""
+
+    while True:
+        try:
+            await asyncio.to_thread(run_automatic_backup_once, application_settings)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Automatic Mileage Logger backup failed")
+
+        await asyncio.sleep(AUTOMATIC_BACKUP_INTERVAL_SECONDS)
 
 
 def restore_full_backup(db: Session, content: bytes) -> RestoreSummary:
@@ -128,6 +302,124 @@ def restore_full_backup(db: Session, content: bytes) -> RestoreSummary:
         sum(table_counts.values()),
     )
     return RestoreSummary(table_counts=table_counts)
+
+
+def _automatic_backup_file_from_path(path: Path) -> AutomaticBackupFile | None:
+    """Return metadata for a valid automatic backup path or None for non-matches."""
+
+    if path.is_symlink() or not path.is_file():
+        return None
+    created_at_utc = _parse_automatic_backup_datetime(path.name)
+    if created_at_utc is None:
+        return None
+    try:
+        stat_result = path.stat()
+    except OSError:
+        logger.exception("Could not stat automatic backup path=%s", path)
+        return None
+
+    return AutomaticBackupFile(
+        filename=path.name,
+        path=path,
+        created_at_utc=created_at_utc,
+        size_bytes=stat_result.st_size,
+    )
+
+
+def _parse_automatic_backup_datetime(filename: str) -> datetime | None:
+    """Parse a UTC timestamp from an automatic backup filename."""
+
+    if not filename.startswith(AUTOMATIC_BACKUP_FILENAME_PREFIX):
+        return None
+    if not filename.endswith(AUTOMATIC_BACKUP_FILENAME_SUFFIX):
+        return None
+
+    timestamp_text = filename[
+        len(AUTOMATIC_BACKUP_FILENAME_PREFIX) : -len(AUTOMATIC_BACKUP_FILENAME_SUFFIX)
+    ]
+    try:
+        return datetime.strptime(timestamp_text, "%Y%m%d-%H%M%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return None
+
+
+def _validate_automatic_backup_filename(filename: str) -> None:
+    """Reject traversal, hidden paths, and non-automatic backup filenames."""
+
+    if not filename or Path(filename).name != filename:
+        raise BackupValidationError("Automatic backup filename is not valid.")
+    if _parse_automatic_backup_datetime(filename) is None:
+        raise BackupValidationError("Automatic backup filename is not valid.")
+
+
+def _ensure_private_backup_directory(backup_directory: Path) -> Path:
+    """Create the automatic backup directory with owner-only permissions when possible."""
+
+    backup_directory.mkdir(parents=True, exist_ok=True)
+    try:
+        backup_directory.chmod(0o700)
+    except OSError:
+        logger.warning(
+            "Could not set automatic backup directory permissions path=%s",
+            backup_directory,
+        )
+    return backup_directory
+
+
+def _write_private_file_atomically(destination: Path, content: bytes) -> None:
+    """Write backup bytes through a 0600 temporary file before atomic replace."""
+
+    temporary_path = destination.with_name(
+        f".{destination.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp"
+    )
+    file_descriptor: int | None = None
+    try:
+        file_descriptor = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(file_descriptor, "wb") as temporary_file:
+            file_descriptor = None
+            temporary_file.write(content)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, destination)
+        try:
+            destination.chmod(0o600)
+        except OSError:
+            logger.warning("Could not set automatic backup file permissions path=%s", destination)
+    except FileExistsError as exc:
+        raise BackupValidationError("Temporary automatic backup file already exists.") from exc
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        try:
+            temporary_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove temporary automatic backup path=%s", temporary_path)
+
+
+def _retained_automatic_backup_filenames(
+    backup_files: tuple[AutomaticBackupFile, ...],
+    current_dt: datetime,
+) -> set[str]:
+    """Return filenames protected by hourly and local daily retention rules."""
+
+    retained_filenames = {
+        backup_file.filename
+        for backup_file in backup_files[:AUTOMATIC_HOURLY_BACKUPS_TO_KEEP]
+    }
+    current_local_date = datetime_to_local(current_dt).date()
+    retained_daily_dates = {
+        current_local_date - timedelta(days=day_offset)
+        for day_offset in range(AUTOMATIC_DAILY_BACKUP_DAYS_TO_KEEP)
+    }
+    daily_kept_dates: set[date] = set()
+    for backup_file in backup_files:
+        backup_local_date = datetime_to_local(backup_file.created_at_utc).date()
+        if backup_local_date not in retained_daily_dates or backup_local_date in daily_kept_dates:
+            continue
+        retained_filenames.add(backup_file.filename)
+        daily_kept_dates.add(backup_local_date)
+
+    return retained_filenames
 
 
 def _select_table(table: Table):

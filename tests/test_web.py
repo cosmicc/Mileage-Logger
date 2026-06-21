@@ -24,11 +24,13 @@ from mileage_logger.models import (
     Trip,
     TripProcessingCheckpoint,
 )
+from mileage_logger.services.backups import create_automatic_backup, list_automatic_backup_files
 from mileage_logger.services.diagnostics import (
     paginated_owntracks_entries,
     recent_owntracks_entries,
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
+from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import _human_duration_since, templates
 
@@ -489,6 +491,45 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
     )
     client, session_factory = _test_client_session()
     try:
+        month_origin_latitude = Decimal("42.3314")
+        month_origin_longitude = Decimal("-83.0458")
+        prior_month_latitude = Decimal("42.3314")
+        prior_month_longitude = Decimal("-83.0458")
+        prior_today_latitude = Decimal("42.3440")
+        prior_today_longitude = Decimal("-83.0600")
+        today_point_one_latitude = Decimal("42.3314")
+        today_point_one_longitude = Decimal("-83.0600")
+        today_point_two_latitude = Decimal("42.3380")
+        today_point_two_longitude = Decimal("-83.0700")
+        today_total = (
+            haversine_miles(
+                prior_today_latitude,
+                prior_today_longitude,
+                today_point_one_latitude,
+                today_point_one_longitude,
+            )
+            + haversine_miles(
+                today_point_one_latitude,
+                today_point_one_longitude,
+                today_point_two_latitude,
+                today_point_two_longitude,
+            )
+        ).quantize(Decimal("0.1"))
+        month_total = (
+            haversine_miles(
+                prior_month_latitude,
+                prior_month_longitude,
+                month_origin_latitude,
+                month_origin_longitude,
+            )
+            + haversine_miles(
+                month_origin_latitude,
+                month_origin_longitude,
+                prior_today_latitude,
+                prior_today_longitude,
+            )
+            + today_total
+        ).quantize(Decimal("0.1"))
         with session_factory() as db:
             db.add_all(
                 [
@@ -496,24 +537,40 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
                         datetime(2026, 6, 1, 3, 30, tzinfo=UTC),
                         datetime(2026, 6, 1, 3, 30, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(prior_month_latitude),
+                        longitude=str(prior_month_longitude),
                         odometer_miles=Decimal("80.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 12, 13, 30, tzinfo=UTC),
+                        datetime(2026, 6, 12, 13, 30, tzinfo=UTC),
+                        {"_type": "location"},
+                        latitude=str(month_origin_latitude),
+                        longitude=str(month_origin_longitude),
+                        odometer_miles=Decimal("95.0"),
                     ),
                     _location(
                         datetime(2026, 6, 16, 3, 50, tzinfo=UTC),
                         datetime(2026, 6, 16, 3, 50, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(prior_today_latitude),
+                        longitude=str(prior_today_longitude),
                         odometer_miles=Decimal("100.0"),
                     ),
                     _location(
                         datetime(2026, 6, 16, 5, 0, tzinfo=UTC),
                         datetime(2026, 6, 16, 5, 0, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(today_point_one_latitude),
+                        longitude=str(today_point_one_longitude),
                         odometer_miles=Decimal("102.0"),
                     ),
                     _location(
                         datetime(2026, 6, 16, 16, 0, tzinfo=UTC),
                         datetime(2026, 6, 16, 16, 0, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(today_point_two_latitude),
+                        longitude=str(today_point_two_longitude),
                         odometer_miles=Decimal("108.5"),
                     ),
                     Trip(
@@ -546,9 +603,9 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
         assert "Distance driven summary" in response.text
         assert "Trips + non-trips" in response.text
         assert "Trips only" in response.text
-        assert "<strong>8.5</strong>" in response.text
+        assert f"<strong>{today_total}</strong>" in response.text
         assert "<strong>5.5</strong>" in response.text
-        assert "<strong>28.5</strong>" in response.text
+        assert f"<strong>{month_total}</strong>" in response.text
         assert "<strong>9.5</strong>" in response.text
     finally:
         app.dependency_overrides.clear()
@@ -573,6 +630,28 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
     )
     client, session_factory = _test_client_session()
     try:
+        prior_today_latitude = Decimal("42.3314")
+        prior_today_longitude = Decimal("-83.0458")
+        point_one_latitude = Decimal("42.3314")
+        point_one_longitude = Decimal("-83.0600")
+        point_two_latitude = Decimal("42.3380")
+        point_two_longitude = Decimal("-83.0700")
+        next_day_latitude = Decimal("42.3500")
+        next_day_longitude = Decimal("-83.0800")
+        today_total = (
+            haversine_miles(
+                prior_today_latitude,
+                prior_today_longitude,
+                point_one_latitude,
+                point_one_longitude,
+            )
+            + haversine_miles(
+                point_one_latitude,
+                point_one_longitude,
+                point_two_latitude,
+                point_two_longitude,
+            )
+        ).quantize(Decimal("0.1"))
         with session_factory() as db:
             db.add_all(
                 [
@@ -580,24 +659,32 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
                         datetime(2026, 6, 16, 3, 55, tzinfo=UTC),
                         datetime(2026, 6, 16, 3, 55, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(prior_today_latitude),
+                        longitude=str(prior_today_longitude),
                         odometer_miles=Decimal("100.0"),
                     ),
                     _location(
                         datetime(2026, 6, 16, 4, 10, tzinfo=UTC),
                         datetime(2026, 6, 16, 4, 10, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(point_one_latitude),
+                        longitude=str(point_one_longitude),
                         odometer_miles=Decimal("101.0"),
                     ),
                     _location(
                         datetime(2026, 6, 17, 3, 30, tzinfo=UTC),
                         datetime(2026, 6, 17, 3, 30, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(point_two_latitude),
+                        longitude=str(point_two_longitude),
                         odometer_miles=Decimal("112.3"),
                     ),
                     _location(
                         datetime(2026, 6, 17, 4, 0, tzinfo=UTC),
                         datetime(2026, 6, 17, 4, 0, tzinfo=UTC),
                         {"_type": "location"},
+                        latitude=str(next_day_latitude),
+                        longitude=str(next_day_longitude),
                         odometer_miles=Decimal("125.0"),
                     ),
                     Trip(
@@ -630,7 +717,7 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
         assert "2026-06-16 11:30:00 PM" in response.text
         assert (
             "<span>Today</span>\n"
-            "      <strong>12.3</strong>\n"
+            f"      <strong>{today_total}</strong>\n"
             "      <small>Trips + non-trips</small>"
         ) in response.text
         assert (
@@ -638,6 +725,104 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
             "      <strong>7.3</strong>\n"
             "      <small>Trips only</small>"
         ) in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_dashboard_distance_totals_ignore_manual_odometer_reset(monkeypatch) -> None:
+    dashboard_now = datetime(
+        2026,
+        6,
+        16,
+        10,
+        0,
+        tzinfo=ZoneInfo("America/Detroit"),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.local_now", lambda: dashboard_now)
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: dashboard_now.date())
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        prior_month_latitude = Decimal("42.3314")
+        prior_month_longitude = Decimal("-83.0458")
+        prior_today_latitude = Decimal("42.3440")
+        prior_today_longitude = Decimal("-83.0600")
+        reset_point_latitude = Decimal("42.3314")
+        reset_point_longitude = Decimal("-83.0600")
+        end_point_latitude = Decimal("42.3380")
+        end_point_longitude = Decimal("-83.0700")
+        today_total = (
+            haversine_miles(
+                prior_today_latitude,
+                prior_today_longitude,
+                reset_point_latitude,
+                reset_point_longitude,
+            )
+            + haversine_miles(
+                reset_point_latitude,
+                reset_point_longitude,
+                end_point_latitude,
+                end_point_longitude,
+            )
+        ).quantize(Decimal("0.1"))
+        month_total = (
+            haversine_miles(
+                prior_month_latitude,
+                prior_month_longitude,
+                prior_today_latitude,
+                prior_today_longitude,
+            )
+            + today_total
+        ).quantize(Decimal("0.1"))
+        with session_factory() as db:
+            db.add_all(
+                [
+                    _location(
+                        datetime(2026, 6, 1, 3, 30, tzinfo=UTC),
+                        datetime(2026, 6, 1, 3, 30, tzinfo=UTC),
+                        {"_type": "location"},
+                        latitude=str(prior_month_latitude),
+                        longitude=str(prior_month_longitude),
+                        odometer_miles=Decimal("5.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 3, 50, tzinfo=UTC),
+                        datetime(2026, 6, 16, 3, 50, tzinfo=UTC),
+                        {"_type": "location"},
+                        latitude=str(prior_today_latitude),
+                        longitude=str(prior_today_longitude),
+                        odometer_miles=Decimal("10.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 5, 0, tzinfo=UTC),
+                        datetime(2026, 6, 16, 5, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                        latitude=str(reset_point_latitude),
+                        longitude=str(reset_point_longitude),
+                        odometer_miles=Decimal("20000.0"),
+                    ),
+                    _location(
+                        datetime(2026, 6, 16, 16, 0, tzinfo=UTC),
+                        datetime(2026, 6, 16, 16, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                        latitude=str(end_point_latitude),
+                        longitude=str(end_point_longitude),
+                        odometer_miles=Decimal("20003.0"),
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        assert f"<strong>{today_total}</strong>" in response.text
+        assert f"<strong>{month_total}</strong>" in response.text
+        assert "<strong>19993.0</strong>" not in response.text
+        assert "<strong>19998.0</strong>" not in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -1021,6 +1206,102 @@ def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tm
             assert trip.miles == Decimal("12.3")
     finally:
         app.dependency_overrides.clear()
+
+
+def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(tmp_path / "login-failures.log"),
+        automatic_backup_dir=str(tmp_path / "backups"),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+        with session_factory() as db:
+            _seed_full_backup_data(db)
+            backup_result = create_automatic_backup(
+                db,
+                settings.automatic_backup_dir,
+                now=datetime(2026, 6, 20, 12, 0, tzinfo=UTC),
+            )
+
+        diagnostics_response = client.get("/diagnostics")
+        assert diagnostics_response.status_code == 200
+        assert "Automatic Backups" in diagnostics_response.text
+        assert backup_result.backup_file.filename in diagnostics_response.text
+
+        with session_factory() as db:
+            existing_site = db.scalar(select(Site))
+            assert existing_site is not None
+            existing_site.name = "Changed Client"
+            db.add(
+                Site(
+                    name="Temporary",
+                    latitude=Decimal("40.0000000"),
+                    longitude=Decimal("-80.0000000"),
+                    radius_m=100,
+                )
+            )
+            db.commit()
+
+        restore_response = client.post(
+            "/diagnostics/automatic-backups/restore",
+            data={
+                "filename": backup_result.backup_file.filename,
+                "confirmation": "RESTORE",
+            },
+        )
+
+        assert restore_response.status_code == 200
+        assert "Automatic backup restore completed." in restore_response.text
+        with session_factory() as db:
+            assert db.scalar(select(func.count(Site.id))) == 1
+            assert db.scalar(select(Site.name)) == "Client"
+            assert db.scalar(select(func.count(Trip.id))) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_automatic_backup_retention_keeps_hourly_and_recent_daily(tmp_path) -> None:
+    db = _session()
+    _seed_full_backup_data(db)
+    backup_dir = tmp_path / "backups"
+    backup_times = [
+        datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
+        datetime(2026, 6, 18, 12, 0, tzinfo=UTC),
+        datetime(2026, 6, 19, 12, 0, tzinfo=UTC),
+        *[
+            datetime(2026, 6, 20, hour, 0, tzinfo=UTC)
+            for hour in range(3, 13)
+        ],
+    ]
+    for backup_time in backup_times:
+        create_automatic_backup(db, backup_dir, now=backup_time)
+
+    retained_backups = list_automatic_backup_files(backup_dir)
+    retained_filenames = {backup.filename for backup in retained_backups}
+
+    assert len(retained_backups) == 8
+    assert "mileage-logger-auto-backup-20260617-120000Z.json.gz" not in retained_filenames
+    assert "mileage-logger-auto-backup-20260618-120000Z.json.gz" in retained_filenames
+    assert "mileage-logger-auto-backup-20260619-120000Z.json.gz" not in retained_filenames
+    assert "mileage-logger-auto-backup-20260620-030000Z.json.gz" in retained_filenames
+    for hour in range(7, 13):
+        assert f"mileage-logger-auto-backup-20260620-{hour:02d}0000Z.json.gz" in retained_filenames
 
 
 def test_diagnostics_full_restore_requires_confirmation(monkeypatch, tmp_path) -> None:
@@ -1611,6 +1892,9 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "eia_test_result": None,
             "restore_result": None,
             "backup_restore_enabled": False,
+            "automatic_backups_enabled": False,
+            "automatic_backup_dir": "/tmp/mileage-logger-backups",
+            "automatic_backups": [],
             "backup_upload_max_mb": 10,
         }
     )

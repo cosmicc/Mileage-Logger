@@ -29,9 +29,11 @@ from mileage_logger.models import (
 )
 from mileage_logger.services.backups import (
     BACKUP_MEDIA_TYPE,
-    BACKUP_UPLOAD_MAX_BYTES,
+    AutomaticBackupFile,
     BackupValidationError,
     create_full_backup,
+    list_automatic_backup_files,
+    read_automatic_backup_content,
     restore_full_backup,
 )
 from mileage_logger.services.diagnostics import (
@@ -53,7 +55,9 @@ from mileage_logger.services.mileage import (
     create_manual_trip,
     delete_trip,
     mark_trip_manually_reviewed,
+    owntracks_segment_miles,
     resequence_month_trip_odometers,
+    site_indexes,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.timezone import (
@@ -201,6 +205,15 @@ class ApiTestResult:
         return self.status == "pass"
 
 
+@dataclass(frozen=True)
+class DiagnosticAutomaticBackup:
+    """Automatic backup metadata rendered on the Diagnostics page."""
+
+    filename: str
+    created_at_display: str
+    size_display: str
+
+
 def _current_year_month() -> tuple[int, int]:
     today = local_today()
     return _year_month_for_local_date(today)
@@ -256,43 +269,49 @@ def _trip_miles_for_date_range(db: Session, start_date: date, end_date: date) ->
     return _quantize_distance(Decimal(str(total or "0.0")))
 
 
-def _owntracks_odometer_location_before(
+def _owntracks_location_before(
     db: Session,
     before_dt: datetime,
 ) -> OwnTracksLocation | None:
-    """Return the latest rolling odometer point before a UTC boundary."""
+    """Return the latest OwnTracks row before a UTC boundary."""
 
     return db.scalar(
         select(OwnTracksLocation)
-        .where(OwnTracksLocation.odometer_miles.is_not(None))
         .where(OwnTracksLocation.captured_at < before_dt)
         .order_by(OwnTracksLocation.captured_at.desc(), OwnTracksLocation.id.desc())
         .limit(1)
     )
 
 
-def _owntracks_odometer_location_in_range(
+def _owntracks_locations_in_range(
     db: Session,
     start_dt: datetime,
     end_dt: datetime,
-    *,
-    ascending: bool,
-) -> OwnTracksLocation | None:
-    """Return one rolling odometer point inside a UTC range."""
+) -> list[OwnTracksLocation]:
+    """Return OwnTracks rows inside a UTC range in chronological order."""
 
-    ordering = (
-        (OwnTracksLocation.captured_at.asc(), OwnTracksLocation.id.asc())
-        if ascending
-        else (OwnTracksLocation.captured_at.desc(), OwnTracksLocation.id.desc())
+    return list(
+        db.scalars(
+            select(OwnTracksLocation)
+            .where(OwnTracksLocation.captured_at >= start_dt)
+            .where(OwnTracksLocation.captured_at < end_dt)
+            .order_by(OwnTracksLocation.captured_at.asc(), OwnTracksLocation.id.asc())
+        )
     )
-    return db.scalar(
-        select(OwnTracksLocation)
-        .where(OwnTracksLocation.odometer_miles.is_not(None))
-        .where(OwnTracksLocation.captured_at >= start_dt)
-        .where(OwnTracksLocation.captured_at < end_dt)
-        .order_by(*ordering)
-        .limit(1)
-    )
+
+
+def _owntracks_path_locations_for_datetime_range(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> list[OwnTracksLocation]:
+    """Return path rows used to count segments ending inside the UTC range."""
+
+    previous_location = _owntracks_location_before(db, start_dt)
+    locations = _owntracks_locations_in_range(db, start_dt, end_dt)
+    if previous_location is None:
+        return locations
+    return [previous_location, *locations]
 
 
 def _owntracks_total_miles_for_datetime_range(
@@ -300,35 +319,27 @@ def _owntracks_total_miles_for_datetime_range(
     start_dt: datetime,
     end_dt: datetime,
 ) -> Decimal:
-    """Calculate total driven distance from rolling OwnTracks odometer points."""
+    """Calculate total driven distance directly from OwnTracks coordinate points."""
 
-    first_location = _owntracks_odometer_location_in_range(
-        db,
-        start_dt,
-        end_dt,
-        ascending=True,
-    )
-    if first_location is None:
+    path_locations = _owntracks_path_locations_for_datetime_range(db, start_dt, end_dt)
+    if len(path_locations) < 2:
         return Decimal("0.0")
 
-    previous_location = _owntracks_odometer_location_before(db, start_dt)
-    last_location = _owntracks_odometer_location_in_range(
-        db,
-        start_dt,
-        end_dt,
-        ascending=False,
-    )
-    if last_location is None or last_location.odometer_miles is None:
-        return Decimal("0.0")
+    sites = list(db.scalars(select(Site).where(Site.active.is_(True)).order_by(Site.name.asc())))
+    sites_by_name, sites_by_region_id = site_indexes(sites)
+    total_miles = Decimal("0.0")
+    previous_location = path_locations[0]
+    for location in path_locations[1:]:
+        total_miles += owntracks_segment_miles(
+            previous_location,
+            location,
+            sites,
+            sites_by_name,
+            sites_by_region_id,
+        )
+        previous_location = location
 
-    baseline_location = previous_location or first_location
-    if baseline_location.odometer_miles is None:
-        return Decimal("0.0")
-
-    driven_miles = Decimal(last_location.odometer_miles) - Decimal(
-        baseline_location.odometer_miles
-    )
-    return _quantize_distance(max(driven_miles, Decimal("0.0")))
+    return _quantize_distance(total_miles)
 
 
 def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: int) -> dict:
@@ -436,6 +447,28 @@ def _api_test_result(
     cleaned_message = (message or "").strip()[:300]
     cleaned_value = (value or "").strip()[:120]
     return ApiTestResult(status=status, message=cleaned_message, value=cleaned_value)
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """Return a compact human-readable file size for backup listings."""
+
+    if size_bytes >= 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    if size_bytes >= 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    return f"{size_bytes} B"
+
+
+def _serialize_automatic_backup(
+    backup_file: AutomaticBackupFile,
+) -> DiagnosticAutomaticBackup:
+    """Return display-safe metadata for one automatic backup file."""
+
+    return DiagnosticAutomaticBackup(
+        filename=backup_file.filename,
+        created_at_display=_format_local_datetime(backup_file.created_at_utc),
+        size_display=_format_file_size(backup_file.size_bytes),
+    )
 
 
 def _update_trip_row_values(
@@ -1070,6 +1103,15 @@ def diagnostics(
     latest_odometer = _latest_odometer_reading(db)
     owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
     movement_diagnostics = owntracks_movement_diagnostics(db)
+    backup_restore_enabled = web_login_enabled(settings)
+    automatic_backups = (
+        [
+            _serialize_automatic_backup(backup_file)
+            for backup_file in list_automatic_backup_files(settings.automatic_backup_dir)
+        ]
+        if backup_restore_enabled and request_is_authenticated(request)
+        else []
+    )
     return templates.TemplateResponse(
         request,
         "diagnostics.html",
@@ -1108,8 +1150,11 @@ def diagnostics(
                 restore_message,
                 restore_value,
             ),
-            "backup_restore_enabled": web_login_enabled(settings),
-            "backup_upload_max_mb": BACKUP_UPLOAD_MAX_BYTES // (1024 * 1024),
+            "backup_restore_enabled": backup_restore_enabled,
+            "automatic_backups_enabled": settings.automatic_backups_enabled,
+            "automatic_backup_dir": settings.automatic_backup_dir,
+            "automatic_backups": automatic_backups,
+            "backup_upload_max_mb": settings.max_backup_restore_bytes // (1024 * 1024),
         },
     )
 
@@ -1144,6 +1189,7 @@ async def restore_full_backup_form(
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     _require_backup_restore_auth(request)
+    settings = get_settings()
     if confirmation.strip() != "RESTORE":
         return _diagnostics_redirect(
             "data-backup",
@@ -1153,10 +1199,10 @@ async def restore_full_backup_form(
             },
         )
 
-    content = await backup_file.read(BACKUP_UPLOAD_MAX_BYTES + 1)
+    content = await backup_file.read(settings.max_backup_restore_bytes + 1)
     await backup_file.close()
-    if len(content) > BACKUP_UPLOAD_MAX_BYTES:
-        max_upload_mb = BACKUP_UPLOAD_MAX_BYTES // (1024 * 1024)
+    if len(content) > settings.max_backup_restore_bytes:
+        max_upload_mb = settings.max_backup_restore_bytes // (1024 * 1024)
         return _diagnostics_redirect(
             "data-backup",
             {
@@ -1191,6 +1237,73 @@ async def restore_full_backup_form(
         {
             "restore_test": "pass",
             "restore_message": "Full database restore completed.",
+            "restore_value": (
+                f"{summary.total_rows} rows restored across "
+                f"{len(summary.table_counts)} tables."
+            ),
+        },
+    )
+
+
+@router.post("/diagnostics/automatic-backups/restore")
+def restore_automatic_backup_form(
+    request: Request,
+    filename: str = Form(...),
+    confirmation: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Restore a retained automatic backup selected from the Diagnostics page."""
+
+    _require_backup_restore_auth(request)
+    settings = get_settings()
+    backup_filename = filename.strip()
+    if confirmation.strip() != "RESTORE":
+        return _diagnostics_redirect(
+            "automatic-backups",
+            {
+                "restore_test": "fail",
+                "restore_message": "Type RESTORE to confirm automatic backup restore.",
+            },
+        )
+
+    try:
+        content = read_automatic_backup_content(
+            settings.automatic_backup_dir,
+            backup_filename,
+            max_bytes=settings.max_backup_restore_bytes,
+        )
+        summary = restore_full_backup(db, content)
+    except BackupValidationError as exc:
+        logger.warning(
+            "Rejected automatic backup restore filename=%s error=%s",
+            backup_filename,
+            exc,
+        )
+        return _diagnostics_redirect(
+            "automatic-backups",
+            {
+                "restore_test": "fail",
+                "restore_message": str(exc),
+            },
+        )
+    except Exception:
+        logger.exception(
+            "Automatic Mileage Logger restore failed unexpectedly filename=%s",
+            backup_filename,
+        )
+        return _diagnostics_redirect(
+            "automatic-backups",
+            {
+                "restore_test": "fail",
+                "restore_message": "Restore failed. Check the app log before trying again.",
+            },
+        )
+
+    return _diagnostics_redirect(
+        "automatic-backups",
+        {
+            "restore_test": "pass",
+            "restore_message": "Automatic backup restore completed.",
             "restore_value": (
                 f"{summary.total_rows} rows restored across "
                 f"{len(summary.table_counts)} tables."

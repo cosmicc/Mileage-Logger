@@ -59,6 +59,9 @@ services:
       VEHICLE_MPG: "${VEHICLE_MPG:-25.0}"
       LOG_DIR: /data/logs
       LOGIN_FAILURE_LOG_PATH: /data/logs/mileage-logger-login-failures.log
+      MAX_BACKUP_RESTORE_BYTES: "${MAX_BACKUP_RESTORE_BYTES:-262144000}"
+      AUTOMATIC_BACKUPS_ENABLED: "${AUTOMATIC_BACKUPS_ENABLED:-true}"
+      AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/logs/backups}"
     volumes:
       - ${HOST_LOG_DIR:-/var/log/mileage-logger}:/data/logs
     depends_on:

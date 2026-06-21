@@ -68,8 +68,8 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
 
-It also tries to prepare `HOST_LOG_DIR`, the failed-login log file inside that directory, and the
-optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the Docker host. If your user cannot write to
+It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the failed-login
+log file inside that directory, and the optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the Docker host. If your user cannot write to
 `/var/log`, create them before starting Docker:
 
 ```bash
@@ -112,6 +112,9 @@ OWNTRACKS_LOCATION_RETENTION_DAYS=14
 LOG_DIR=/data/logs
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+AUTOMATIC_BACKUPS_ENABLED=true
+AUTOMATIC_BACKUP_DIR=/data/logs/backups
+MAX_BACKUP_RESTORE_BYTES=262144000
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
@@ -307,14 +310,12 @@ Generated mileage uses this order:
 
 1. OwnTracks location path distance from the location updates received between the waypoint
    `leave` and `enter` events.
-2. Estimated start/end odometer values using this trip's OwnTracks path distance or waypoint
-   distance and any available
-   odometer anchor.
-3. Waypoint-to-waypoint distance when no odometer anchor is available.
+2. Waypoint-to-waypoint distance when OwnTracks path data is not available.
 
 If a trip window has only transition events and no location updates between them, the app falls
-back to estimated odometer, then waypoint distance. Edit a trip's miles on the `Trips` page when
-the generated mileage needs correction. A distance correction resequences that month's displayed
+back to waypoint distance. Odometer values are never used to calculate trip distance, Dashboard
+trip plus non-trip totals, or monthly trip plus non-trip totals. Edit a trip's miles on the
+`Trips` page when the generated mileage needs correction. A distance correction resequences that month's displayed
 start and end odometers in chronological trip order. Deleting a trip from the
 `Trips` page also saves an exact deleted-trip record so only that same OwnTracks transition pair
 is not generated again; future trips with the same route are still generated normally.
@@ -322,7 +323,7 @@ The checkpoint odometer is advanced from OwnTracks path distance between receive
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
 odometer value for that point, and generated trips use those rolling values for start and end
 odometers. The trip end odometer is always advanced from the start odometer by the stored trip
-distance so the odometer difference matches the trip miles. Segments fully inside the same saved
+distance so the odometer display follows the trip miles. Segments fully inside the same saved
 waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
 the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
 
@@ -375,6 +376,9 @@ WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+AUTOMATIC_BACKUPS_ENABLED=true
+AUTOMATIC_BACKUP_DIR=/data/logs/backups
+MAX_BACKUP_RESTORE_BYTES=262144000
 ```
 
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
@@ -555,6 +559,12 @@ Mileage Logger app tables plus an OwnTracks waypoint export. To restore it, open
 upload the file, and type `RESTORE`; the app validates the backup before replacing current app
 table rows in one transaction. Backup files contain sensitive location history and should be stored
 securely.
+
+The app also creates automatic hourly full-data backups by default. In Docker they are stored under
+`/data/logs/backups`, backed by `HOST_LOG_DIR` on the host, unless `AUTOMATIC_BACKUP_DIR` is set to
+another private path. Diagnostics lists retained automatic backups and can restore a selected file
+after you type `RESTORE`. Retention keeps the newest 6 hourly backups plus one daily backup for
+today and each of the prior 2 days.
 
 Back up PostgreSQL:
 

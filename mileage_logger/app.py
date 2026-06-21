@@ -1,7 +1,8 @@
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -13,6 +14,7 @@ from mileage_logger.config import get_settings
 from mileage_logger.database import engine
 from mileage_logger.logging_config import configure_logging
 from mileage_logger.models import Base
+from mileage_logger.services.backups import automatic_backup_scheduler
 from mileage_logger.services.mqtt import MqttOwnTracksWorker
 from mileage_logger.services.trip_processor import AutomaticTripProcessor
 from mileage_logger.web.auth import enforce_web_login
@@ -31,12 +33,21 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting Mileage Logger app, log_path=%s", log_path)
     if settings.create_tables_on_startup:
         Base.metadata.create_all(bind=engine)
+    if settings.automatic_backups_enabled:
+        _app.state.automatic_backup_task = asyncio.create_task(
+            automatic_backup_scheduler(settings)
+        )
     trip_processor.start()
     mqtt_worker.start()
     try:
         yield
     finally:
         logger.info("Stopping Mileage Logger app")
+        backup_task = getattr(_app.state, "automatic_backup_task", None)
+        if backup_task is not None:
+            backup_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await backup_task
         trip_processor.stop()
         mqtt_worker.stop()
 

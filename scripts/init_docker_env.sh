@@ -66,6 +66,9 @@ login_failure_log_filename="mileage-logger-login-failures.log"
 if [[ -n "${host_log_dir}" ]]; then
   if mkdir -p "${host_log_dir}" 2>/dev/null; then
     echo "Prepared host app log directory: ${host_log_dir}"
+    if mkdir -p "${host_log_dir%/}/backups" 2>/dev/null; then
+      echo "Prepared host automatic backup directory: ${host_log_dir%/}/backups"
+    fi
   else
     echo "Could not create host app log directory: ${host_log_dir}" >&2
     echo "Create it before starting Docker, for example:" >&2

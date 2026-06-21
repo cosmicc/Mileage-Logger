@@ -352,7 +352,7 @@ def test_generate_trips_estimates_odometer_from_checkpoint_anchor() -> None:
     assert trips[0].end_odometer_miles == (Decimal("1000.2") + distance).quantize(
         Decimal("0.1")
     )
-    assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
@@ -451,7 +451,7 @@ def test_generate_trips_uses_manual_checkpoint_as_anchor() -> None:
 
     assert len(trips) == 1
     assert trips[0].miles == distance
-    assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
     assert trips[0].start_odometer_miles == Decimal("1000.0")
     assert trips[0].end_odometer_miles == (Decimal("1000.0") + distance).quantize(
         Decimal("0.1")
@@ -604,7 +604,7 @@ def test_generate_trips_reuses_existing_auto_estimated_trip() -> None:
         client.longitude,
     )
     assert all_trips[0].start_odometer_miles == Decimal("1000.0")
-    assert all_trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert all_trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
 
 
 def test_generate_trips_does_not_rewrite_existing_waypoint_distance_trip() -> None:
@@ -806,10 +806,45 @@ def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None
     assert trips[0].end_odometer_miles == (Decimal("1012.9") + distance).quantize(
         Decimal("0.1")
     )
-    assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
-    assert "Estimated odometer" in trips[0].notes
+    assert "Used waypoint distance because OwnTracks path data was unavailable." in trips[0].notes
+
+
+def test_generate_trips_does_not_use_odometer_delta_for_distance() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    leave = _transition(day, home, "leave")
+    enter = _transition(day + timedelta(minutes=24), client, "enter")
+    leave.odometer_miles = Decimal("1000.0")
+    leave.odometer_source = ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    enter.odometer_miles = Decimal("9000.0")
+    enter.odometer_source = ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    db.add_all(
+        [
+            home,
+            client,
+            leave,
+            enter,
+            _dwell_confirmation(day + timedelta(minutes=24), client),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+    distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
+
+    assert len(trips) == 1
+    assert trips[0].miles == distance
+    assert trips[0].miles != Decimal("8000.0")
+    assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
+    assert trips[0].start_odometer_miles == Decimal("1000.0")
+    assert trips[0].end_odometer_miles == (Decimal("1000.0") + distance).quantize(
+        Decimal("0.1")
+    )
 
 
 def test_generate_trips_estimates_from_prior_odometer_anchor() -> None:
@@ -855,7 +890,7 @@ def test_generate_trips_estimates_from_prior_odometer_anchor() -> None:
     assert trips[0].end_odometer_miles == (Decimal("2000.0") + distance).quantize(
         Decimal("0.1")
     )
-    assert trips[0].mileage_source == MILEAGE_SOURCE_ESTIMATED_ODOMETER
+    assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
