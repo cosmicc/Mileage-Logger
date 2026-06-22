@@ -223,6 +223,11 @@ Creates a `Trip` with:
 - Automatic resequencing of this manual trip and every later trip, even across later months, so
   future odometer fields remain cumulative after inserting a prior-date manual trip
 
+The Trips web form loads saved waypoint `Site` rows and submits `origin_site_id` /
+`destination_site_id` rather than free-text names. The web route passes the selected waypoint names
+into `create_manual_trip()`, then stores the selected waypoint IDs and coordinates on the created
+trip before committing.
+
 ---
 
 ## Editing Trip Mileage
@@ -246,6 +251,11 @@ Effects:
 - Updates trip fields
 - Sets `mileage_source="manual"`
 - **Re-sequences month's trips**: Recalculates all odometer chains for that month
+
+On the Trips page, existing row dates and odometers remain read-only. From/To edits are validated
+waypoint dropdown selections; changing them stores the selected waypoint IDs, names, and
+coordinates on the trip and marks the row as manually reviewed. The stored miles value still drives
+odometer resequencing.
 
 ### Resequencing Logic
 

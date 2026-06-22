@@ -680,6 +680,11 @@ td input[type="text"] {
   min-width: 104px;
 }
 
+.waypoint-select {
+  width: min(220px, 26vw);
+  min-width: 170px;
+}
+
 .odometer-input {
   width: 118px;
   min-width: 118px;
@@ -692,6 +697,12 @@ td input[type="text"] {
 
 .manual-trip-form {
   align-items: flex-end;
+}
+
+.empty-state {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .odometer-cell {

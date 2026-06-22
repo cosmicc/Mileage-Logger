@@ -241,6 +241,19 @@ def _quantize_distance(value: Decimal) -> Decimal:
     return Decimal(value).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
 
 
+def _distance_components(total_distance: Decimal, trip_distance: Decimal) -> dict[str, Decimal]:
+    """Return dashboard distance components with a non-negative non-trip remainder."""
+
+    trip_total = _quantize_distance(trip_distance)
+    combined_total = max(_quantize_distance(total_distance), trip_total)
+    non_trip_total = _quantize_distance(max(combined_total - trip_total, Decimal("0.0")))
+    return {
+        "total": _quantize_distance(trip_total + non_trip_total),
+        "trips": trip_total,
+        "non_trips": non_trip_total,
+    }
+
+
 def _month_date_bounds(year: int, month: int) -> tuple[date, date]:
     """Return inclusive and exclusive local dates for a dashboard month."""
 
@@ -349,19 +362,29 @@ def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: i
     today_start_dt, today_end_dt = local_day_bounds(today)
     month_start_date, month_end_date = _month_date_bounds(year, month)
     month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
-    return {
-        "today_total": _owntracks_total_miles_for_datetime_range(
+    today_components = _distance_components(
+        _owntracks_total_miles_for_datetime_range(
             db,
             today_start_dt,
             today_end_dt,
         ),
-        "today_trips": _trip_miles_for_date_range(db, today, tomorrow),
-        "month_total": _owntracks_total_miles_for_datetime_range(
+        _trip_miles_for_date_range(db, today, tomorrow),
+    )
+    month_components = _distance_components(
+        _owntracks_total_miles_for_datetime_range(
             db,
             month_start_dt,
             month_end_dt,
         ),
-        "month_trips": _trip_miles_for_date_range(db, month_start_date, month_end_date),
+        _trip_miles_for_date_range(db, month_start_date, month_end_date),
+    )
+    return {
+        "today_total": today_components["total"],
+        "today_trips": today_components["trips"],
+        "today_non_trips": today_components["non_trips"],
+        "month_total": month_components["total"],
+        "month_trips": month_components["trips"],
+        "month_non_trips": month_components["non_trips"],
     }
 
 
@@ -474,11 +497,13 @@ def _serialize_automatic_backup(
 def _update_trip_row_values(
     trip: Trip,
     *,
+    origin_site: Site,
+    destination_site: Site,
     miles: Decimal,
 ) -> set[tuple[int, int]]:
     """Apply only the editable Trips-page fields to one trip row."""
 
-    manual_review_needed = False
+    manual_review_needed = _apply_trip_waypoints(trip, origin_site, destination_site)
     resequence_months: set[tuple[int, int]] = set()
     rounded_miles = Decimal(str(miles)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
     if trip.miles != rounded_miles:
@@ -550,6 +575,52 @@ def _waypoint_ordering():
         Site.created_at.desc(),
         Site.name.asc(),
     )
+
+
+def _waypoints_for_trip_forms(db: Session) -> list[Site]:
+    """Return waypoints in the same stable order used by the Waypoints page."""
+
+    return list(db.scalars(select(Site).order_by(*_waypoint_ordering())))
+
+
+def _load_trip_form_waypoint(db: Session, waypoint_id: int) -> Site:
+    """Load a submitted waypoint ID or reject the trip form as invalid."""
+
+    waypoint = db.get(Site, waypoint_id)
+    if waypoint is None:
+        raise HTTPException(status_code=400, detail="Selected waypoint does not exist")
+    return waypoint
+
+
+def _apply_trip_waypoints(trip: Trip, origin_site: Site, destination_site: Site) -> bool:
+    """Apply selected waypoint metadata to a trip and report whether it changed."""
+
+    changed = (
+        trip.origin_site_id != origin_site.id
+        or trip.destination_site_id != destination_site.id
+        or trip.origin_name != origin_site.name
+        or trip.destination_name != destination_site.name
+        or trip.start_latitude != origin_site.latitude
+        or trip.start_longitude != origin_site.longitude
+        or trip.end_latitude != destination_site.latitude
+        or trip.end_longitude != destination_site.longitude
+    )
+    if not changed:
+        return False
+
+    trip.origin_site = origin_site
+    trip.destination_site = destination_site
+    trip.origin_site_id = origin_site.id
+    trip.destination_site_id = destination_site.id
+    trip.origin_name = origin_site.name
+    trip.destination_name = destination_site.name
+    trip.start_latitude = origin_site.latitude
+    trip.start_longitude = origin_site.longitude
+    trip.end_latitude = destination_site.latitude
+    trip.end_longitude = destination_site.longitude
+    trip.mileage_source = MILEAGE_SOURCE_MANUAL
+    mark_trip_manually_reviewed(trip)
+    return True
 
 
 def _latest_odometer_reading(db: Session) -> dict | None:
@@ -796,6 +867,7 @@ def trips(
         .order_by(Trip.trip_date.desc(), Trip.started_at.desc())
     )
     all_trips = list(db.scalars(stmt))
+    waypoints = _waypoints_for_trip_forms(db)
     suppressed_trips = list(
         db.scalars(
             select(DeletedTrip)
@@ -811,6 +883,9 @@ def trips(
             "trips": all_trips,
             "year": year,
             "month": month,
+            "today": local_today(),
+            "waypoints": waypoints,
+            "waypoint_names": [waypoint.name for waypoint in waypoints],
             "month_options": [(value, month_name[value]) for value in range(1, 13)],
             "previous_year": previous_year,
             "previous_month": previous_month,
@@ -824,6 +899,8 @@ def trips(
 @router.post("/trips/{trip_id}")
 def update_trip_form(
     trip_id: int,
+    origin_site_id: int = Form(...),
+    destination_site_id: int = Form(...),
     miles: Decimal = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
@@ -832,9 +909,13 @@ def update_trip_form(
         raise HTTPException(status_code=404, detail="Trip not found")
     if miles < 0:
         raise HTTPException(status_code=400, detail="Miles must be zero or greater")
+    origin_site = _load_trip_form_waypoint(db, origin_site_id)
+    destination_site = _load_trip_form_waypoint(db, destination_site_id)
 
     resequence_months = _update_trip_row_values(
         trip,
+        origin_site=origin_site,
+        destination_site=destination_site,
         miles=miles,
     )
     for resequence_year, resequence_month in sorted(resequence_months):
@@ -859,20 +940,23 @@ def update_trip_form(
 @router.post("/trips")
 def create_trip_form(
     trip_date: date = Form(...),
-    origin_name: str = Form(...),
-    destination_name: str = Form(...),
+    origin_site_id: int = Form(...),
+    destination_site_id: int = Form(...),
     miles: Decimal = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
     if miles < 0:
         raise HTTPException(status_code=400, detail="Miles must be zero or greater")
+    origin_site = _load_trip_form_waypoint(db, origin_site_id)
+    destination_site = _load_trip_form_waypoint(db, destination_site_id)
     trip = create_manual_trip(
         db,
         trip_date=trip_date,
-        origin_name=origin_name,
-        destination_name=destination_name,
+        origin_name=origin_site.name,
+        destination_name=destination_site.name,
         miles=miles,
     )
+    _apply_trip_waypoints(trip, origin_site, destination_site)
     db.commit()
     logger.info(
         "Created manual trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s",

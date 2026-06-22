@@ -169,11 +169,16 @@ docker compose up -d --build
 4. Pass context dict to `templates.TemplateResponse()`
 
 ### Trips Page Editing Boundaries
-- Existing trip rows display trip dates, origin names, destination names, and odometers as
-  read-only values; row update forms only accept mileage edits.
-- Manual trip creation still uses an editable date field in the Add Trip form. Manual inserts
-  calculate and save start/end odometers immediately, then resequence that trip and all later
-  trips when the inserted date is before existing trip rows.
+- Existing trip rows display trip dates and odometers as read-only values. Row update forms accept
+  selected origin/destination waypoint IDs from dropdowns plus mileage edits; posted dates,
+  free-text names, and odometer fields are not accepted for existing rows.
+- Manual trip creation defaults the date field to the app's `LOCAL_TIMEZONE` current date and uses
+  origin/destination waypoint dropdowns populated from saved waypoints. Manual inserts calculate
+  and save start/end odometers immediately, then resequence that trip and all later trips when the
+  inserted date is before existing trip rows.
+- Dashboard trip plus non-trip distance cards use OwnTracks path distance as the total-distance
+  source but floor the combined total at the stored trip total after one-decimal rounding, so the
+  displayed non-trip remainder is never negative.
 - The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
   installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
   contexts they allow scripts to close.

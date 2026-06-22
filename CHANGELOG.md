@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Changed Trips page manual-entry and row-edit forms to use saved waypoint dropdowns for From/To,
+  with manual trip dates defaulting to today's `LOCAL_TIMEZONE` date.
+- Fixed Dashboard trip plus non-trip distance totals so the combined total is never lower than the
+  trips-only total and the implied non-trip remainder is never negative after one-decimal rounding.
 - Added hourly automatic full-data backups under `AUTOMATIC_BACKUP_DIR`, with Diagnostics listing
   retained files and supporting typed-confirmation restore from a selected automatic backup.
 - Fixed Dashboard today and month trip plus non-trip totals so they are summed from OwnTracks
@@ -75,8 +79,9 @@
 - Removed speed-based Diagnostics movement handling in favor of distance-based travel detection.
 - Added Waypoints page delete buttons that remove stale app waypoints while preserving historical
   trip details.
-- Changed Trips page row editing so trip names and odometers are read-only, while distance edits
-  automatically resequence that month's trip odometers.
+- Changed Trips page row editing so odometers are read-only, while waypoint and distance edits
+  automatically preserve the trip route metadata and resequence that month's trip odometers when
+  mileage changes.
 - Added a simple session-based web login for rendered pages, configured by Docker environment
   variables while leaving `/api/` routes outside the app-level web login.
 - Removed visible app branding from the login page and added temporary failed-login lockouts.
@@ -84,8 +89,8 @@
   deletion records can be removed.
 - Added Diagnostics current OwnTracks state detection for inside-waypoint and travel statuses,
   plus a state-change log limited to waypoint arrivals, waypoint departures, and travel detected.
-- Added a Trips page manual-entry form and trip-date editing so date, origin, destination, and
-  distance can be entered or corrected manually.
+- Added a Trips page manual-entry form so date, origin, destination, and distance can be entered
+  manually.
 - Added a Diagnostics page manual odometer form that updates the rolling checkpoint used for
   future OwnTracks-derived odometer estimates.
 - Added automatic checkpoint-aware OwnTracks location retention so old processed raw location data

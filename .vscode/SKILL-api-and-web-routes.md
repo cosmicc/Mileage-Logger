@@ -190,10 +190,15 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 
 ### Trips Page Form Boundary
 
-- Existing rows on `trips.html` intentionally keep the trip date, origin, destination, and odometer
-  values read-only. The `/trips/{trip_id}` web form accepts mileage edits only, so a posted
-  `trip_date` value must not move an existing trip.
-- The Add Trip form remains the place to enter a new manual trip date. Its service path calculates
+- Existing rows on `trips.html` intentionally keep the trip date and odometer values read-only.
+  The `/trips/{trip_id}` web form accepts only selected `origin_site_id`,
+  `destination_site_id`, and mileage edits, so posted `trip_date`, free-text name, or odometer
+  values must not move or rewrite those read-only fields.
+- Existing row From/To controls are waypoint dropdowns populated from saved `Site` rows. Server
+  handlers must validate submitted waypoint IDs, apply the selected waypoint IDs, names, and
+  coordinates to the `Trip`, and mark changed rows as manually reviewed.
+- The Add Trip form defaults its date input to the app's `LOCAL_TIMEZONE` current date and uses
+  the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
 - `layout.html` includes a mobile-only full-screen web-app close control. It calls
@@ -372,8 +377,8 @@ def search(
 <!-- templates/create_trip.html -->
 <form method="post" action="/trips">
     <input type="date" name="trip_date" required>
-    <input type="text" name="origin_name" required>
-    <input type="text" name="destination_name" required>
+    <select name="origin_site_id" required>...</select>
+    <select name="destination_site_id" required>...</select>
     <input type="number" name="miles" step="0.1" required>
     <button type="submit">Add Trip</button>
 </form>
@@ -386,15 +391,21 @@ from fastapi import Form
 async def create_trip(
     request: Request,
     trip_date: date = Form(...),
-    origin_name: str = Form(...),
-    destination_name: str = Form(...),
+    origin_site_id: int = Form(...),
+    destination_site_id: int = Form(...),
     miles: Decimal = Form(...),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
+    origin_site = _load_trip_form_waypoint(db, origin_site_id)
+    destination_site = _load_trip_form_waypoint(db, destination_site_id)
     trip = create_manual_trip(
-        db, trip_date, origin_name, destination_name,
-        ... # start/end coords
+        db,
+        trip_date=trip_date,
+        origin_name=origin_site.name,
+        destination_name=destination_site.name,
+        miles=miles,
     )
+    _apply_trip_waypoints(trip, origin_site, destination_site)
     return RedirectResponse(url="/trips", status_code=303)
 ```
 

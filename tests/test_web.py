@@ -32,7 +32,7 @@ from mileage_logger.services.diagnostics import (
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
 from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
-from mileage_logger.web.routes import _human_duration_since, templates
+from mileage_logger.web.routes import _dashboard_distance_summary, _human_duration_since, templates
 
 
 def _session() -> Session:
@@ -77,6 +77,22 @@ def _location(
         odometer_miles=odometer_miles,
         odometer_source="owntracks_rolling" if odometer_miles is not None else None,
         raw_payload=raw_payload,
+    )
+
+
+def _site(
+    name: str,
+    latitude: str = "42.3314000",
+    longitude: str = "-83.0458000",
+    *,
+    active: bool = True,
+) -> Site:
+    return Site(
+        name=name,
+        latitude=Decimal(latitude),
+        longitude=Decimal(longitude),
+        radius_m=150,
+        active=active,
     )
 
 
@@ -603,10 +619,83 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
         assert "Distance driven summary" in response.text
         assert "Trips + non-trips" in response.text
         assert "Trips only" in response.text
-        assert f"<strong>{today_total}</strong>" in response.text
+        assert (
+            "<span>Today</span>\n"
+            f"      <strong>{max(today_total, Decimal('5.5'))}</strong>\n"
+            "      <small>Trips + non-trips</small>"
+        ) in response.text
         assert "<strong>5.5</strong>" in response.text
-        assert f"<strong>{month_total}</strong>" in response.text
+        assert (
+            "<span>This Month</span>\n"
+            f"      <strong>{max(month_total, Decimal('9.5'))}</strong>\n"
+            "      <small>Trips + non-trips</small>"
+        ) in response.text
         assert "<strong>9.5</strong>" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_dashboard_trip_plus_non_trip_total_is_never_below_trip_total(monkeypatch) -> None:
+    dashboard_now = datetime(
+        2026,
+        6,
+        16,
+        10,
+        0,
+        tzinfo=ZoneInfo("America/Detroit"),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.local_now", lambda: dashboard_now)
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: dashboard_now.date())
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    _location(
+                        datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+                        datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+                        {"_type": "location"},
+                        latitude="42.3314000",
+                        longitude="-83.0458000",
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 16),
+                        started_at=datetime(2026, 6, 16, 14, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 16, 14, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("8.4"),
+                    ),
+                ]
+            )
+            db.commit()
+            summary = _dashboard_distance_summary(
+                db,
+                today=date(2026, 6, 16),
+                year=2026,
+                month=6,
+            )
+
+        response = client.get("/")
+
+        assert summary["today_total"] == Decimal("8.4")
+        assert summary["today_trips"] == Decimal("8.4")
+        assert summary["today_non_trips"] == Decimal("0.0")
+        assert summary["today_total"] - summary["today_trips"] == summary["today_non_trips"]
+        assert summary["month_total"] == Decimal("8.4")
+        assert summary["month_total"] - summary["month_trips"] == summary["month_non_trips"]
+        assert response.status_code == 200
+        assert (
+            "<span>Today</span>\n"
+            "      <strong>8.4</strong>\n"
+            "      <small>Trips + non-trips</small>"
+        ) in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -717,7 +806,7 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
         assert "2026-06-16 11:30:00 PM" in response.text
         assert (
             "<span>Today</span>\n"
-            f"      <strong>{today_total}</strong>\n"
+            f"      <strong>{max(today_total, Decimal('7.3'))}</strong>\n"
             "      <small>Trips + non-trips</small>"
         ) in response.text
         assert (
@@ -1611,22 +1700,34 @@ def test_trips_page_removes_deleted_trip_record() -> None:
         app.dependency_overrides.clear()
 
 
-def test_trips_page_creates_manual_trip() -> None:
+def test_trips_page_creates_manual_trip(monkeypatch) -> None:
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: date(2026, 6, 22))
     client, session_factory = _test_client_session()
     try:
+        with session_factory() as db:
+            home = _site("Home", "42.3314000", "-83.0458000")
+            client_site = _site("Client", "42.3440000", "-83.0600000")
+            db.add_all([home, client_site])
+            db.commit()
+            home_id = home.id
+            client_site_id = client_site.id
+
         page_response = client.get("/trips?year=2026&month=6")
         create_response = client.post(
             "/trips",
             data={
                 "trip_date": "2026-06-15",
-                "origin_name": "Home",
-                "destination_name": "Client",
+                "origin_site_id": str(home_id),
+                "destination_site_id": str(client_site_id),
                 "miles": "12.34",
             },
         )
 
         assert page_response.status_code == 200
         assert "Add Trip" in page_response.text
+        assert 'name="trip_date" value="2026-06-22"' in page_response.text
+        assert 'name="origin_site_id"' in page_response.text
+        assert 'name="destination_site_id"' in page_response.text
         assert create_response.status_code == 200
         assert "2026-06-15" in create_response.text
         assert "Home" in create_response.text
@@ -1635,8 +1736,12 @@ def test_trips_page_creates_manual_trip() -> None:
             trip = db.scalar(select(Trip))
             assert trip is not None
             assert trip.trip_date == datetime(2026, 6, 15, tzinfo=UTC).date()
+            assert trip.origin_site_id == home_id
+            assert trip.destination_site_id == client_site_id
             assert trip.origin_name == "Home"
             assert trip.destination_name == "Client"
+            assert trip.start_latitude == Decimal("42.3314000")
+            assert trip.end_latitude == Decimal("42.3440000")
             assert trip.miles == Decimal("12.3")
             assert trip.source == "manual"
             assert trip.mileage_source == "manual"
@@ -1648,9 +1753,17 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
+            old_home = _site("Old Home", "42.3314000", "-83.0458000")
+            old_client = _site("Old Client", "42.3440000", "-83.0600000")
+            new_home = _site("New Home", "42.3600000", "-83.0700000")
+            new_client = _site("New Client", "42.3700000", "-83.0800000")
+            db.add_all([old_home, old_client, new_home, new_client])
+            db.flush()
             db.add(
                 Trip(
                     trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                    origin_site_id=old_home.id,
+                    destination_site_id=old_client.id,
                     started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
                     ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
                     start_latitude=Decimal("42.3314"),
@@ -1668,11 +1781,15 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
                 )
             )
             db.commit()
+            new_home_id = new_home.id
+            new_client_id = new_client.id
 
         response = client.post(
             "/trips/1",
             data={
                 "trip_date": "2026-06-16",
+                "origin_site_id": str(new_home_id),
+                "destination_site_id": str(new_client_id),
                 "miles": "15.50",
                 "start_odometer_miles": "2000.1234",
                 "end_odometer_miles": "2015.9876",
@@ -1682,14 +1799,18 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
         assert response.status_code == 200
         assert "2026-06-10" in response.text
         assert "2026-06-16" not in response.text
-        assert "Old Home" in response.text
-        assert "Old Client" in response.text
+        assert "New Home" in response.text
+        assert "New Client" in response.text
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
             assert trip.trip_date == datetime(2026, 6, 10, tzinfo=UTC).date()
-            assert trip.origin_name == "Old Home"
-            assert trip.destination_name == "Old Client"
+            assert trip.origin_site_id == new_home_id
+            assert trip.destination_site_id == new_client_id
+            assert trip.origin_name == "New Home"
+            assert trip.destination_name == "New Client"
+            assert trip.start_latitude == Decimal("42.3600000")
+            assert trip.end_latitude == Decimal("42.3700000")
             assert trip.miles == Decimal("15.50")
             assert trip.start_odometer_miles == Decimal("1000.000")
             assert trip.end_odometer_miles == Decimal("1015.500")
@@ -1705,9 +1826,15 @@ def test_trips_page_odometer_values_are_read_only() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
+            home = _site("Home", "42.3314000", "-83.0458000")
+            client_site = _site("Client", "42.3440000", "-83.0600000")
+            db.add_all([home, client_site])
+            db.flush()
             db.add(
                 Trip(
                     trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                    origin_site_id=home.id,
+                    destination_site_id=client_site.id,
                     started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
                     ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
                     start_latitude=Decimal("42.3314"),
@@ -1722,12 +1849,16 @@ def test_trips_page_odometer_values_are_read_only() -> None:
                 )
             )
             db.commit()
+            home_id = home.id
+            client_site_id = client_site.id
 
         page_response = client.get("/trips?year=2026&month=6")
         response = client.post(
             "/trips/1",
             data={
                 "trip_date": "2026-06-10",
+                "origin_site_id": str(home_id),
+                "destination_site_id": str(client_site_id),
                 "miles": "5.00",
                 "start_odometer_miles": "3000.111",
                 "end_odometer_miles": "",
@@ -1737,8 +1868,10 @@ def test_trips_page_odometer_values_are_read_only() -> None:
         assert page_response.status_code == 200
         assert '<span class="trip-date">2026-06-10</span>' in page_response.text
         assert 'class="date-input" type="date" name="trip_date"' not in page_response.text
-        assert '<td class="trip-name">Home</td>' in page_response.text
-        assert '<td class="trip-name">Client</td>' in page_response.text
+        assert 'name="origin_site_id"' in page_response.text
+        assert 'name="destination_site_id"' in page_response.text
+        assert f'value="{home_id}" selected' in page_response.text
+        assert f'value="{client_site_id}" selected' in page_response.text
         assert 'name="origin_name" maxlength="160" required value="Home"' not in page_response.text
         assert (
             'name="destination_name" maxlength="160" required value="Client"'
@@ -1750,6 +1883,8 @@ def test_trips_page_odometer_values_are_read_only() -> None:
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
+            assert trip.origin_site_id == home_id
+            assert trip.destination_site_id == client_site_id
             assert trip.origin_name == "Home"
             assert trip.destination_name == "Client"
             assert trip.miles == Decimal("5.00")
@@ -1761,14 +1896,57 @@ def test_trips_page_odometer_values_are_read_only() -> None:
         app.dependency_overrides.clear()
 
 
+def test_trips_page_waypoint_dropdowns_preselect_matching_trip_names() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            home = _site("Home", "42.3314000", "-83.0458000")
+            client_site = _site("Client", "42.3440000", "-83.0600000")
+            db.add_all([home, client_site])
+            db.flush()
+            db.add(
+                Trip(
+                    trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                    started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
+                    start_latitude=Decimal("0.0000000"),
+                    start_longitude=Decimal("0.0000000"),
+                    end_latitude=Decimal("0.0000000"),
+                    end_longitude=Decimal("0.0000000"),
+                    origin_name="Home",
+                    destination_name="Client",
+                    miles=Decimal("5.0"),
+                    source="manual",
+                )
+            )
+            db.commit()
+            home_id = home.id
+            client_site_id = client_site.id
+
+        response = client.get("/trips?year=2026&month=6")
+
+        assert response.status_code == 200
+        assert f'<option value="{home_id}" selected>Home</option>' in response.text
+        assert f'<option value="{client_site_id}" selected>Client</option>' in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_trips_page_distance_edit_resequences_month_odometers() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
+            home = _site("Home", "42.3314000", "-83.0458000")
+            client_a = _site("Client A", "42.3440000", "-83.0600000")
+            client_b = _site("Client B", "42.3600000", "-83.0700000")
+            db.add_all([home, client_a, client_b])
+            db.flush()
             db.add_all(
                 [
                     Trip(
                         trip_date=datetime(2026, 6, 10, tzinfo=UTC).date(),
+                        origin_site_id=home.id,
+                        destination_site_id=client_a.id,
                         started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
                         ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
                         start_latitude=Decimal("42.3314"),
@@ -1784,6 +1962,8 @@ def test_trips_page_distance_edit_resequences_month_odometers() -> None:
                     ),
                     Trip(
                         trip_date=datetime(2026, 6, 11, tzinfo=UTC).date(),
+                        origin_site_id=client_a.id,
+                        destination_site_id=client_b.id,
                         started_at=datetime(2026, 6, 11, 13, 0, tzinfo=UTC),
                         ended_at=datetime(2026, 6, 11, 13, 30, tzinfo=UTC),
                         start_latitude=Decimal("42.3440"),
@@ -1800,11 +1980,15 @@ def test_trips_page_distance_edit_resequences_month_odometers() -> None:
                 ]
             )
             db.commit()
+            home_id = home.id
+            client_a_id = client_a.id
 
         response = client.post(
             "/trips/1",
             data={
                 "trip_date": "2026-06-10",
+                "origin_site_id": str(home_id),
+                "destination_site_id": str(client_a_id),
                 "miles": "6.25",
             },
         )

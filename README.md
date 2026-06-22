@@ -15,7 +15,8 @@ monthly reimbursement PDF logs.
   location updates between those events used as the primary trip distance.
 - Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
   the latest current reading before saving a new checkpoint.
-- Manual trip entry and review for trip dates, waypoint names, and mileage.
+- Manual trip entry defaults to today's local date and uses saved waypoint dropdowns for From/To,
+  with trip-row waypoint and mileage review on the Trips page.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -253,12 +254,16 @@ Generated mileage uses this order:
 Keep OwnTracks location reporting enabled so the app can sum the actual path between waypoint
 events. If a trip window has only transition events and no location updates between them, the app
 falls back to waypoint distance. Odometer values are never used to calculate trip distance,
-Dashboard trip plus non-trip totals, or monthly trip plus non-trip totals. Edit a trip's miles on
-the `Trips` page when the generated mileage needs correction. A distance correction resequences that month's
-displayed start and end odometers in chronological trip order. Manual trips entered from the
-`Trips` page now save start/end odometers immediately from the latest known odometer reading plus
-the entered trip miles. If the manual trip is inserted before existing trips, the app resequences
-that trip and every later trip so odometers remain cumulative across month boundaries. Deleting a
+Dashboard trip plus non-trip totals, or monthly trip plus non-trip totals. Dashboard trip plus
+non-trip cards are floored at the stored trip total after one-decimal rounding, so the displayed
+combined total is never lower than the trips-only total and the implied non-trip remainder is never
+negative. Edit a trip's saved waypoint route or miles on the `Trips` page when generated values
+need correction. A distance correction resequences that month's displayed start and end odometers
+in chronological trip order. Manual trips entered from the `Trips` page default to today's local
+date, use saved waypoint dropdowns for From/To, and save start/end odometers immediately from the
+latest known odometer reading plus the entered trip miles. If the manual trip is inserted before
+existing trips, the app resequences that trip and every later trip so odometers remain cumulative
+across month boundaries. Deleting a
 trip from the `Trips` page also saves an exact deleted-trip record so only that same OwnTracks
 transition pair is not generated again; future trips with the same route are still generated
 normally.
@@ -348,8 +353,9 @@ Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always include
 2. Review or export saved waypoints from the `Waypoints` page.
 3. Configure OwnTracks to send waypoint transition events and normal location updates.
 4. Let the app automatically create trips from incoming OwnTracks transitions.
-5. Review `Trips`, switch to the needed month, add manual trips, and edit dates, waypoint names,
-   or miles if needed.
+5. Review `Trips`, switch to the needed month, add manual trips with the local-today date default,
+   and edit row waypoint dropdowns or miles if needed. Existing row dates and odometers are
+   read-only.
 6. Add or fetch a monthly gas price for that report month.
 7. Download the monthly PDF report from the `Trips` page.
 
