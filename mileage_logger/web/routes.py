@@ -231,6 +231,7 @@ class DiagnosticDiskUsage:
     used_display: str
     free_display: str
     used_percent_display: str
+    used_percent_style: str
 
     @property
     def primary_path(self) -> str:
@@ -625,6 +626,7 @@ def _diagnostic_disk_usages(
                 used_display=_format_storage_size(used_bytes),
                 free_display=_format_storage_size(free_bytes),
                 used_percent_display=f"{used_percent:.1f}%",
+                used_percent_style=f"{min(max(used_percent, 0), 100):.1f}%",
             )
         )
 
@@ -1001,7 +1003,7 @@ def trips(
         .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
         .where(Trip.trip_date >= start)
         .where(Trip.trip_date < end)
-        .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
+        .order_by(Trip.trip_date.desc(), Trip.started_at.desc(), Trip.id.desc())
     )
     all_trips = list(db.scalars(stmt))
     waypoints = _waypoints_for_trip_forms(db)

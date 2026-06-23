@@ -286,8 +286,8 @@ or month, so manual odometer resets do not affect trip plus non-trip totals.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. That card sits in the same
 Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also
-shows hard drive space for key runtime paths, combining paths into one row when their exact free
-space and total capacity match.
+shows hard drive space for key runtime paths with used-space bars, combining paths into one row
+when their exact free space and total capacity match.
 
 ## Cloudflare Tunnel
 

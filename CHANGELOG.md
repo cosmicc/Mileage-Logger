@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Changed the Trips page to show newest trip dates first while leaving the Dashboard recent trips
+  unchanged.
+- Added used-space display bars to the Diagnostics hard drive space card.
 - Added a Diagnostics hard drive space card that combines configured runtime paths when exact free
   bytes and total bytes match, reducing duplicate same-drive rows.
 - Added per-file download buttons for retained automatic backups on Diagnostics, using the same web

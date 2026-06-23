@@ -44,6 +44,26 @@
 
   <div class="panel">
     <h2>Hard Drive Space</h2>
+    <p class="panel-meta">Used space as a share of each drive's total capacity.</p>
+    {% if disk_usages %}
+    <div class="drive-space-bars">
+      {% for disk in disk_usages %}
+      <div class="drive-space-meter">
+        <div class="drive-space-meter-label">
+          <span>{{ disk.primary_path }}</span>
+          <span>{{ disk.used_percent_display }} used</span>
+        </div>
+        <div
+          class="drive-space-track"
+          aria-label="{{ disk.primary_path }} drive usage"
+          role="img"
+        >
+          <span class="drive-space-fill" style="width: {{ disk.used_percent_style }}"></span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     <dl class="diagnostic-list">
       {% for disk in disk_usages %}
       <dt>{{ disk.primary_path }}</dt>

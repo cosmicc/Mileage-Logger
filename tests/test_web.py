@@ -1765,7 +1765,7 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
-def test_trips_page_lists_trips_in_chronological_add_position_order() -> None:
+def test_trips_page_lists_newest_trips_first() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
@@ -1804,7 +1804,7 @@ def test_trips_page_lists_trips_in_chronological_add_position_order() -> None:
         response = client.get("/trips?year=2026&month=6")
 
         assert response.status_code == 200
-        assert response.text.index("trip-form-1") < response.text.index("trip-form-2")
+        assert response.text.index("trip-form-2") < response.text.index("trip-form-1")
     finally:
         app.dependency_overrides.clear()
 
@@ -2110,7 +2110,17 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                 "position": "Rolling",
                 "recorded_at": now,
             },
-            "disk_usages": [],
+            "disk_usages": [
+                SimpleNamespace(
+                    primary_path="/data/logs",
+                    paths=("/data/logs",),
+                    total_display="100.0 GB",
+                    used_display="62.0 GB",
+                    free_display="38.0 GB",
+                    used_percent_display="62.0%",
+                    used_percent_style="62.0%",
+                )
+            ],
             "recent_locations": [],
             "owntracks_entries_page": SimpleNamespace(
                 first_item=0,
@@ -2159,6 +2169,9 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert api_tests_start < manual_card_start < manual_card_end < owntracks_card_start
     assert api_tests_section.count('class="panel"') == 3
     assert "OwnTracks State" in api_tests_section
+    assert "Used space as a share of each drive" in rendered
+    assert "drive-space-track" in rendered
+    assert 'style="width: 62.0%"' in rendered
 
     app_log_start = rendered.index('<section id="app-log" class="panel log-panel">')
     backup_start = rendered.index('<section id="data-backup" class="panel">')
@@ -2187,6 +2200,7 @@ def test_diagnostics_disk_usage_combines_paths_on_same_drive(tmp_path) -> None:
     combined_disk = next(item for item in disk_usages if item.total_bytes == 1_000)
     assert combined_disk.paths == (str(log_dir), str(backup_dir))
     assert combined_disk.free_bytes == 400
+    assert combined_disk.used_percent_style == "60.0%"
 
 
 def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:
