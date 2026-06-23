@@ -32,7 +32,12 @@ from mileage_logger.services.diagnostics import (
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
 from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
-from mileage_logger.web.routes import _dashboard_distance_summary, _human_duration_since, templates
+from mileage_logger.web.routes import (
+    _dashboard_distance_summary,
+    _diagnostic_disk_usages,
+    _human_duration_since,
+    templates,
+)
 
 
 def _session() -> Session:
@@ -1329,9 +1334,20 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
             )
 
         diagnostics_response = client.get("/diagnostics")
+        download_response = client.get(
+            "/diagnostics/automatic-backups/download",
+            params={"filename": backup_result.backup_file.filename},
+        )
         assert diagnostics_response.status_code == 200
         assert "Automatic Backups" in diagnostics_response.text
         assert backup_result.backup_file.filename in diagnostics_response.text
+        assert "/diagnostics/automatic-backups/download" in diagnostics_response.text
+        assert download_response.status_code == 200
+        assert download_response.content == backup_result.backup_file.path.read_bytes()
+        assert download_response.headers["cache-control"] == "no-store"
+        assert backup_result.backup_file.filename in download_response.headers[
+            "content-disposition"
+        ]
 
         with session_factory() as db:
             existing_site = db.scalar(select(Site))
@@ -1749,6 +1765,50 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_trips_page_lists_trips_in_chronological_add_position_order() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    Trip(
+                        trip_date=date(2026, 6, 10),
+                        started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        origin_name="First Stop",
+                        destination_name="First Client",
+                        miles=Decimal("5.0"),
+                        source="manual",
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 10),
+                        started_at=datetime(2026, 6, 10, 16, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 10, 16, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        origin_name="Second Stop",
+                        destination_name="Second Client",
+                        miles=Decimal("7.0"),
+                        source="manual",
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/trips?year=2026&month=6")
+
+        assert response.status_code == 200
+        assert response.text.index("trip-form-1") < response.text.index("trip-form-2")
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_trips_page_updates_existing_trip_distance_without_editing_date() -> None:
     client, session_factory = _test_client_session()
     try:
@@ -2050,6 +2110,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                 "position": "Rolling",
                 "recorded_at": now,
             },
+            "disk_usages": [],
             "recent_locations": [],
             "owntracks_entries_page": SimpleNamespace(
                 first_item=0,
@@ -2103,6 +2164,29 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     backup_start = rendered.index('<section id="data-backup" class="panel">')
     assert app_log_start < backup_start
     assert "Full Data Backup" in rendered[backup_start:]
+
+
+def test_diagnostics_disk_usage_combines_paths_on_same_drive(tmp_path) -> None:
+    log_dir = tmp_path / "logs"
+    backup_dir = log_dir / "backups"
+    other_dir = tmp_path / "other"
+    backup_dir.mkdir(parents=True)
+    other_dir.mkdir()
+
+    def fake_disk_usage(path):
+        if path in {log_dir, backup_dir}:
+            return SimpleNamespace(total=1_000, used=600, free=400)
+        return SimpleNamespace(total=2_000, used=500, free=1_500)
+
+    disk_usages = _diagnostic_disk_usages(
+        (str(log_dir), str(backup_dir), str(other_dir)),
+        disk_usage_func=fake_disk_usage,
+    )
+
+    assert len(disk_usages) == 2
+    combined_disk = next(item for item in disk_usages if item.total_bytes == 1_000)
+    assert combined_disk.paths == (str(log_dir), str(backup_dir))
+    assert combined_disk.free_bytes == 400
 
 
 def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:

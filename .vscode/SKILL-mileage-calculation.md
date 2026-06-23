@@ -217,11 +217,17 @@ trip = create_manual_trip(
 Creates a `Trip` with:
 - `source="manual"`
 - `mileage_source="manual"`
-- Start odometer from the latest chronological trip odometer, or the latest known current
-  odometer/checkpoint when no earlier trip odometer exists
+- Start odometer from the current rolling OwnTracks odometer checkpoint when available, not from the
+  previous trip end odometer. Fall back to older trip/current odometer values only when no checkpoint
+  exists.
 - End odometer = start odometer + entered trip miles
+- New manual trips are timestamped after existing trips on the selected local date so a backdated
+  manual entry lands at the end of that day, and a manual entry for today becomes the latest trip for
+  today.
 - Automatic resequencing of this manual trip and every later trip, even across later months, so
-  future odometer fields remain cumulative after inserting a prior-date manual trip
+  future odometer fields remain cumulative after inserting a prior-date manual trip. Resequencing
+  preserves existing positive odometer gaps between trips so non-trip OwnTracks distance remains
+  represented instead of being collapsed into the previous trip.
 
 The Trips web form loads saved waypoint `Site` rows and submits `origin_site_id` /
 `destination_site_id` rather than free-text names. The web route passes the selected waypoint names
@@ -273,8 +279,9 @@ resequence_trip_odometers_from(db, trip)
 
 This ensures:
 1. Trip chains are chronologically ordered
-2. Start odometer = previous trip's end odometer
-3. End odometer = start odometer + trip miles
+2. Manual trip start odometer comes from the current rolling checkpoint when available
+3. Existing positive gaps between a previous end odometer and the next start odometer are reapplied
+4. End odometer = start odometer + trip miles
 
 ---
 

@@ -43,6 +43,25 @@
   </div>
 
   <div class="panel">
+    <h2>Hard Drive Space</h2>
+    <dl class="diagnostic-list">
+      {% for disk in disk_usages %}
+      <dt>{{ disk.primary_path }}</dt>
+      <dd>
+        {{ disk.free_display }} free of {{ disk.total_display }}
+        <span class="diagnostic-value">{{ disk.used_display }} used ({{ disk.used_percent_display }})</span>
+        {% if disk.paths|length > 1 %}
+        <span class="diagnostic-value">Same drive: {{ disk.paths|join(", ") }}</span>
+        {% endif %}
+      </dd>
+      {% else %}
+      <dt>Storage</dt>
+      <dd>Unavailable</dd>
+      {% endfor %}
+    </dl>
+  </div>
+
+  <div class="panel">
     <h2>Latest Records</h2>
     <dl class="diagnostic-list">
       <dt>Location</dt>
@@ -402,6 +421,7 @@
           <th>Created</th>
           <th>File</th>
           <th>Size</th>
+          <th>Download</th>
           <th>Restore</th>
         </tr>
       </thead>
@@ -411,6 +431,9 @@
           <td>{{ backup.created_at_display }}</td>
           <td class="backup-file-name">{{ backup.filename }}</td>
           <td>{{ backup.size_display }}</td>
+          <td>
+            <a class="button-link secondary" href="{{ backup.download_url }}">Download</a>
+          </td>
           <td>
             <form
               method="post"

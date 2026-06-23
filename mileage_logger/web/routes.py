@@ -1,17 +1,20 @@
 import logging
 import re
+import shutil
 from calendar import month_name
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from math import ceil
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.orm import Session, joinedload
 
 from mileage_logger.config import get_settings
@@ -212,6 +215,26 @@ class DiagnosticAutomaticBackup:
     filename: str
     created_at_display: str
     size_display: str
+    download_url: str
+
+
+@dataclass(frozen=True)
+class DiagnosticDiskUsage:
+    """One logical disk usage row for Diagnostics, possibly covering several paths."""
+
+    paths: tuple[str, ...]
+    inspected_path: str
+    total_bytes: int
+    used_bytes: int
+    free_bytes: int
+    total_display: str
+    used_display: str
+    free_display: str
+    used_percent_display: str
+
+    @property
+    def primary_path(self) -> str:
+        return self.paths[0] if self.paths else self.inspected_path
 
 
 def _current_year_month() -> tuple[int, int]:
@@ -482,6 +505,21 @@ def _format_file_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
+def _format_storage_size(size_bytes: int) -> str:
+    """Return a compact human-readable size for filesystem capacity values."""
+
+    units = (
+        ("TB", 1024**4),
+        ("GB", 1024**3),
+        ("MB", 1024**2),
+        ("KB", 1024),
+    )
+    for suffix, unit_size in units:
+        if size_bytes >= unit_size:
+            return f"{size_bytes / unit_size:.1f} {suffix}"
+    return f"{size_bytes} B"
+
+
 def _serialize_automatic_backup(
     backup_file: AutomaticBackupFile,
 ) -> DiagnosticAutomaticBackup:
@@ -491,7 +529,106 @@ def _serialize_automatic_backup(
         filename=backup_file.filename,
         created_at_display=_format_local_datetime(backup_file.created_at_utc),
         size_display=_format_file_size(backup_file.size_bytes),
+        download_url=(
+            "/diagnostics/automatic-backups/download?"
+            f"filename={quote(backup_file.filename, safe='')}"
+        ),
     )
+
+
+def _sqlite_database_path(database_url: str) -> Path | None:
+    """Return a local SQLite database path when the configured URL points to one."""
+
+    try:
+        parsed_url = make_url(database_url)
+    except ArgumentError:
+        return None
+    if parsed_url.drivername not in {"sqlite", "sqlite+pysqlite"}:
+        return None
+    database_path = parsed_url.database
+    if not database_path or database_path == ":memory:":
+        return None
+    return Path(database_path)
+
+
+def _diagnostic_storage_paths(settings) -> tuple[str, ...]:
+    """Return configured paths worth checking for Diagnostics disk usage."""
+
+    path_candidates = [
+        str(Path.cwd()),
+        settings.log_dir,
+        str(Path(settings.login_failure_log_path).expanduser().parent),
+        settings.automatic_backup_dir,
+    ]
+    sqlite_path = _sqlite_database_path(settings.database_url)
+    if sqlite_path is not None:
+        path_candidates.append(str(sqlite_path))
+
+    unique_paths: list[str] = []
+    seen: set[str] = set()
+    for path_text in path_candidates:
+        cleaned_path = str(path_text).strip()
+        if not cleaned_path or cleaned_path in seen:
+            continue
+        seen.add(cleaned_path)
+        unique_paths.append(cleaned_path)
+    return tuple(unique_paths)
+
+
+def _existing_disk_usage_target(path: Path) -> Path | None:
+    """Return the nearest existing path that can be passed to disk usage checks."""
+
+    expanded_path = path.expanduser()
+    candidate = expanded_path if expanded_path.is_absolute() else Path.cwd() / expanded_path
+    if candidate.exists():
+        return candidate
+    for parent in candidate.parents:
+        if parent.exists():
+            return parent
+    return None
+
+
+def _diagnostic_disk_usages(
+    paths: tuple[str, ...],
+    *,
+    disk_usage_func=shutil.disk_usage,
+) -> list[DiagnosticDiskUsage]:
+    """Group configured paths by exact free and total bytes for the Diagnostics page."""
+
+    grouped_paths: dict[tuple[int, int], list[tuple[str, str, int]]] = {}
+    for path_text in paths:
+        target_path = _existing_disk_usage_target(Path(path_text))
+        if target_path is None:
+            continue
+        try:
+            usage = disk_usage_func(target_path)
+        except OSError:
+            logger.exception("Could not read disk usage for path=%s", path_text)
+            continue
+        key = (int(usage.free), int(usage.total))
+        grouped_paths.setdefault(key, []).append(
+            (path_text, str(target_path), int(usage.used))
+        )
+
+    disk_usages: list[DiagnosticDiskUsage] = []
+    for (free_bytes, total_bytes), path_rows in grouped_paths.items():
+        used_bytes = path_rows[0][2]
+        used_percent = (used_bytes / total_bytes * 100) if total_bytes else 0
+        disk_usages.append(
+            DiagnosticDiskUsage(
+                paths=tuple(row[0] for row in path_rows),
+                inspected_path=path_rows[0][1],
+                total_bytes=total_bytes,
+                used_bytes=used_bytes,
+                free_bytes=free_bytes,
+                total_display=_format_storage_size(total_bytes),
+                used_display=_format_storage_size(used_bytes),
+                free_display=_format_storage_size(free_bytes),
+                used_percent_display=f"{used_percent:.1f}%",
+            )
+        )
+
+    return sorted(disk_usages, key=lambda item: item.primary_path)
 
 
 def _update_trip_row_values(
@@ -864,7 +1001,7 @@ def trips(
         .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
         .where(Trip.trip_date >= start)
         .where(Trip.trip_date < end)
-        .order_by(Trip.trip_date.desc(), Trip.started_at.desc())
+        .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
     )
     all_trips = list(db.scalars(stmt))
     waypoints = _waypoints_for_trip_forms(db)
@@ -873,7 +1010,7 @@ def trips(
             select(DeletedTrip)
             .where(DeletedTrip.trip_date >= start)
             .where(DeletedTrip.trip_date < end)
-            .order_by(DeletedTrip.trip_date.desc(), DeletedTrip.started_at.desc())
+            .order_by(DeletedTrip.trip_date.asc(), DeletedTrip.started_at.asc())
         )
     )
     return templates.TemplateResponse(
@@ -1188,6 +1325,7 @@ def diagnostics(
     owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
     movement_diagnostics = owntracks_movement_diagnostics(db)
     backup_restore_enabled = web_login_enabled(settings)
+    disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
     automatic_backups = (
         [
             _serialize_automatic_backup(backup_file)
@@ -1216,6 +1354,7 @@ def diagnostics(
             "latest_snapshot": latest_snapshot,
             "latest_monthly_gas": latest_monthly_gas,
             "latest_odometer": latest_odometer,
+            "disk_usages": disk_usages,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "movement_state": movement_diagnostics.current_state,
@@ -1325,6 +1464,45 @@ async def restore_full_backup_form(
                 f"{summary.total_rows} rows restored across "
                 f"{len(summary.table_counts)} tables."
             ),
+        },
+    )
+
+
+@router.get("/diagnostics/automatic-backups/download")
+def download_automatic_backup(
+    request: Request,
+    filename: str = Query(...),
+) -> Response:
+    """Download one retained automatic backup after the same checks used for restore."""
+
+    _require_backup_restore_auth(request)
+    settings = get_settings()
+    backup_filename = filename.strip()
+    try:
+        content = read_automatic_backup_content(
+            settings.automatic_backup_dir,
+            backup_filename,
+            max_bytes=settings.max_backup_restore_bytes,
+        )
+    except BackupValidationError as exc:
+        logger.warning(
+            "Rejected automatic backup download filename=%s error=%s",
+            backup_filename,
+            exc,
+        )
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    logger.warning(
+        "Downloaded automatic Mileage Logger backup filename=%s size_bytes=%s",
+        backup_filename,
+        len(content),
+    )
+    return Response(
+        content=content,
+        media_type=BACKUP_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{backup_filename}"',
+            "Cache-Control": "no-store",
         },
     )
 

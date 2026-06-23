@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added a Diagnostics hard drive space card that combines configured runtime paths when exact free
+  bytes and total bytes match, reducing duplicate same-drive rows.
+- Added per-file download buttons for retained automatic backups on Diagnostics, using the same web
+  login guard, filename validation, restore size limit, and no-store caching as other backup
+  downloads.
+- Changed manual trip creation to start from the current rolling OwnTracks odometer checkpoint when
+  available, place new manual trips after existing trips on the selected local date, and preserve
+  existing positive non-trip odometer gaps when resequencing later trips.
 - Changed Trips page manual-entry and row-edit forms to use saved waypoint dropdowns for From/To,
   with manual trip dates defaulting to today's `LOCAL_TIMEZONE` date.
 - Fixed Dashboard trip plus non-trip distance totals so the combined total is never lower than the

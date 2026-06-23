@@ -196,7 +196,9 @@ The app also creates automatic full-data backups every hour when
 `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups` such as `/data/logs/backups` in Docker.
 Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
 retention policy keeps the newest 6 hourly backups plus one daily backup for today and each of the
-prior 2 days.
+prior 2 days. Each listed automatic backup also has its own download button. Backup downloads use
+`Cache-Control: no-store` and require the same web login as restore because the files contain
+location history.
 
 To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
 file first, then replaces the current app table rows in one transaction. Restore is a replace, not
@@ -261,9 +263,12 @@ negative. Edit a trip's saved waypoint route or miles on the `Trips` page when g
 need correction. A distance correction resequences that month's displayed start and end odometers
 in chronological trip order. Manual trips entered from the `Trips` page default to today's local
 date, use saved waypoint dropdowns for From/To, and save start/end odometers immediately from the
-latest known odometer reading plus the entered trip miles. If the manual trip is inserted before
-existing trips, the app resequences that trip and every later trip so odometers remain cumulative
-across month boundaries. Deleting a
+current rolling OwnTracks odometer checkpoint plus the entered trip miles. A manual trip is placed
+after the existing trips on the selected local date, so backdated manual entries land at the end of
+that day and today's manual entries become the latest trip for today. If the manual trip is inserted
+before existing trips, the app resequences that trip and every later trip so odometers remain
+cumulative across month boundaries while preserving existing positive odometer gaps between trips
+for non-trip driving. Deleting a
 trip from the `Trips` page also saves an exact deleted-trip record so only that same OwnTracks
 transition pair is not generated again; future trips with the same route are still generated
 normally.
@@ -280,7 +285,9 @@ Dashboard total-driven cards sum OwnTracks coordinate segments directly for the 
 or month, so manual odometer resets do not affect trip plus non-trip totals.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. That card sits in the same
-Diagnostics row as the EIA API test card and the current OwnTracks State card.
+Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also
+shows hard drive space for key runtime paths, combining paths into one row when their exact free
+space and total capacity match.
 
 ## Cloudflare Tunnel
 

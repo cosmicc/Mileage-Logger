@@ -68,8 +68,11 @@ When trip processor runs:
 1. Fetch new locations since last checkpoint
 2. Sum point-to-point distances using Haversine formula
 3. Advance rolling checkpoint: `new_checkpoint = anchor + distance_sum`
-4. Use checkpoint for estimated start/end odometers on trips
-5. When user manually enters odometer, reset anchor to exact value
+4. Stamp processed OwnTracks rows with the rolling odometer value for that point, whether or not
+   the movement becomes a trip
+5. Use those stored rolling odometer values for generated trip starts, and use the current rolling
+   checkpoint for new manual trip starts instead of the previous trip end odometer
+6. When user manually enters odometer, reset anchor to exact value
 
 ### Example
 

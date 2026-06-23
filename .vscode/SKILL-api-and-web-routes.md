@@ -523,14 +523,16 @@ diagnostics, or web authentication behavior, preserve the failed-login table and
 Diagnostics exposes full app data backup and restore through:
 
 - `GET /diagnostics/backup`
+- `GET /diagnostics/automatic-backups/download?filename=...`
 - `POST /diagnostics/restore`
 - `POST /diagnostics/automatic-backups/restore`
 - `mileage_logger.services.backups`
 
 These routes are sensitive because backups contain location history and restore replaces current
 app rows. Keep them behind configured web login, keep `Cache-Control: no-store` on backup
-downloads, validate the uploaded backup before deleting current rows, and require the typed
-confirmation value `RESTORE` for upload and automatic-backup restore forms. Automatic backups run
+downloads, validate retained automatic-backup filenames before reading files, validate the uploaded
+backup before deleting current rows, and require the typed confirmation value `RESTORE` for upload
+and automatic-backup restore forms. Automatic backups run
 hourly when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in `AUTOMATIC_BACKUP_DIR`, and retain the
 newest 6 hourly backups plus one daily backup for today and each of the prior 2 days. The backup
 format is gzip-compressed JSON of all SQLAlchemy app tables plus an OwnTracks waypoint export; it is

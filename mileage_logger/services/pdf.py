@@ -70,7 +70,7 @@ def trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
         .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
         .where(Trip.trip_date >= start)
         .where(Trip.trip_date < end)
-        .order_by(Trip.trip_date.desc(), Trip.started_at.desc())
+        .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
     )
     return list(db.scalars(stmt))
 
