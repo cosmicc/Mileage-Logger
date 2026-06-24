@@ -201,9 +201,9 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
   the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
-- Dashboard reimbursement summaries must reuse the same monthly trip-mile total, monthly gas price,
-  and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home card matches the downloadable
-  report total.
+- Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
+  gallons, monthly gas price, and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home
+  card matches the downloadable report.
 - `layout.html` includes a mobile-only full-screen web-app close control. It calls
   `window.close()`, which is a browser-controlled best-effort action and may be ignored outside
   installed app contexts.

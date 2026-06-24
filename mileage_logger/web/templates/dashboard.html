@@ -61,7 +61,7 @@
   <div class="stat">
     <span>Month Reimbursement</span>
     <strong>{% if reimbursement_summary.total is not none %}${{ "%.2f"|format(reimbursement_summary.total) }}{% else %}N/A{% endif %}</strong>
-    <small>{{ "%.1f"|format(reimbursement_summary.total_miles) }} mi PDF total</small>
+    <small>{{ reimbursement_summary.reimbursement_gallons_display }} reimbursement gallons</small>
   </div>
   <div class="stat">
     <span>MI Monthly Avg Gas</span>

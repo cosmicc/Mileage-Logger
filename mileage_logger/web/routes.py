@@ -74,7 +74,11 @@ from mileage_logger.services.mileage import (
     resequence_month_trip_odometers,
     site_indexes,
 )
-from mileage_logger.services.pdf import calculate_reimbursement, generate_monthly_pdf
+from mileage_logger.services.pdf import (
+    calculate_reimbursement,
+    calculate_reimbursement_gallons,
+    generate_monthly_pdf,
+)
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
@@ -120,6 +124,13 @@ def _format_odometer(value) -> str:
     if value is None:
         return "-"
     return f"{Decimal(value):.1f}"
+
+
+def _format_compact_decimal(value: Decimal, *, places: int = 3) -> str:
+    """Return a fixed-precision decimal without unnecessary trailing zeroes."""
+
+    text = f"{Decimal(value):.{places}f}"
+    return text.rstrip("0").rstrip(".") or "0"
 
 
 def _format_odometer_source(value) -> str:
@@ -445,14 +456,17 @@ def _dashboard_reimbursement_summary(
     month: int,
     monthly_gas: MonthlyGasPrice | None,
     vehicle_mpg: Decimal,
-) -> dict[str, Decimal | None]:
+) -> dict[str, Decimal | str | None]:
     """Return the current-month reimbursement total using the same math as the PDF report."""
 
     total_miles = monthly_miles(db, year, month)
+    reimbursement_gallons = calculate_reimbursement_gallons(total_miles, vehicle_mpg)
     if monthly_gas is None:
         return {
             "total": None,
             "total_miles": total_miles,
+            "reimbursement_gallons": reimbursement_gallons,
+            "reimbursement_gallons_display": _format_compact_decimal(reimbursement_gallons),
         }
     return {
         "total": calculate_reimbursement(
@@ -461,6 +475,8 @@ def _dashboard_reimbursement_summary(
             vehicle_mpg,
         ),
         "total_miles": total_miles,
+        "reimbursement_gallons": reimbursement_gallons,
+        "reimbursement_gallons_display": _format_compact_decimal(reimbursement_gallons),
     }
 
 

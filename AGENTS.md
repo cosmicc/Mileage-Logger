@@ -198,8 +198,8 @@ docker compose up -d --build
 - Dashboard trip plus non-trip distance cards use OwnTracks path distance as the total-distance
   source but floor the combined total at the stored trip total after one-decimal rounding, so the
   displayed non-trip remainder is never negative.
-- The Dashboard current-month reimbursement card must use the same monthly trip miles, monthly gas
-  price, and `VEHICLE_MPG` calculation as the total reimbursement line in the PDF report.
+- The Dashboard current-month reimbursement card must use the same monthly trip miles,
+  reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
 - The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
   installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
   contexts they allow scripts to close.

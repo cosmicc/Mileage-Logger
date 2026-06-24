@@ -730,7 +730,8 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
         assert "Waypoints" not in stats_section
         assert "Month Reimbursement" in stats_section
         assert "$14.00" in stats_section
-        assert "100.0 mi PDF total" in stats_section
+        assert "4 reimbursement gallons" in stats_section
+        assert "mi PDF total" not in stats_section
         assert stats_section.index("<span>OwnTracks Events</span>") < stats_section.index(
             "<span>Trips</span>"
         )
@@ -740,13 +741,16 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
         with session_factory() as db:
             monthly_gas = db.scalar(select(MonthlyGasPrice))
             assert monthly_gas is not None
-            assert _dashboard_reimbursement_summary(
+            reimbursement_summary = _dashboard_reimbursement_summary(
                 db,
                 year=2026,
                 month=6,
                 monthly_gas=monthly_gas,
                 vehicle_mpg=Decimal("25.0"),
-            )["total"] == Decimal("14.00")
+            )
+            assert reimbursement_summary["total"] == Decimal("14.00")
+            assert reimbursement_summary["reimbursement_gallons"] == Decimal("4.000")
+            assert reimbursement_summary["reimbursement_gallons_display"] == "4"
     finally:
         app.dependency_overrides.clear()
 
