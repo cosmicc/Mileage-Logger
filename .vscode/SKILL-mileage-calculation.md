@@ -132,7 +132,10 @@ def generate_trips(
 3. **For each valid pair**:
    - Load location updates between T1 and T2
    - Calculate mileage from OwnTracks path distance or waypoint distance
-   - Estimate start/end odometers from the selected distance
+   - Use stamped rolling OwnTracks odometers for trip starts when available. If no transition
+     odometer is stamped yet, use the newest stored odometer before trip start, with a newer
+     rolling checkpoint taking precedence over an older previous-trip odometer.
+   - Calculate the end odometer from the chosen start odometer plus the selected trip distance
    - Create Trip record
 
 ### Mileage Calculation Function

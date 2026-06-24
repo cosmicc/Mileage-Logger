@@ -70,6 +70,12 @@ class OdometerReading:
     source: str
 
 
+@dataclass(frozen=True)
+class TimedOdometerReading(OdometerReading):
+    recorded_at: datetime
+    order_id: int
+
+
 def haversine_miles(
     lat1: Decimal | float,
     lon1: Decimal | float,
@@ -547,6 +553,7 @@ def _estimated_odometer_calculation(
     start_odometer_source: str | None,
     end_odometer_source: str | None,
     odometer_anchor_miles: Decimal | None,
+    odometer_anchor_source: str | None,
 ) -> MileageCalculation | None:
     distance = distance_miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
     if start_odometer_miles is not None:
@@ -590,7 +597,7 @@ def _estimated_odometer_calculation(
         mileage_source=mileage_source,
         start_odometer_miles=estimated_start,
         end_odometer_miles=estimated_end,
-        start_odometer_source=ODOMETER_SOURCE_PREVIOUS_TRIP,
+        start_odometer_source=odometer_anchor_source or ODOMETER_SOURCE_PREVIOUS_TRIP,
         end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
     )
 
@@ -603,6 +610,7 @@ def _mileage_calculation(
     start_odometer: OdometerReading | None,
     end_odometer: OdometerReading | None,
     odometer_anchor_miles: Decimal | None,
+    odometer_anchor_source: str | None,
 ) -> MileageCalculation:
     start_odometer_miles = _odometer_reading_miles(start_odometer)
     end_odometer_miles = _odometer_reading_miles(end_odometer)
@@ -618,6 +626,7 @@ def _mileage_calculation(
             start_odometer_source=start_odometer_source,
             end_odometer_source=end_odometer_source,
             odometer_anchor_miles=odometer_anchor_miles,
+            odometer_anchor_source=odometer_anchor_source,
         )
         if (
             path_odometer is not None
@@ -670,6 +679,7 @@ def _mileage_calculation(
         start_odometer_source=start_odometer_source,
         end_odometer_source=end_odometer_source,
         odometer_anchor_miles=odometer_anchor_miles,
+        odometer_anchor_source=odometer_anchor_source,
     )
     if estimated is not None:
         return estimated
@@ -792,6 +802,7 @@ def _add_or_update_trip(
     start_odometer: OdometerReading | None,
     end_odometer: OdometerReading | None,
     odometer_anchor_miles: Decimal | None,
+    odometer_anchor_source: str | None,
 ) -> Trip | None:
     if _is_home_to_home(origin, destination):
         trip_logger.debug(
@@ -837,6 +848,7 @@ def _add_or_update_trip(
         start_odometer=start_odometer,
         end_odometer=end_odometer,
         odometer_anchor_miles=odometer_anchor_miles,
+        odometer_anchor_source=odometer_anchor_source,
     )
     notes = _trip_notes(inferred_leave=inferred_leave)
 
@@ -1009,27 +1021,69 @@ def _update_last_visited_from_confirmed_transitions(transitions: list[WaypointTr
             site.last_visited_at = captured_at
 
 
-def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal | None:
-    """Return the latest stored trip/checkpoint odometer before a trip starts."""
+def _latest_odometer_reading_before(
+    db: Session,
+    before_datetime: datetime,
+) -> TimedOdometerReading | None:
+    """Return the latest timed trip/checkpoint odometer before a trip starts."""
 
-    trip_odometer = db.scalar(
-        select(Trip.end_odometer_miles)
+    candidates: list[TimedOdometerReading] = []
+    trip = db.scalar(
+        select(Trip)
         .where(Trip.ended_at < before_datetime)
         .where(Trip.end_odometer_miles.is_not(None))
         .order_by(Trip.ended_at.desc(), Trip.id.desc())
         .limit(1)
     )
-    if trip_odometer is not None:
-        return trip_odometer
+    if trip is not None and trip.end_odometer_miles is not None:
+        candidates.append(
+            TimedOdometerReading(
+                miles=Decimal(trip.end_odometer_miles).quantize(
+                    ODOMETER_PRECISION,
+                    rounding=ROUND_HALF_UP,
+                ),
+                source=ODOMETER_SOURCE_PREVIOUS_TRIP,
+                recorded_at=datetime_to_utc(trip.ended_at),
+                order_id=trip.id or 0,
+            )
+        )
 
-    return db.scalar(
-        select(TripProcessingCheckpoint.odometer_anchor_miles)
+    checkpoint = db.scalar(
+        select(TripProcessingCheckpoint)
         .where(TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
         .where(TripProcessingCheckpoint.odometer_anchor_miles.is_not(None))
         .where(TripProcessingCheckpoint.odometer_anchor_recorded_at <= before_datetime)
         .order_by(TripProcessingCheckpoint.updated_at.desc(), TripProcessingCheckpoint.id.desc())
         .limit(1)
     )
+    if checkpoint is not None and checkpoint.odometer_anchor_miles is not None:
+        checkpoint_recorded_at = (
+            datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
+            if checkpoint.odometer_anchor_recorded_at is not None
+            else datetime.min.replace(tzinfo=UTC)
+        )
+        candidates.append(
+            TimedOdometerReading(
+                miles=Decimal(checkpoint.odometer_anchor_miles).quantize(
+                    ODOMETER_PRECISION,
+                    rounding=ROUND_HALF_UP,
+                ),
+                source=ODOMETER_SOURCE_OWNTRACKS_ROLLING,
+                recorded_at=checkpoint_recorded_at,
+                order_id=checkpoint.id or 0,
+            )
+        )
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda reading: (reading.recorded_at, reading.order_id))
+
+
+def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal | None:
+    """Return the latest stored trip/checkpoint odometer before a trip starts."""
+
+    reading = _latest_odometer_reading_before(db, before_datetime)
+    return reading.miles if reading is not None else None
 
 
 def _latest_trip_before(db: Session, before_datetime: datetime) -> Trip | None:
@@ -1426,7 +1480,9 @@ def generate_trips(
     home_site = _home_site(sites)
     pending_leave: WaypointTransition | None = None
     last_arrival: WaypointTransition | None = None
-    odometer_anchor_miles = _latest_odometer_before(db, transitions[0].location.captured_at)
+    odometer_anchor = _latest_odometer_reading_before(db, transitions[0].location.captured_at)
+    odometer_anchor_miles = odometer_anchor.miles if odometer_anchor is not None else None
+    odometer_anchor_source = odometer_anchor.source if odometer_anchor is not None else None
     generated: list[Trip] = []
 
     for transition in transitions:
@@ -1459,6 +1515,7 @@ def generate_trips(
                 start_odometer=_odometer_for_transition(db, pending_leave),
                 end_odometer=end_odometer,
                 odometer_anchor_miles=odometer_anchor_miles,
+                odometer_anchor_source=odometer_anchor_source,
             )
         elif last_arrival is not None and last_arrival.site.id != transition.site.id:
             trip = _add_or_update_trip(
@@ -1476,6 +1533,7 @@ def generate_trips(
                 start_odometer=_odometer_for_transition(db, last_arrival),
                 end_odometer=end_odometer,
                 odometer_anchor_miles=odometer_anchor_miles,
+                odometer_anchor_source=odometer_anchor_source,
             )
         elif last_arrival is None and home_site is not None and home_site.id != transition.site.id:
             trip = _add_or_update_trip(
@@ -1493,12 +1551,14 @@ def generate_trips(
                 start_odometer=None,
                 end_odometer=end_odometer,
                 odometer_anchor_miles=odometer_anchor_miles,
+                odometer_anchor_source=odometer_anchor_source,
             )
         else:
             trip = None
 
         if trip is not None and trip.end_odometer_miles is not None:
             odometer_anchor_miles = trip.end_odometer_miles
+            odometer_anchor_source = ODOMETER_SOURCE_PREVIOUS_TRIP
 
         last_arrival = transition
         pending_leave = None

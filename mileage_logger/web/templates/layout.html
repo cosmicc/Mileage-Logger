@@ -39,7 +39,6 @@
           </form>
           {% endif %}
         </nav>
-        <button type="button" class="app-close-button" data-app-close aria-label="Close app" title="Close app">&times;</button>
       </div>
     </header>
     <main class="page">
@@ -52,18 +51,6 @@
         });
       }
 
-      (() => {
-        // Close button element for full-screen installed web-app sessions.
-        const closeAppButton = document.querySelector("[data-app-close]");
-
-        if (closeAppButton === null) {
-          return;
-        }
-
-        closeAppButton.addEventListener("click", () => {
-          window.close();
-        });
-      })();
     </script>
   </body>
 </html>

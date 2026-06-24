@@ -460,7 +460,7 @@ def test_generate_trips_estimates_odometer_from_checkpoint_anchor() -> None:
         Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
@@ -528,7 +528,7 @@ def test_generate_trips_uses_owntracks_path_with_checkpoint_odometer() -> None:
         Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
@@ -563,7 +563,57 @@ def test_generate_trips_uses_manual_checkpoint_as_anchor() -> None:
     assert trips[0].end_odometer_miles == (Decimal("1000.0") + distance).quantize(
         Decimal("0.1")
     )
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
+
+
+def test_generate_trips_prefers_newer_checkpoint_over_prior_trip_odometer() -> None:
+    db = _session()
+    previous_trip_start = datetime(2026, 6, 11, 10, 0, tzinfo=UTC)
+    checkpoint_time = datetime(2026, 6, 11, 12, 30, tzinfo=UTC)
+    trip_start = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all([home, client])
+    db.flush()
+    db.add_all(
+        [
+            Trip(
+                trip_date=previous_trip_start.date(),
+                origin_site_id=client.id,
+                destination_site_id=home.id,
+                started_at=previous_trip_start,
+                ended_at=previous_trip_start + timedelta(minutes=30),
+                start_latitude=client.latitude,
+                start_longitude=client.longitude,
+                end_latitude=home.latitude,
+                end_longitude=home.longitude,
+                miles=Decimal("10.0"),
+                end_odometer_miles=Decimal("1010.0"),
+                mileage_source=MILEAGE_SOURCE_WAYPOINT_DISTANCE,
+                source="auto",
+            ),
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1234.4"),
+                odometer_anchor_recorded_at=checkpoint_time,
+            ),
+            _transition(trip_start, home, "leave"),
+            _transition(trip_start + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(trip_start + timedelta(minutes=24), client),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, trip_start.date(), trip_start.date())
+    distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
+
+    assert len(trips) == 1
+    assert trips[0].start_odometer_miles == Decimal("1234.4")
+    assert trips[0].end_odometer_miles == (Decimal("1234.4") + distance).quantize(
+        Decimal("0.1")
+    )
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
@@ -631,7 +681,7 @@ def test_generate_trips_uses_owntracks_path_before_waypoint_distance() -> None:
     assert trips[0].end_odometer_miles == (Decimal("1000.2") + expected_path_miles).quantize(
         Decimal("0.1")
     )
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
     assert "OwnTracks location path" in trips[0].notes
 
@@ -914,7 +964,7 @@ def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None
         Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
-    assert trips[0].start_odometer_source == ODOMETER_SOURCE_PREVIOUS_TRIP
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
     assert "Used waypoint distance because OwnTracks path data was unavailable." in trips[0].notes
 

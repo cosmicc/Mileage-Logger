@@ -132,7 +132,9 @@ docker compose up -d --build
    - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
 3. Mileage is calculated from OwnTracks location updates between the two events
 4. If OwnTracks path data is unavailable, trip distance falls back to waypoint-to-waypoint distance
-5. Odometer values are display/checkpoint values estimated from the selected distance
+5. Odometer values are display/checkpoint values: starts come from stamped rolling OwnTracks
+   values when available, otherwise the newest stored odometer before trip start, and ends are
+   start plus the selected trip distance
 6. Trip is stored and shown on `/trips` page for review/editing
 
 ### Odometer Checkpoint System
@@ -201,9 +203,8 @@ docker compose up -d --build
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
   Display the card's reimbursement gallons at one decimal place.
-- The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
-  installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
-  contexts they allow scripts to close.
+- On mobile, the shared top bar hides the brand/icon, keeps the navigation links in the top bar,
+  and does not use a fixed bottom nav so phone system navigation stays visible.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs
@@ -231,7 +232,7 @@ docker compose up -d --build
    before the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and
    recent OwnTracks database entries are paginated in compact 10-row pages.
 8. Diagnostics shows hard drive space for key runtime paths, combines paths into one row when
-   exact free bytes and total bytes match, and includes current database size plus total app record
+   exact used bytes and total bytes match, and includes current database size plus total app record
    count at the bottom of the card.
 9. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
@@ -313,4 +314,5 @@ These specialized guides help AI agents with common development tasks:
 - [README.md](README.md) — Project overview, setup, OwnTracks configuration, workflow
 - [INSTALL.md](INSTALL.md) — Docker, Ubuntu, Portainer installation guide
 - [CHANGELOG.md](CHANGELOG.md) — Release history and breaking changes
+- [WEB_CHANGELOG.md](WEB_CHANGELOG.md) — User-facing web-app release notes
 - [pyproject.toml](pyproject.toml) — Dependencies and build configuration

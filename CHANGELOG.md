@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Fixed generated trip odometer starts to prefer the newest stored rolling checkpoint before the
+  trip over older prior-trip odometers, then calculate the end odometer from that start plus the
+  generated trip distance.
+- Changed the installed mobile web-app shell to keep navigation links in the top bar, remove the
+  mobile close/title branding controls, and use standalone display mode so the phone bottom
+  system navigation remains visible.
+
+## 1.1.4 - 2026-06-23
+
+- Changed Diagnostics hard drive space grouping to combine configured runtime paths only when exact
+  used bytes and total bytes match.
+- Bumped the Mileage Logger package version to 1.1.4 for dev-branch testing before release.
 - Changed the Dashboard summary cards to remove the Waypoints card, move Trips into that slot, and
   show the current-month reimbursement total using the same mileage, gas price, and MPG formula as
   the downloadable PDF report summary, with one-decimal reimbursement gallons shown under the
@@ -27,7 +39,7 @@
 - Changed the Trips page to show newest trip dates first while leaving the Dashboard recent trips
   unchanged.
 - Added used-space display bars to the Diagnostics hard drive space card.
-- Added a Diagnostics hard drive space card that combines configured runtime paths when exact free
+- Added a Diagnostics hard drive space card that combines configured runtime paths when exact used
   bytes and total bytes match, reducing duplicate same-drive rows.
 - Added per-file download buttons for retained automatic backups on Diagnostics, using the same web
   login guard, filename validation, restore size limit, and no-store caching as other backup

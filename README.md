@@ -65,8 +65,11 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
   OwnTracks state in the configured local timezone. The Diagnostics Manual Odometer, EIA API, and
-  OwnTracks State cards share one equal-width status row, detailed lists use compact 10-row pages,
-  and Full Data Backup stays at the bottom under the App Log.
+  OwnTracks State cards share one equal-width status row, hard drive rows combine matching used and
+  total space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the
+  bottom under the App Log.
+- Installed mobile web-app layout keeps navigation in the top bar and leaves the bottom safe area
+  clear for phone system navigation.
 - Failed web-login audit records shown on Diagnostics and written into the host log directory, with
   an optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
@@ -277,11 +280,13 @@ Automatic same-waypoint trips under 1.0 mile are also removed with an exact supp
 older invalid rows do not return from the same OwnTracks transition pair.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
-odometer value for that point, and generated trips use those rolling values for start and end
-odometers. The trip end odometer is always advanced from the start odometer by the stored trip
-distance so the odometer display follows the trip miles. Segments fully inside the same saved
-waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
-the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
+odometer value for that point, and generated trips use those rolling values for start odometers
+when available. If transition rows are not stamped yet, generated trips use the newest stored
+odometer before the trip start, with the rolling checkpoint preferred when it is newer than a prior
+trip. The trip end odometer is always advanced from the start odometer by the stored trip distance
+so the odometer display follows the trip miles. Segments fully inside the same saved waypoint are
+ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset the checkpoint
+to the entered value and OwnTracks distance continues from that new rolling value.
 Dashboard total-driven cards sum OwnTracks coordinate segments directly for the selected local day
 or month, so manual odometer resets do not affect trip plus non-trip totals.
 The Dashboard current-month reimbursement card uses the same trip-mile total, reimbursement
@@ -291,7 +296,7 @@ The Diagnostics Manual Odometer card shows the current reading and its source ne
 the existing checkpoint can be checked before entering a correction. That card sits in the same
 Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also
 shows hard drive space for key runtime paths with used-space bars, combining paths into one row
-when their exact free space and total capacity match, and includes current database size plus total
+when their exact used space and total capacity match, and includes current database size plus total
 app record count at the bottom of the card. Recent OwnTracks entries, OwnTracks state changes,
 failed-login attempts, and app-managed Cloudflare blocked IPs are displayed 10 rows at a time.
 

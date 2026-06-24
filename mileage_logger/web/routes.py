@@ -727,7 +727,7 @@ def _diagnostic_disk_usages(
     *,
     disk_usage_func=shutil.disk_usage,
 ) -> list[DiagnosticDiskUsage]:
-    """Group configured paths by exact free and total bytes for the Diagnostics page."""
+    """Group configured paths by exact used and total bytes for the Diagnostics page."""
 
     grouped_paths: dict[tuple[int, int], list[tuple[str, str, int]]] = {}
     for path_text in paths:
@@ -739,14 +739,14 @@ def _diagnostic_disk_usages(
         except OSError:
             logger.exception("Could not read disk usage for path=%s", path_text)
             continue
-        key = (int(usage.free), int(usage.total))
+        key = (int(usage.used), int(usage.total))
         grouped_paths.setdefault(key, []).append(
-            (path_text, str(target_path), int(usage.used))
+            (path_text, str(target_path), int(usage.free))
         )
 
     disk_usages: list[DiagnosticDiskUsage] = []
-    for (free_bytes, total_bytes), path_rows in grouped_paths.items():
-        used_bytes = path_rows[0][2]
+    for (used_bytes, total_bytes), path_rows in grouped_paths.items():
+        free_bytes = path_rows[0][2]
         used_percent = (used_bytes / total_bytes * 100) if total_bytes else 0
         disk_usages.append(
             DiagnosticDiskUsage(
