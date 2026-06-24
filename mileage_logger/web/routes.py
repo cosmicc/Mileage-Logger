@@ -69,11 +69,12 @@ from mileage_logger.services.mileage import (
     create_manual_trip,
     delete_trip,
     mark_trip_manually_reviewed,
+    monthly_miles,
     owntracks_segment_miles,
     resequence_month_trip_odometers,
     site_indexes,
 )
-from mileage_logger.services.pdf import generate_monthly_pdf
+from mileage_logger.services.pdf import calculate_reimbursement, generate_monthly_pdf
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
@@ -104,6 +105,9 @@ WEB_DIR = Path(__file__).resolve().parent
 STATIC_DIR = WEB_DIR / "static"
 ICON_DIR = STATIC_DIR / "icons"
 templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"])
+DIAGNOSTICS_TABLE_PAGE_SIZE = 10
+DIAGNOSTICS_STATE_CHANGE_LIMIT = 500
+DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES = 200
 
 
 def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
@@ -434,6 +438,32 @@ def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: i
     }
 
 
+def _dashboard_reimbursement_summary(
+    db: Session,
+    *,
+    year: int,
+    month: int,
+    monthly_gas: MonthlyGasPrice | None,
+    vehicle_mpg: Decimal,
+) -> dict[str, Decimal | None]:
+    """Return the current-month reimbursement total using the same math as the PDF report."""
+
+    total_miles = monthly_miles(db, year, month)
+    if monthly_gas is None:
+        return {
+            "total": None,
+            "total_miles": total_miles,
+        }
+    return {
+        "total": calculate_reimbursement(
+            total_miles,
+            monthly_gas.average_price_per_gallon,
+            vehicle_mpg,
+        ),
+        "total_miles": total_miles,
+    }
+
+
 def _dashboard_location_state(movement_state) -> dict[str, str]:
     """Return compact current-location state text for the Dashboard card."""
 
@@ -474,6 +504,18 @@ def _pagination_context(total: int, page: int, page_size: int) -> dict[str, int 
         "has_previous": current_page > 1,
         "has_next": current_page < total_pages,
     }
+
+
+def _paginate_items(
+    items: list,
+    *,
+    page: int,
+    page_size: int,
+) -> tuple[list, dict[str, int | bool]]:
+    pagination = _pagination_context(len(items), page, page_size)
+    start = (int(pagination["page"]) - 1) * int(pagination["page_size"])
+    end = start + int(pagination["page_size"])
+    return items[start:end], pagination
 
 
 def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGasPrice | None, str]:
@@ -1149,8 +1191,14 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
         month=month,
     )
     location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
-    site_count = db.scalar(select(func.count(Site.id))) or 0
     trip_count = db.scalar(select(func.count(Trip.id))) or 0
+    reimbursement_summary = _dashboard_reimbursement_summary(
+        db,
+        year=year,
+        month=month,
+        monthly_gas=monthly_gas,
+        vehicle_mpg=settings.vehicle_mpg,
+    )
     latest_odometer = _latest_odometer_reading(db)
     movement_diagnostics = owntracks_movement_diagnostics(db)
     location_state = _dashboard_location_state(movement_diagnostics.current_state)
@@ -1169,9 +1217,9 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             "year": year,
             "month": month,
             "location_count": location_count,
-            "site_count": site_count,
             "trip_count": trip_count,
             "distance_summary": distance_summary,
+            "reimbursement_summary": reimbursement_summary,
             "location_state": location_state,
             "latest_odometer": latest_odometer,
             "recent_trips": recent_trips,
@@ -1494,6 +1542,9 @@ def refresh_gas_price_form(
 def diagnostics(
     request: Request,
     owntracks_page: int = Query(default=1, ge=1),
+    state_changes_page: int = Query(default=1, ge=1),
+    login_failures_page: int = Query(default=1, ge=1),
+    cloudflare_blocks_page: int = Query(default=1, ge=1),
     odometer_test: str | None = Query(default=None),
     odometer_message: str | None = Query(default=None),
     odometer_value: str | None = Query(default=None),
@@ -1526,20 +1577,43 @@ def diagnostics(
         .limit(1)
     )
     latest_odometer = _latest_odometer_reading(db)
-    owntracks_entries_page = paginated_owntracks_entries(db, page=owntracks_page)
-    movement_diagnostics = owntracks_movement_diagnostics(db)
+    owntracks_entries_page = paginated_owntracks_entries(
+        db,
+        page=owntracks_page,
+        page_size=DIAGNOSTICS_TABLE_PAGE_SIZE,
+    )
+    movement_diagnostics = owntracks_movement_diagnostics(
+        db,
+        state_change_limit=DIAGNOSTICS_STATE_CHANGE_LIMIT,
+    )
+    movement_state_changes, movement_state_changes_page = _paginate_items(
+        movement_diagnostics.state_changes,
+        page=state_changes_page,
+        page_size=DIAGNOSTICS_TABLE_PAGE_SIZE,
+    )
     backup_restore_enabled = web_login_enabled(settings)
     disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
     database_summary = _diagnostic_database_summary(db, settings.database_url)
     hidden_login_failure_ids = set(db.scalars(select(HiddenLoginFailure.entry_id)))
     login_failure_entries = tail_login_failure_entries(
         login_failure_log_path,
+        max_entries=DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES,
         hidden_entry_ids=hidden_login_failure_ids,
     )
-    cloudflare_ip_blocks = list(
+    login_failure_entries, login_failure_entries_page = _paginate_items(
+        login_failure_entries,
+        page=login_failures_page,
+        page_size=DIAGNOSTICS_TABLE_PAGE_SIZE,
+    )
+    all_cloudflare_ip_blocks = list(
         db.scalars(select(CloudflareIPBlock).order_by(CloudflareIPBlock.created_at.desc()))
     )
-    blocked_ip_addresses = {block.ip_address for block in cloudflare_ip_blocks}
+    cloudflare_ip_blocks, cloudflare_ip_blocks_page = _paginate_items(
+        all_cloudflare_ip_blocks,
+        page=cloudflare_blocks_page,
+        page_size=DIAGNOSTICS_TABLE_PAGE_SIZE,
+    )
+    blocked_ip_addresses = {block.ip_address for block in all_cloudflare_ip_blocks}
     login_failure_ip_statuses = {}
     for entry in login_failure_entries:
         normalized_ip = normalize_ip_address(entry.client_ip)
@@ -1582,12 +1656,15 @@ def diagnostics(
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "movement_state": movement_diagnostics.current_state,
-            "movement_state_changes": movement_diagnostics.state_changes,
+            "movement_state_changes": movement_state_changes,
+            "movement_state_changes_page": movement_state_changes_page,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
             "login_failure_log_path": login_failure_log_path,
             "login_failure_entries": login_failure_entries,
+            "login_failure_entries_page": login_failure_entries_page,
             "login_failure_ip_statuses": login_failure_ip_statuses,
             "cloudflare_ip_blocks": cloudflare_ip_blocks,
+            "cloudflare_ip_blocks_page": cloudflare_ip_blocks_page,
             "cloudflare_ip_blocking_configured": cloudflare_ip_blocking_configured(settings),
             "manual_odometer_result": _api_test_result(
                 odometer_test,

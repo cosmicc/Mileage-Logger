@@ -198,6 +198,8 @@ docker compose up -d --build
 - Dashboard trip plus non-trip distance cards use OwnTracks path distance as the total-distance
   source but floor the combined total at the stored trip total after one-decimal rounding, so the
   displayed non-trip remainder is never negative.
+- The Dashboard current-month reimbursement card must use the same monthly trip miles, monthly gas
+  price, and `VEHICLE_MPG` calculation as the total reimbursement line in the PDF report.
 - The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
   installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
   contexts they allow scripts to close.
@@ -215,6 +217,8 @@ docker compose up -d --build
    download. When Cloudflare IP blocking is enabled and configured, Diagnostics can block/unblock
    app-managed Cloudflare zone IP Access Rules. Automatic blocking occurs after the configured
    consecutive failed-login threshold and successful login resets that IP's consecutive count.
+   Diagnostics paginates failed-login rows and app-managed Cloudflare blocks in compact 10-row
+   pages.
 6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log, and the manual full-backup
    download control sits with the lower upload-restore controls. Restore replaces all app table
@@ -223,7 +227,8 @@ docker compose up -d --build
    backup can be downloaded individually, and the selected file can be restored after typed
    `RESTORE` confirmation.
 7. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
-   before the detailed OwnTracks state-change log.
+   before the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and
+   recent OwnTracks database entries are paginated in compact 10-row pages.
 8. Diagnostics shows hard drive space for key runtime paths, combines paths into one row when
    exact free bytes and total bytes match, and includes current database size plus total app record
    count at the bottom of the card.

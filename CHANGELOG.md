@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Changed the Dashboard summary cards to remove the Waypoints card, move Trips into that slot, and
+  show the current-month reimbursement total using the same mileage, gas price, and MPG formula as
+  the downloadable PDF report summary.
+- Tightened Diagnostics list cards so recent OwnTracks entries, OwnTracks state changes, failed
+  login attempts, and app-managed Cloudflare blocked IPs show 10 rows per page, shortened the app
+  log window, and made automatic-backup rows slimmer with truncated filenames and accessible
+  restore confirmation inputs.
 - Removed the separate Docker `gas-snapshot` service and moved recurring gas price snapshots into
   the app container background scheduler while keeping the manual `mileage-logger gas-snapshot`
   command available.

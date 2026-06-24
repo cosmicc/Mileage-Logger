@@ -1,5 +1,29 @@
 {% extends "layout.html" %}
 {% block content %}
+{% macro pagination_controls(pagination, page_param, anchor, label) -%}
+<div class="pagination-controls" aria-label="{{ label }}">
+  {% if pagination.has_previous %}
+  <a class="button-link secondary" href="/diagnostics?{{ page_param }}=1#{{ anchor }}">First</a>
+  <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.page - 1 }}#{{ anchor }}">Previous</a>
+  {% else %}
+  <span class="pagination-disabled">First</span>
+  <span class="pagination-disabled">Previous</span>
+  {% endif %}
+  <span class="pagination-status">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+  {% if pagination.has_next %}
+  <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.page + 1 }}#{{ anchor }}">Next</a>
+  <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.total_pages }}#{{ anchor }}">Last</a>
+  {% else %}
+  <span class="pagination-disabled">Next</span>
+  <span class="pagination-disabled">Last</span>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro showing_meta(pagination, suffix="") -%}
+Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.total }}{{ suffix }}
+{%- endmacro %}
+
 <section class="page-header">
   <div>
     <h1>Diagnostics</h1>
@@ -231,8 +255,11 @@
   <div class="panel-toolbar">
     <div>
       <h2>OwnTracks State Changes</h2>
-      <p class="panel-meta">Only waypoint arrivals, waypoint departures, and travel detections.</p>
+      <p class="panel-meta">
+        {{ showing_meta(movement_state_changes_page) }} state changes.
+      </p>
     </div>
+    {{ pagination_controls(movement_state_changes_page, "state_changes_page", "owntracks-state-log", "OwnTracks state change pages") }}
   </div>
   <table>
     <thead>
@@ -267,27 +294,10 @@
     <div>
       <h2>Recent OwnTracks Entries</h2>
       <p class="panel-meta">
-        Showing {{ owntracks_entries_page.first_item }}-{{ owntracks_entries_page.last_item }}
-        of {{ owntracks_entries_page.total }}
+        {{ showing_meta(owntracks_entries_page) }} entries.
       </p>
     </div>
-    <div class="pagination-controls" aria-label="Recent OwnTracks entries pages">
-      {% if owntracks_entries_page.has_previous %}
-      <a class="button-link secondary" href="/diagnostics?owntracks_page=1#owntracks-entries">First</a>
-      <a class="button-link secondary" href="/diagnostics?owntracks_page={{ owntracks_entries_page.page - 1 }}#owntracks-entries">Previous</a>
-      {% else %}
-      <span class="pagination-disabled">First</span>
-      <span class="pagination-disabled">Previous</span>
-      {% endif %}
-      <span class="pagination-status">Page {{ owntracks_entries_page.page }} of {{ owntracks_entries_page.total_pages }}</span>
-      {% if owntracks_entries_page.has_next %}
-      <a class="button-link secondary" href="/diagnostics?owntracks_page={{ owntracks_entries_page.page + 1 }}#owntracks-entries">Next</a>
-      <a class="button-link secondary" href="/diagnostics?owntracks_page={{ owntracks_entries_page.total_pages }}#owntracks-entries">Last</a>
-      {% else %}
-      <span class="pagination-disabled">Next</span>
-      <span class="pagination-disabled">Last</span>
-      {% endif %}
-    </div>
+    {{ pagination_controls(owntracks_entries_page, "owntracks_page", "owntracks-entries", "Recent OwnTracks entries pages") }}
   </div>
   <table>
     <thead>
@@ -332,8 +342,11 @@
   <div class="panel-toolbar">
     <div>
       <h2>Failed Login Attempts</h2>
-      <p class="panel-meta">Newest first from {{ login_failure_log_path }}. Password values are not stored.</p>
+      <p class="panel-meta">
+        {{ showing_meta(login_failure_entries_page) }} from {{ login_failure_log_path }}. Password values are not stored.
+      </p>
     </div>
+    {{ pagination_controls(login_failure_entries_page, "login_failures_page", "login-failures", "Failed login attempt pages") }}
   </div>
   {% if cloudflare_block_result %}
   <p class="api-test-result {{ cloudflare_block_result.status }}">
@@ -449,8 +462,11 @@
   <div class="panel-toolbar">
     <div>
       <h2>Cloudflare Blocked IPs</h2>
-      <p class="panel-meta">App-managed Cloudflare zone IP Access Rule blocks only.</p>
+      <p class="panel-meta">
+        {{ showing_meta(cloudflare_ip_blocks_page) }} app-managed Cloudflare zone IP Access Rule blocks.
+      </p>
     </div>
+    {{ pagination_controls(cloudflare_ip_blocks_page, "cloudflare_blocks_page", "cloudflare-blocked-ips", "Cloudflare blocked IP pages") }}
   </div>
   {% if cloudflare_block_result %}
   <p class="api-test-result {{ cloudflare_block_result.status }}">
@@ -555,7 +571,7 @@
         {% for backup in automatic_backups %}
         <tr>
           <td>{{ backup.created_at_display }}</td>
-          <td class="backup-file-name">{{ backup.filename }}</td>
+          <td class="backup-file-name" title="{{ backup.filename }}">{{ backup.filename }}</td>
           <td>{{ backup.size_display }}</td>
           <td>
             <a class="button-link secondary" href="{{ backup.download_url }}">Download</a>
@@ -568,17 +584,16 @@
               onsubmit="return confirm('Restore this automatic backup and replace all current app data?');"
             >
               <input type="hidden" name="filename" value="{{ backup.filename }}">
-              <label>
-                Confirmation
-                <input
-                  type="text"
-                  name="confirmation"
-                  pattern="RESTORE"
-                  placeholder="RESTORE"
-                  autocomplete="off"
-                  required
-                >
-              </label>
+              <input
+                type="text"
+                name="confirmation"
+                pattern="RESTORE"
+                placeholder="RESTORE"
+                aria-label="Type RESTORE to confirm automatic backup restore"
+                title="Type RESTORE to confirm"
+                autocomplete="off"
+                required
+              >
               <button type="submit" class="small-button danger">Restore</button>
             </form>
           </td>

@@ -2,6 +2,7 @@ import gzip
 import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -42,6 +43,7 @@ from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import (
     _dashboard_distance_summary,
+    _dashboard_reimbursement_summary,
     _diagnostic_database_summary,
     _diagnostic_disk_usages,
     _human_duration_since,
@@ -73,6 +75,14 @@ def _test_client_session() -> tuple[TestClient, sessionmaker[Session]]:
 
     app.dependency_overrides[get_db] = override_get_db
     return TestClient(app), session_factory
+
+
+def _html_section(html: str, start_marker: str, end_marker: str | None = None) -> str:
+    start = html.index(start_marker)
+    if end_marker is None:
+        return html[start:]
+    end = html.index(end_marker, start)
+    return html[start:end]
 
 
 def _location(
@@ -647,6 +657,96 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
             "      <small>Trips + non-trips</small>"
         ) in response.text
         assert "<strong>9.5</strong>" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch) -> None:
+    dashboard_now = datetime(
+        2026,
+        6,
+        16,
+        10,
+        0,
+        tzinfo=ZoneInfo("America/Detroit"),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.local_now", lambda: dashboard_now)
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: dashboard_now.date())
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add(
+                Site(
+                    name="Client",
+                    latitude=Decimal("42.3314000"),
+                    longitude=Decimal("-83.0458000"),
+                    radius_m=150,
+                )
+            )
+            db.add_all(
+                [
+                    Trip(
+                        trip_date=date(2026, 6, 12),
+                        started_at=datetime(2026, 6, 12, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 12, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("25.0"),
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 16),
+                        started_at=datetime(2026, 6, 16, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("75.0"),
+                    ),
+                    MonthlyGasPrice(
+                        year=2026,
+                        month=6,
+                        state="MI",
+                        average_price_per_gallon=Decimal("3.500"),
+                        buffer_per_gallon=Decimal("0.00"),
+                        effective_rate=Decimal("3.500"),
+                        source="test",
+                        source_detail="dashboard reimbursement test",
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/")
+
+        assert response.status_code == 200
+        stats_section = _html_section(
+            response.text,
+            '<section class="stats-grid">',
+            '<section class="panel">',
+        )
+        assert "Waypoints" not in stats_section
+        assert "Month Reimbursement" in stats_section
+        assert "$14.00" in stats_section
+        assert "100.0 mi PDF total" in stats_section
+        assert stats_section.index("<span>OwnTracks Events</span>") < stats_section.index(
+            "<span>Trips</span>"
+        )
+        assert stats_section.index("<span>Trips</span>") < stats_section.index(
+            "<span>Month Reimbursement</span>"
+        )
+        with session_factory() as db:
+            monthly_gas = db.scalar(select(MonthlyGasPrice))
+            assert monthly_gas is not None
+            assert _dashboard_reimbursement_summary(
+                db,
+                year=2026,
+                month=6,
+                monthly_gas=monthly_gas,
+                vehicle_mpg=Decimal("25.0"),
+            )["total"] == Decimal("14.00")
     finally:
         app.dependency_overrides.clear()
 
@@ -1417,6 +1517,118 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
         app.dependency_overrides.clear()
 
 
+def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    lines = []
+    for index in range(12):
+        lines.append(
+            json.dumps(
+                {
+                    "event": "web_login_failed",
+                    "occurred_at_utc": f"2026-06-19T12:{index:02d}:00Z",
+                    "occurred_at_local": f"2026-06-19T08:{index:02d}:00-04:00",
+                    "client_ip": f"203.0.113.{100 + index}",
+                    "direct_client_ip": "10.0.0.12",
+                    "cf_connecting_ip": f"203.0.113.{100 + index}",
+                    "x_real_ip": "",
+                    "x_forwarded_for": "",
+                    "forwarded_proto": "https",
+                    "host": "mileage.example.test",
+                    "user_agent": f"ExampleBrowser/{index}",
+                    "method": "POST",
+                    "path": "/login",
+                    "next_url": "/diagnostics",
+                    "reason": "invalid_credentials",
+                    "username": f"user-{index:02d}",
+                    "username_length": 7,
+                    "username_truncated": False,
+                    "password_length": 14,
+                    "failed_count": index + 1,
+                    "max_attempts": 5,
+                    "lockout_applied": False,
+                    "lockout_remaining_seconds": 0,
+                }
+            )
+        )
+    login_failure_log_path.write_text("\n".join(lines), encoding="utf-8")
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            log_dir=str(tmp_path),
+            login_failure_log_path=str(login_failure_log_path),
+        ),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            for index in range(12):
+                db.add(
+                    CloudflareIPBlock(
+                        ip_address=f"198.51.100.{100 + index}",
+                        cloudflare_rule_id=f"cf-rule-{index:02d}",
+                        source="manual",
+                        reason=f"test block {index:02d}",
+                        created_at=datetime(2026, 6, 19, 12, index, tzinfo=UTC),
+                    )
+                )
+            db.commit()
+
+        response = client.get("/diagnostics")
+        assert response.status_code == 200
+
+        login_section = _html_section(
+            response.text,
+            '<section id="login-failures" class="panel">',
+            '<section id="cloudflare-blocked-ips" class="panel">',
+        )
+        assert "Showing 1-10 of 12 from" in login_section
+        assert login_section.count("<tr>") == 11
+        assert "user-11" in login_section
+        assert "user-02" in login_section
+        assert "user-01" not in login_section
+        assert "user-00" not in login_section
+
+        second_login_page = client.get("/diagnostics?login_failures_page=2")
+        second_login_section = _html_section(
+            second_login_page.text,
+            '<section id="login-failures" class="panel">',
+            '<section id="cloudflare-blocked-ips" class="panel">',
+        )
+        assert "Showing 11-12 of 12 from" in second_login_section
+        assert "user-01" in second_login_section
+        assert "user-00" in second_login_section
+        assert "user-02" not in second_login_section
+
+        cloudflare_section = _html_section(
+            response.text,
+            '<section id="cloudflare-blocked-ips" class="panel">',
+            '<section id="app-log" class="panel log-panel">',
+        )
+        assert "Showing 1-10 of 12 app-managed Cloudflare" in cloudflare_section
+        assert cloudflare_section.count("<tr>") == 11
+        assert "198.51.100.111" in cloudflare_section
+        assert "198.51.100.102" in cloudflare_section
+        assert "198.51.100.101" not in cloudflare_section
+        assert "198.51.100.100" not in cloudflare_section
+
+        second_cloudflare_page = client.get("/diagnostics?cloudflare_blocks_page=2")
+        second_cloudflare_section = _html_section(
+            second_cloudflare_page.text,
+            '<section id="cloudflare-blocked-ips" class="panel">',
+            '<section id="app-log" class="panel log-panel">',
+        )
+        assert "Showing 11-12 of 12 app-managed Cloudflare" in second_cloudflare_section
+        assert "198.51.100.101" in second_cloudflare_section
+        assert "198.51.100.100" in second_cloudflare_section
+        assert "198.51.100.102" not in second_cloudflare_section
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
     tmp_path,
     monkeypatch,
@@ -1753,6 +1965,17 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
         assert diagnostics_response.status_code == 200
         assert "Automatic Backups" in diagnostics_response.text
         assert backup_result.backup_file.filename in diagnostics_response.text
+        automatic_backup_section = _html_section(
+            diagnostics_response.text,
+            '<div id="automatic-backups" class="backup-subsection">',
+            '<div class="backup-subsection manual-backup-subsection">',
+        )
+        assert (
+            f'class="backup-file-name" title="{backup_result.backup_file.filename}"'
+            in automatic_backup_section
+        )
+        assert ">Confirmation" not in automatic_backup_section
+        assert "Type RESTORE to confirm automatic backup restore" in automatic_backup_section
         assert "/diagnostics/automatic-backups/download" in diagnostics_response.text
         assert download_response.status_code == 200
         assert download_response.content == backup_result.backup_file.path.read_bytes()
@@ -1957,6 +2180,86 @@ def test_diagnostics_shows_current_waypoint_state() -> None:
         assert "Arrived" in response.text
         assert "OwnTracks State Changes" in response.text
         assert "Arrived at waypoint" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
+    client, session_factory = _test_client_session()
+    captured_at = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    try:
+        with session_factory() as db:
+            for index in range(12):
+                site = Site(
+                    name=f"State {index:02d}",
+                    owntracks_region_id=f"state-{index:02d}",
+                    latitude=Decimal("42.3314000"),
+                    longitude=Decimal("-83.0458000"),
+                    radius_m=150,
+                )
+                location = _location(
+                    captured_at + timedelta(minutes=index),
+                    captured_at + timedelta(minutes=index),
+                    {
+                        "_type": "transition",
+                        "event": "enter",
+                        "desc": site.name,
+                        "seq": index,
+                    },
+                )
+                location.topic = f"owntracks/user/device-{index:02d}"
+                db.add(site)
+                db.add(location)
+            db.commit()
+
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        state_section = _html_section(
+            response.text,
+            '<section id="owntracks-state-log" class="panel">',
+            '<section id="owntracks-entries" class="panel">',
+        )
+        assert "Showing 1-10 of 12 state changes." in state_section
+        assert state_section.count("<tr>") == 11
+        assert "State 11" in state_section
+        assert "State 02" in state_section
+        assert "State 01" not in state_section
+        assert "State 00" not in state_section
+
+        second_state_page = client.get("/diagnostics?state_changes_page=2")
+        second_state_section = _html_section(
+            second_state_page.text,
+            '<section id="owntracks-state-log" class="panel">',
+            '<section id="owntracks-entries" class="panel">',
+        )
+        assert "Showing 11-12 of 12 state changes." in second_state_section
+        assert "State 01" in second_state_section
+        assert "State 00" in second_state_section
+        assert "State 02" not in second_state_section
+
+        entries_section = _html_section(
+            response.text,
+            '<section id="owntracks-entries" class="panel">',
+            '<section id="login-failures" class="panel">',
+        )
+        assert "Showing 1-10 of 12 entries." in entries_section
+        assert entries_section.count("<tr>") == 11
+        assert "owntracks/user/device-11" in entries_section
+        assert "owntracks/user/device-02" in entries_section
+        assert "owntracks/user/device-01" not in entries_section
+        assert "owntracks/user/device-00" not in entries_section
+
+        second_entries_page = client.get("/diagnostics?owntracks_page=2")
+        second_entries_section = _html_section(
+            second_entries_page.text,
+            '<section id="owntracks-entries" class="panel">',
+            '<section id="login-failures" class="panel">',
+        )
+        assert "Showing 11-12 of 12 entries." in second_entries_section
+        assert "owntracks/user/device-01" in second_entries_section
+        assert "owntracks/user/device-00" in second_entries_section
+        assert "owntracks/user/device-02" not in second_entries_section
     finally:
         app.dependency_overrides.clear()
 
@@ -2556,11 +2859,38 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                 distance_miles=None,
             ),
             "movement_state_changes": [],
+            "movement_state_changes_page": SimpleNamespace(
+                first_item=0,
+                last_item=0,
+                total=0,
+                has_previous=False,
+                has_next=False,
+                page=1,
+                total_pages=1,
+            ),
             "app_log_lines": [],
             "login_failure_log_path": "/tmp/mileage-logger-login-failures.log",
             "login_failure_entries": [],
+            "login_failure_entries_page": SimpleNamespace(
+                first_item=0,
+                last_item=0,
+                total=0,
+                has_previous=False,
+                has_next=False,
+                page=1,
+                total_pages=1,
+            ),
             "login_failure_ip_statuses": {},
             "cloudflare_ip_blocks": [],
+            "cloudflare_ip_blocks_page": SimpleNamespace(
+                first_item=0,
+                last_item=0,
+                total=0,
+                has_previous=False,
+                has_next=False,
+                page=1,
+                total_pages=1,
+            ),
             "cloudflare_ip_blocking_configured": False,
             "cloudflare_block_result": None,
             "manual_odometer_result": None,
@@ -2608,6 +2938,15 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     backup_start = rendered.index('<section id="data-backup" class="panel">')
     assert app_log_start < backup_start
     assert "Full Data Backup" in rendered[backup_start:]
+
+
+def test_diagnostics_compact_table_and_log_styles() -> None:
+    stylesheet = Path("mileage_logger/web/static/styles.css").read_text(encoding="utf-8")
+
+    assert ".automatic-backup-table .backup-file-name" in stylesheet
+    assert "text-overflow: ellipsis;" in stylesheet
+    assert ".log-view {\n  height: 450px;" in stylesheet
+    assert "  .log-view {\n    height: 42vh;" in stylesheet
 
 
 def test_diagnostics_disk_usage_combines_paths_on_same_drive(tmp_path) -> None:

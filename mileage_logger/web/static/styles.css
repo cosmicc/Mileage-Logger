@@ -945,21 +945,24 @@ td input[type="text"] {
 }
 
 .automatic-backup-table .backup-file-name {
-  max-width: 320px;
-  overflow-wrap: anywhere;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
 }
 
 .automatic-backup-restore-form {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) auto;
-  align-items: end;
+  grid-template-columns: minmax(88px, 110px) auto;
+  align-items: center;
   gap: 8px;
-  min-width: 240px;
+  min-width: 174px;
 }
 
-.automatic-backup-restore-form input {
+.automatic-backup-restore-form input[type="text"] {
+  width: 100%;
   min-width: 0;
 }
 
@@ -998,7 +1001,7 @@ td input[type="text"] {
 }
 
 .log-view {
-  height: 900px;
+  height: 450px;
   margin: 0;
   overflow: auto;
   padding: 14px;
@@ -1189,7 +1192,7 @@ td input[type="text"] {
   }
 
   .log-view {
-    height: 72vh;
+    height: 42vh;
   }
 }
 

@@ -55,12 +55,13 @@
     <strong>{{ location_count }}</strong>
   </div>
   <div class="stat">
-    <span>Waypoints</span>
-    <strong>{{ site_count }}</strong>
-  </div>
-  <div class="stat">
     <span>Trips</span>
     <strong>{{ trip_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Month Reimbursement</span>
+    <strong>{% if reimbursement_summary.total is not none %}${{ "%.2f"|format(reimbursement_summary.total) }}{% else %}N/A{% endif %}</strong>
+    <small>{{ "%.1f"|format(reimbursement_summary.total_miles) }} mi PDF total</small>
   </div>
   <div class="stat">
     <span>MI Monthly Avg Gas</span>

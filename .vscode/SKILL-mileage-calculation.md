@@ -408,6 +408,9 @@ reimbursement = calculate_reimbursement(
 print(f"Reimbursement: ${reimbursement}")
 ```
 
+Dashboard reimbursement summaries should reuse this same PDF-report calculation path: monthly trip
+miles from `monthly_miles()`, the current saved monthly gas price, and `VEHICLE_MPG`.
+
 ---
 
 ## Debugging Mileage Issues

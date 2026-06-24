@@ -65,8 +65,8 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
   OwnTracks state in the configured local timezone. The Diagnostics Manual Odometer, EIA API, and
-  OwnTracks State cards share one equal-width status row, while Full Data Backup stays at the
-  bottom under the App Log.
+  OwnTracks State cards share one equal-width status row, detailed lists use compact 10-row pages,
+  and Full Data Backup stays at the bottom under the App Log.
 - Failed web-login audit records shown on Diagnostics and written into the host log directory, with
   an optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
@@ -284,12 +284,15 @@ waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on 
 the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
 Dashboard total-driven cards sum OwnTracks coordinate segments directly for the selected local day
 or month, so manual odometer resets do not affect trip plus non-trip totals.
+The Dashboard current-month reimbursement card uses the same trip-mile total, monthly gas price,
+and `VEHICLE_MPG` formula as the total reimbursement line in the downloadable PDF report.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. That card sits in the same
 Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also
 shows hard drive space for key runtime paths with used-space bars, combining paths into one row
 when their exact free space and total capacity match, and includes current database size plus total
-app record count at the bottom of the card.
+app record count at the bottom of the card. Recent OwnTracks entries, OwnTracks state changes,
+failed-login attempts, and app-managed Cloudflare blocked IPs are displayed 10 rows at a time.
 
 ## Cloudflare Tunnel
 
@@ -374,7 +377,8 @@ mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH` is only a host-side symlink
 shorter `/var/log/mileage-logger-login-failures.log` path. The same failed-login entries are shown
 in Diagnostics.
 Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
-mount, and are listed/restorable from Diagnostics after web login.
+mount, and are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
+are truncated in the Diagnostics table but remain visible on hover and available to download.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
 `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.

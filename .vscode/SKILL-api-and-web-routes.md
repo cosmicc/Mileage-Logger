@@ -201,6 +201,9 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
   the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
+- Dashboard reimbursement summaries must reuse the same monthly trip-mile total, monthly gas price,
+  and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home card matches the downloadable
+  report total.
 - `layout.html` includes a mobile-only full-screen web-app close control. It calls
   `window.close()`, which is a browser-controlled best-effort action and may be ignored outside
   installed app contexts.
@@ -528,7 +531,9 @@ from the Diagnostics table through `hidden_login_failures`, but the raw JSON-lin
 remain intact. Keep the Diagnostics card actions scoped to the individual failed-login rows rather
 than adding separate footer refresh or download buttons. Cloudflare block/unblock controls should
 only create and remove app-managed rows in `cloudflare_ip_blocks`; do not touch unrelated
-Cloudflare rules.
+Cloudflare rules. Keep the Diagnostics failed-login table, Cloudflare blocked-IP table, recent
+OwnTracks entries, and OwnTracks state-change log paginated at 10 visible rows per page so the
+cards stay compact.
 
 ### Diagnostics Full Backup And Restore
 
@@ -549,7 +554,10 @@ lower upload-restore controls rather than in the card header. Automatic backups 
 hourly when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in `AUTOMATIC_BACKUP_DIR`, and retain the
 newest 6 hourly backups plus one daily backup for today and each of the prior 2 days. The backup
 format is gzip-compressed JSON of all SQLAlchemy app tables plus an OwnTracks waypoint export; it is
-not a raw PostgreSQL cluster, Docker volume, role, password, or host-log backup.
+not a raw PostgreSQL cluster, Docker volume, role, password, or host-log backup. Keep retained
+automatic-backup rows single-line friendly by truncating long filenames visually and avoiding a
+visible confirmation label in each row; the typed `RESTORE` field should still keep an accessible
+label.
 
 ---
 
