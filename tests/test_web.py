@@ -466,11 +466,11 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert 'rel="manifest" href="/manifest.webmanifest"' in response.text
         assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' in response.text
         assert "/static/icons/mileage-logger-icon.svg" in response.text
-        assert 'class="app-close-button"' in response.text
-        assert 'data-app-close aria-label="Close app"' in response.text
-        assert ".app-close-button {\n  display: none;" in response.text
-        assert ".app-close-button {\n    display: inline-flex;" in response.text
-        assert "window.close()" in response.text
+        assert 'class="app-close-button"' not in response.text
+        assert "window.close()" not in response.text
+        assert ".brand {\n    display: none;" in response.text
+        assert "position: fixed;\n    right: 0;\n    bottom: 0;" not in response.text
+        assert "calc(24px + env(safe-area-inset-bottom))" in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -493,8 +493,8 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
         assert manifest_response.status_code == 200
         assert manifest_response.headers["content-type"].startswith("application/manifest+json")
         manifest = manifest_response.json()
-        assert manifest["display"] == "fullscreen"
-        assert manifest["display_override"][:2] == ["fullscreen", "standalone"]
+        assert manifest["display"] == "standalone"
+        assert manifest["display_override"][:2] == ["standalone", "minimal-ui"]
         assert manifest["start_url"] == "/"
         assert manifest["scope"] == "/"
         assert {icon["purpose"] for icon in manifest["icons"]} == {"any", "maskable"}
@@ -2974,6 +2974,7 @@ def test_diagnostics_disk_usage_combines_paths_on_same_drive(tmp_path) -> None:
     assert len(disk_usages) == 2
     combined_disk = next(item for item in disk_usages if item.total_bytes == 1_000)
     assert combined_disk.paths == (str(log_dir), str(backup_dir))
+    assert combined_disk.used_bytes == 600
     assert combined_disk.free_bytes == 400
     assert combined_disk.used_percent_style == "60.0%"
 

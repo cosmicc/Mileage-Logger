@@ -70,9 +70,13 @@ When trip processor runs:
 3. Advance rolling checkpoint: `new_checkpoint = anchor + distance_sum`
 4. Stamp processed OwnTracks rows with the rolling odometer value for that point, whether or not
    the movement becomes a trip
-5. Use those stored rolling odometer values for generated trip starts, and use the current rolling
-   checkpoint for new manual trip starts instead of the previous trip end odometer
-6. When user manually enters odometer, reset anchor to exact value
+5. Use stamped rolling odometer values for generated trip starts when available. If a generated
+   trip has no stamped transition odometer yet, use the newest stored odometer before trip start;
+   a newer rolling checkpoint takes precedence over an older previous-trip odometer. End odometers
+   are calculated from the chosen start plus the generated trip distance.
+6. Use the current rolling checkpoint for new manual trip starts instead of the previous trip end
+   odometer
+7. When user manually enters odometer, reset anchor to exact value
 
 ### Example
 
