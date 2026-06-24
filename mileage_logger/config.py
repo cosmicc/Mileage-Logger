@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     eia_api_key: str = ""
     eia_series_id: str = ""
     vehicle_mpg: Decimal = Field(default=Decimal("25.0"), gt=Decimal("0"))
+    gas_snapshot_enabled: bool = False
+    gas_snapshot_interval_seconds: int = Field(default=86400, ge=60)
+    gas_snapshot_run_on_startup: bool = True
 
     log_dir: str = "logs"
     log_level: LogLevel = "info"

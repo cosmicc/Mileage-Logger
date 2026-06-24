@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Removed the separate Docker `gas-snapshot` service and moved recurring gas price snapshots into
+  the app container background scheduler while keeping the manual `mileage-logger gas-snapshot`
+  command available.
 - Moved the Diagnostics manual full-backup description and `Download Full Backup` button down to
   the lower upload-restore area of the Full Data Backup card.
 - Removed the Failed Login Attempts card refresh and download action row from Diagnostics so the

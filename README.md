@@ -60,7 +60,7 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - PostgreSQL database.
 - FastAPI mileage app.
 - Nginx reverse proxy on port `80`.
-- Daily gas price snapshot worker.
+- Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
@@ -317,10 +317,11 @@ CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 
 Then start the normal stack with `docker compose up -d --build`.
 
-A background processor also runs while the web app is up. It recalculates the current local day on a
-short interval and finalizes completed local days. After trip processing updates its checkpoint,
-processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged automatically.
-Trips, waypoints, reports, and gas price records are not removed by this purge.
+Background processors also run while the web app is up. Trip processing recalculates the current
+local day on a short interval and finalizes completed local days. After trip processing updates its
+checkpoint, processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged
+automatically. Trips, waypoints, reports, and gas price records are not removed by this purge. The
+app container also runs the daily gas snapshot scheduler when `GAS_SNAPSHOT_ENABLED=true`.
 
 Useful Docker environment options:
 
@@ -351,6 +352,9 @@ HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/logs/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
+GAS_SNAPSHOT_ENABLED=true
+GAS_SNAPSHOT_INTERVAL_SECONDS=86400
+GAS_SNAPSHOT_RUN_ON_STARTUP=true
 ```
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
@@ -364,15 +368,38 @@ web-login attempts, and a successful login from that IP resets the local consecu
 Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that should never be
 blocked by the app.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
-`trip-calculation.log`, worker logs, and `mileage-logger-login-failures.log` directly. The app
-writes failed-login audit records inside the mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH`
-is only a host-side symlink alias for the shorter `/var/log/mileage-logger-login-failures.log`
-path. The same failed-login entries are shown in Diagnostics.
+`trip-calculation.log`, worker logs, gas snapshot logs, and
+`mileage-logger-login-failures.log` directly. The app writes failed-login audit records inside the
+mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH` is only a host-side symlink alias for the
+shorter `/var/log/mileage-logger-login-failures.log` path. The same failed-login entries are shown
+in Diagnostics.
 Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
 mount, and are listed/restorable from Diagnostics after web login.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
 `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.
+
+## Gas Price Snapshot Scheduler
+
+In Docker, the app container runs the gas price snapshot scheduler instead of a separate
+`gas-snapshot` sidecar container. It uses the same code as the manual command:
+
+```bash
+mileage-logger gas-snapshot
+```
+
+By default Docker runs one snapshot on app startup and then every 24 hours. Configure it with:
+
+```env
+GAS_SNAPSHOT_ENABLED=true
+GAS_SNAPSHOT_INTERVAL_SECONDS=86400
+GAS_SNAPSHOT_RUN_ON_STARTUP=true
+```
+
+Set `GAS_SNAPSHOT_ENABLED=false` to disable the in-app scheduler. The manual command remains
+available, so a host systemd timer can run `docker compose exec -T app mileage-logger gas-snapshot`
+on a schedule without cron if you prefer host-managed timing. The Docker image itself does not run
+systemd inside the container.
 
 ## Workflow
 

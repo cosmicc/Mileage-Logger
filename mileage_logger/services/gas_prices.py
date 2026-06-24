@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -8,7 +9,8 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from mileage_logger.config import get_settings
+from mileage_logger import database
+from mileage_logger.config import Settings, get_settings
 from mileage_logger.models import GasPriceSnapshot, MonthlyGasPrice
 from mileage_logger.services.timezone import local_today
 
@@ -330,3 +332,42 @@ def refresh_current_monthly_price(db: Session) -> MonthlyGasPrice:
         source="online_snapshot_average",
         source_detail=f"average of stored online snapshots; latest {snapshot.source_detail}",
     )
+
+
+def run_gas_snapshot_once() -> MonthlyGasPrice:
+    """Fetch the current gas price and refresh the current monthly average."""
+
+    with database.SessionLocal() as db:
+        monthly = refresh_current_monthly_price(db)
+    logger.info(
+        "Refreshed scheduled gas price state=%s year=%s month=%s average=%s",
+        monthly.state,
+        monthly.year,
+        monthly.month,
+        monthly.average_price_per_gallon,
+    )
+    return monthly
+
+
+async def gas_snapshot_scheduler(application_settings: Settings) -> None:
+    """Run gas price snapshots in the app container until shutdown."""
+
+    if application_settings.gas_snapshot_run_on_startup:
+        await _run_scheduled_gas_snapshot()
+
+    while True:
+        await asyncio.sleep(application_settings.gas_snapshot_interval_seconds)
+        await _run_scheduled_gas_snapshot()
+
+
+async def _run_scheduled_gas_snapshot() -> None:
+    """Run one scheduled gas snapshot without stopping the web app on failure."""
+
+    try:
+        await asyncio.to_thread(run_gas_snapshot_once)
+    except asyncio.CancelledError:
+        raise
+    except GasPriceUnavailable as exc:
+        logger.warning("Scheduled gas snapshot unavailable: %s", exc)
+    except Exception:
+        logger.exception("Scheduled gas snapshot failed")

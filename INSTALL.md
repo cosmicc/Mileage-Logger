@@ -6,7 +6,7 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 - `app`: FastAPI mileage logger.
 - `nginx`: reverse proxy that serves the web app on HTTP port `80`.
 - `cloudflared`: Cloudflare Tunnel connector for public HTTPS access.
-- `gas-snapshot`: daily Michigan gas price snapshot worker.
+- Daily Michigan gas price snapshots run as a background scheduler in the app container.
 - Host log bind mounts for diagnostics logs and failed web-login audit records.
 
 ## Requirements
@@ -124,6 +124,9 @@ MAX_BACKUP_RESTORE_BYTES=262144000
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
+GAS_SNAPSHOT_ENABLED=true
+GAS_SNAPSHOT_INTERVAL_SECONDS=86400
+GAS_SNAPSHOT_RUN_ON_STARTUP=true
 CLOUDFLARED_TUNNEL_TOKEN=
 CLOUDFLARED_LOG_LEVEL=info
 CLOUDFLARED_METRICS=
@@ -185,7 +188,6 @@ Expected result:
 - `postgres` healthy.
 - `app` healthy.
 - `nginx` running.
-- `gas-snapshot` running.
 - `cloudflared` running.
 
 Open the app:
@@ -482,37 +484,83 @@ reimbursement gallons * Michigan monthly average gas price = total reimbursement
 PDF reports are generated only when you click `Download PDF Report`; they are streamed to the
 browser and are not saved on the server.
 
-Runtime logs are written to `/data/logs` inside the app and gas-snapshot containers, and Docker
-binds that directory to `HOST_LOG_DIR` on the server. The failed-login audit file is stored in the
-same mounted directory as `mileage-logger-login-failures.log`; do not bind-mount that file
-individually because Docker can create a directory at the source path and prevent the container
-from starting.
+Runtime logs are written to `/data/logs` inside the app container, and Docker binds that directory
+to `HOST_LOG_DIR` on the server. The failed-login audit file is stored in the same mounted
+directory as `mileage-logger-login-failures.log`; do not bind-mount that file individually because
+Docker can create a directory at the source path and prevent the container from starting.
 Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also sets the container `TZ`
 value from `LOCAL_TIMEZONE`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.
 
-## Gas Price Worker
+## Gas Price Snapshot Scheduler
 
-The `gas-snapshot` service runs:
+The app container runs the gas price snapshot scheduler when `GAS_SNAPSHOT_ENABLED=true`. It uses
+the same command that remains available for manual or host-timer runs:
 
 ```bash
 mileage-logger gas-snapshot
 ```
 
-By default it runs once on startup and then every 24 hours.
+By default Docker runs one snapshot on app startup and then every 24 hours.
 
 Relevant `.env` settings:
 
 ```env
 GAS_PRICE_SOURCE=aaa_current
+GAS_SNAPSHOT_ENABLED=true
 GAS_SNAPSHOT_INTERVAL_SECONDS=86400
 GAS_SNAPSHOT_RUN_ON_STARTUP=true
 ```
 
-View gas worker logs:
+View gas snapshot logs with the normal app logs:
 
 ```bash
-docker compose logs -f gas-snapshot
+docker compose logs -f app
+```
+
+You can disable the in-app scheduler with `GAS_SNAPSHOT_ENABLED=false` and use a host systemd
+timer instead of cron. For example, a timer can run
+`docker compose exec -T app mileage-logger gas-snapshot` every 24 hours while the app container
+keeps serving requests. Do not try to run systemd inside the app container; the Docker image runs a
+single application process.
+
+Optional host service:
+
+```ini
+# /etc/systemd/system/mileage-logger-gas-snapshot.service
+[Unit]
+Description=Mileage Logger gas price snapshot
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/Mileage-Logger
+ExecStart=/usr/bin/docker compose exec -T app mileage-logger gas-snapshot
+```
+
+Optional host timer:
+
+```ini
+# /etc/systemd/system/mileage-logger-gas-snapshot.timer
+[Unit]
+Description=Run Mileage Logger gas price snapshot every 24 hours
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=24h
+Persistent=true
+Unit=mileage-logger-gas-snapshot.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Use the actual repository path for `WorkingDirectory`, then enable the timer:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now mileage-logger-gas-snapshot.timer
 ```
 
 You can also view recent app logs and failed-login audit records from the in-app `Diagnostics`

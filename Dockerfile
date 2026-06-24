@@ -18,10 +18,9 @@ COPY mileage_logger ./mileage_logger
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
-COPY scripts/gas-snapshot-loop.sh /usr/local/bin/gas-snapshot-loop
 
 RUN pip install . \
-    && chmod +x /usr/local/bin/docker-entrypoint /usr/local/bin/gas-snapshot-loop \
+    && chmod +x /usr/local/bin/docker-entrypoint \
     && useradd --system --home-dir /app --shell /usr/sbin/nologin app \
     && mkdir -p /data/logs \
     && chown -R app:app /app /data

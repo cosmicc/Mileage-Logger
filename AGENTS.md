@@ -78,6 +78,9 @@ docker compose up -d --build
   - `AaaMichiganGasPriceProvider` - Scrapes AAA website (default)
   - `EiaSeriesProvider` - Uses EIA API (requires configuration)
 - Formula: `(trip_miles / VEHICLE_MPG) * gas_price = reimbursement`
+- Docker runs recurring gas snapshots from the app container lifespan when
+  `GAS_SNAPSHOT_ENABLED=true`; the `mileage-logger gas-snapshot` CLI remains available for manual
+  or host systemd timer runs.
 
 **[owntracks.py](mileage_logger/services/owntracks.py)** — Payload parsing
 - Handles both HTTP and MQTT OwnTracks messages
@@ -155,9 +158,9 @@ docker compose up -d --build
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
 - **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
   `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
-  `MAX_BACKUP_RESTORE_BYTES`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
-  `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
-  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
+  `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
+  `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
+  `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`, `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -249,7 +252,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
-- Uses `docker-compose.yml` with 5 services (postgres, app, nginx, cloudflared, gas-snapshot)
+- Uses `docker-compose.yml` with 4 services (postgres, app, nginx, cloudflared)
 - Docker publishes nginx on `${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}`. The bundled
   `cloudflared` service uses host networking so Cloudflare Tunnel can target the same host-bound
   listener, such as `http://127.0.0.1:2082` when `BIND_ADDRESS=127.0.0.1` and `HTTP_PORT=2082`.
@@ -258,6 +261,8 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   change the Compose/Portainer stack name unless you have a verified backup and migration plan.
 - Environment variables in `.env` control all configuration
 - Migrations run automatically on app startup
+- Daily gas snapshots run as an app-container background scheduler; there is no separate
+  `gas-snapshot` Compose service.
 - Diagnostics page available at `http://server/diagnostics`
 - Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
