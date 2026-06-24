@@ -2,12 +2,13 @@
 
 ## Unreleased
 
+- Changed desktop navigation links to use the same boxed button treatment as Logout.
+- Changed the mobile web-app shell so the top navigation buttons span the full width, the mobile
+  close/title controls stay removed, fixed bottom navigation stays removed, and standalone install
+  display mode keeps phone system navigation visible.
 - Fixed generated trip odometer starts to prefer the newest stored rolling checkpoint before the
   trip over older prior-trip odometers, then calculate the end odometer from that start plus the
   generated trip distance.
-- Changed the installed mobile web-app shell to keep navigation links in the top bar, remove the
-  mobile close/title branding controls, and use standalone display mode so the phone bottom
-  system navigation remains visible.
 
 ## 1.1.4 - 2026-06-23
 

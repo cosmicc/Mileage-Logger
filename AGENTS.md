@@ -203,8 +203,9 @@ docker compose up -d --build
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
   Display the card's reimbursement gallons at one decimal place.
-- On mobile, the shared top bar hides the brand/icon, keeps the navigation links in the top bar,
-  and does not use a fixed bottom nav so phone system navigation stays visible.
+- The shared top bar uses boxed navigation links on desktop. On mobile, hide the brand/icon, keep
+  the navigation buttons in one full-width top-bar row, avoid fixed bottom navigation, and use
+  standalone install display mode so phone system navigation remains visible.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs

@@ -204,9 +204,10 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
   gallons, monthly gas price, and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home
   card matches the downloadable report. Keep displayed reimbursement gallons to one decimal place.
-- `layout.html` keeps the authenticated navigation in the shared top bar. On mobile, CSS hides the
-  brand/icon and keeps nav links in that top bar instead of using a fixed bottom nav, so phone
-  system navigation remains visible.
+- `layout.html` keeps the authenticated navigation in the shared top bar. Desktop nav links use
+  boxed button styling like Logout. On mobile, CSS hides the brand/icon and keeps nav links in one
+  full-width top-bar row instead of using a fixed bottom nav, so phone system navigation remains
+  visible.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`.

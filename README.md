@@ -68,8 +68,8 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
   OwnTracks State cards share one equal-width status row, hard drive rows combine matching used and
   total space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the
   bottom under the App Log.
-- Installed mobile web-app layout keeps navigation in the top bar and leaves the bottom safe area
-  clear for phone system navigation.
+- Installed mobile web-app layout keeps navigation in one full-width top-bar row and leaves the
+  bottom safe area clear for phone system navigation.
 - Failed web-login audit records shown on Diagnostics and written into the host log directory, with
   an optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.

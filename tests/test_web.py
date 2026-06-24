@@ -468,9 +468,11 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert "/static/icons/mileage-logger-icon.svg" in response.text
         assert 'class="app-close-button"' not in response.text
         assert "window.close()" not in response.text
+        assert "border: 1px solid var(--line);" in response.text
         assert ".brand {\n    display: none;" in response.text
+        assert "justify-content: stretch;" in response.text
         assert "position: fixed;\n    right: 0;\n    bottom: 0;" not in response.text
-        assert "calc(24px + env(safe-area-inset-bottom))" in response.text
+        assert "calc(20px + env(safe-area-inset-bottom))" in response.text
     finally:
         app.dependency_overrides.clear()
 

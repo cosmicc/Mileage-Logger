@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- Mobile navigation now stays in the top bar, with the bottom of the screen left clear for phone
-  system navigation.
+- Desktop navigation links now use boxed button styling like Logout.
+- Mobile navigation now stays in one full-width top-bar row, with the bottom of the screen left
+  clear for phone system navigation.
 - Generated trips now start from the latest stored rolling odometer checkpoint when it is newer
   than the previous trip odometer, and the end odometer follows the trip distance.
 
