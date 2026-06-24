@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Moved the Diagnostics manual full-backup description and `Download Full Backup` button down to
+  the lower upload-restore area of the Full Data Backup card.
+- Removed the Failed Login Attempts card refresh and download action row from Diagnostics so the
+  card fits its table content more tightly.
 - Added a Docker `BIND_ADDRESS` setting for the nginx host-port binding and changed bundled
   `cloudflared` to host networking so Cloudflare Tunnel can route to that bound host listener.
 - Added Diagnostics controls to hide failed-login rows, manually block/unblock failed-login IPs at

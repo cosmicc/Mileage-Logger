@@ -443,10 +443,6 @@
       {% endfor %}
     </tbody>
   </table>
-  <div class="log-actions">
-    <a class="button-link secondary" href="/diagnostics#login-failures">Refresh Login Failures</a>
-    <a class="button-link secondary" href="/diagnostics/logs/login-failures">Download Login Failure Log</a>
-  </div>
 </section>
 
 <section id="cloudflare-blocked-ips" class="panel">
@@ -525,11 +521,7 @@
   <div class="panel-toolbar">
     <div>
       <h2>Full Data Backup</h2>
-      <p class="panel-meta">Application database tables and OwnTracks waypoint export.</p>
     </div>
-    {% if backup_restore_enabled %}
-    <a class="button-link secondary" href="/diagnostics/backup">Download Full Backup</a>
-    {% endif %}
   </div>
   {% if backup_restore_enabled %}
   <div id="automatic-backups" class="backup-subsection">
@@ -599,37 +591,44 @@
     {% endif %}
   </div>
 
-  <div class="backup-subsection">
+  <div class="backup-subsection manual-backup-subsection">
+    <div class="panel-toolbar">
+      <div>
+        <h3>Full Backup Download</h3>
+        <p class="panel-meta">Application database tables and OwnTracks waypoint export.</p>
+      </div>
+      <a class="button-link secondary" href="/diagnostics/backup">Download Full Backup</a>
+    </div>
     <h3>Upload Restore</h3>
-  <form
-    method="post"
-    action="/diagnostics/restore"
-    enctype="multipart/form-data"
-    class="form-row"
-    onsubmit="return confirm('Restore this backup and replace all current app data?');"
-  >
-    <label>
-      Backup File
-      <input
-        type="file"
-        name="backup_file"
-        accept=".json,.gz,.json.gz,application/json,application/gzip"
-        required
-      >
-    </label>
-    <label>
-      Confirmation
-      <input
-        type="text"
-        name="confirmation"
-        pattern="RESTORE"
-        placeholder="RESTORE"
-        autocomplete="off"
-        required
-      >
-    </label>
-    <button type="submit" class="small-button danger">Restore</button>
-  </form>
+    <form
+      method="post"
+      action="/diagnostics/restore"
+      enctype="multipart/form-data"
+      class="form-row"
+      onsubmit="return confirm('Restore this backup and replace all current app data?');"
+    >
+      <label>
+        Backup File
+        <input
+          type="file"
+          name="backup_file"
+          accept=".json,.gz,.json.gz,application/json,application/gzip"
+          required
+        >
+      </label>
+      <label>
+        Confirmation
+        <input
+          type="text"
+          name="confirmation"
+          pattern="RESTORE"
+          placeholder="RESTORE"
+          autocomplete="off"
+          required
+        >
+      </label>
+      <button type="submit" class="small-button danger">Restore</button>
+    </form>
   </div>
   {% else %}
   <p class="panel-meta">Set WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD to enable backup and restore.</p>

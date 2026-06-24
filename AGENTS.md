@@ -91,8 +91,9 @@ docker compose up -d --build
 - Writes structured JSON-lines records for failed web UI login attempts
 - Saves client IP details, submitted username, password length, user agent, request path,
   lockout state, and UTC/local timestamps without storing the raw password
-- Feeds the Diagnostics failed-login table, hide controls, Cloudflare block buttons, and download
-  endpoint
+- Feeds the Diagnostics failed-login table, per-row hide controls, per-row Cloudflare block
+  buttons, and the raw download endpoint; the card intentionally has no separate footer refresh or
+  download buttons
 
 **[cloudflare_blocks.py](mileage_logger/services/cloudflare_blocks.py)** — Cloudflare IP blocking
 - Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login IP addresses
@@ -212,7 +213,8 @@ docker compose up -d --build
    app-managed Cloudflare zone IP Access Rules. Automatic blocking occurs after the configured
    consecutive failed-login threshold and successful login resets that IP's consecutive count.
 6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
-   backup/restore card is at the bottom of the page under App Log; restore replaces all app table
+   backup/restore card is at the bottom of the page under App Log, and the manual full-backup
+   download control sits with the lower upload-restore controls. Restore replaces all app table
    data from a validated `.json.gz` backup and is enabled only when web login is configured.
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
    backup can be downloaded individually, and the selected file can be restored after typed

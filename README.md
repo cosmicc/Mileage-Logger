@@ -187,9 +187,10 @@ export the saved list as OwnTracks waypoint JSON for backup/import.
 ## Full Data Backup And Restore
 
 Diagnostics includes a full app data backup and restore panel at the bottom of the page under the
-App Log when `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. `Download Full Backup`
-creates a `.json.gz` file containing all Mileage Logger database tables plus an OwnTracks waypoint
-export. Treat this file as sensitive location history.
+App Log when `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. The manual
+`Download Full Backup` action sits with the lower upload-restore controls and creates a `.json.gz`
+file containing all Mileage Logger database tables plus an OwnTracks waypoint export. Treat this
+file as sensitive location history.
 
 The app also creates automatic full-data backups every hour when
 `AUTOMATIC_BACKUPS_ENABLED=true`, which is the default. Automatic backups are stored in
@@ -366,7 +367,7 @@ Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log
 `trip-calculation.log`, worker logs, and `mileage-logger-login-failures.log` directly. The app
 writes failed-login audit records inside the mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH`
 is only a host-side symlink alias for the shorter `/var/log/mileage-logger-login-failures.log`
-path. The same failed-login entries are shown and downloadable from Diagnostics.
+path. The same failed-login entries are shown in Diagnostics.
 Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
 mount, and are listed/restorable from Diagnostics after web login.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least

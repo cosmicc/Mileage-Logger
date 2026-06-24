@@ -525,8 +525,10 @@ The Diagnostics page also reads `LOGIN_FAILURE_LOG_PATH` through
 diagnostics, or web authentication behavior, preserve the failed-login table and
 `/diagnostics/logs/login-failures` download endpoint. Individual failed-login rows may be hidden
 from the Diagnostics table through `hidden_login_failures`, but the raw JSON-lines audit log must
-remain intact. Cloudflare block/unblock controls should only create and remove app-managed rows in
-`cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules.
+remain intact. Keep the Diagnostics card actions scoped to the individual failed-login rows rather
+than adding separate footer refresh or download buttons. Cloudflare block/unblock controls should
+only create and remove app-managed rows in `cloudflare_ip_blocks`; do not touch unrelated
+Cloudflare rules.
 
 ### Diagnostics Full Backup And Restore
 
@@ -542,7 +544,8 @@ These routes are sensitive because backups contain location history and restore 
 app rows. Keep them behind configured web login, keep `Cache-Control: no-store` on backup
 downloads, validate retained automatic-backup filenames before reading files, validate the uploaded
 backup before deleting current rows, and require the typed confirmation value `RESTORE` for upload
-and automatic-backup restore forms. Automatic backups run
+and automatic-backup restore forms. Keep the manual full-backup download copy and button with the
+lower upload-restore controls rather than in the card header. Automatic backups run
 hourly when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in `AUTOMATIC_BACKUP_DIR`, and retain the
 newest 6 hourly backups plus one daily backup for today and each of the prior 2 days. The backup
 format is gzip-compressed JSON of all SQLAlchemy app tables plus an OwnTracks waypoint export; it is

@@ -1355,7 +1355,7 @@ def test_diagnostics_shows_single_colored_app_log_and_download(
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_shows_failed_login_attempts_and_download(
+def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1403,7 +1403,9 @@ def test_diagnostics_shows_failed_login_attempts_and_download(
         assert "203.0.113.10" in response.text
         assert "admin" in response.text
         assert "ExampleBrowser/1.0" in response.text
-        assert "Download Login Failure Log" in response.text
+        assert "Refresh Login Failures" not in response.text
+        assert "Download Login Failure Log" not in response.text
+        assert "/diagnostics/logs/login-failures" not in response.text
         assert download_response.status_code == 200
         assert "web_login_failed" in download_response.text
         assert "attachment" in download_response.headers["content-disposition"]
@@ -1632,8 +1634,34 @@ def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tm
         with session_factory() as db:
             _seed_full_backup_data(db)
 
+        diagnostics_response = client.get("/diagnostics")
         backup_response = client.get("/diagnostics/backup")
         payload = json.loads(gzip.decompress(backup_response.content).decode("utf-8"))
+        backup_section_start = diagnostics_response.text.index(
+            '<section id="data-backup" class="panel">'
+        )
+        automatic_backups_start = diagnostics_response.text.index(
+            '<div id="automatic-backups" class="backup-subsection">',
+            backup_section_start,
+        )
+        manual_backup_start = diagnostics_response.text.index(
+            '<div class="backup-subsection manual-backup-subsection">',
+            automatic_backups_start,
+        )
+        backup_header = diagnostics_response.text[
+            backup_section_start:automatic_backups_start
+        ]
+        manual_backup_section = diagnostics_response.text[manual_backup_start:]
+        assert diagnostics_response.status_code == 200
+        assert "Application database tables and OwnTracks waypoint export." not in backup_header
+        assert "Download Full Backup" not in backup_header
+        assert automatic_backups_start < manual_backup_start
+        assert "Full Backup Download" in manual_backup_section
+        assert "Application database tables and OwnTracks waypoint export." in manual_backup_section
+        assert "Download Full Backup" in manual_backup_section
+        assert manual_backup_section.index("Download Full Backup") < manual_backup_section.index(
+            "Upload Restore"
+        )
         assert backup_response.status_code == 200
         assert backup_response.headers["cache-control"] == "no-store"
         assert "mileage-logger-full-backup" in backup_response.headers["content-disposition"]
