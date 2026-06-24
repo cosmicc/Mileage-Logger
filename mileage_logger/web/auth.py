@@ -41,6 +41,9 @@ def web_login_enabled(settings: Settings | None = None) -> bool:
 def login_client_key(request: Request) -> str:
     """Return the best available client key for throttling web login attempts."""
 
+    cloudflare_ip = request.headers.get("cf-connecting-ip", "").strip()
+    if cloudflare_ip:
+        return cloudflare_ip
     real_ip = request.headers.get("x-real-ip", "").strip()
     if real_ip:
         return real_ip

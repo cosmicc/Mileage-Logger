@@ -4,6 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ LOGIN_FAILURE_TAIL_BYTES = 160_000
 class LoginFailureEntry:
     """One structured failed web-login audit entry shown on Diagnostics."""
 
+    entry_id: str
     occurred_at_local: str
     occurred_at_utc: str
     client_ip: str
@@ -49,6 +51,7 @@ class LoginFailureEntry:
     next_url: str
     host: str
     direct_client_ip: str
+    cf_connecting_ip: str
     x_real_ip: str
     x_forwarded_for: str
     forwarded_proto: str
@@ -104,6 +107,7 @@ def _build_login_failure_payload(
         "occurred_at_local": datetime_to_local(occurred_at_utc).isoformat(timespec="seconds"),
         "client_ip": _bounded_text(login_client_key(request)),
         "direct_client_ip": _direct_client_ip(request),
+        "cf_connecting_ip": _request_header(request, "cf-connecting-ip"),
         "x_real_ip": _request_header(request, "x-real-ip"),
         "x_forwarded_for": _request_header(request, "x-forwarded-for"),
         "forwarded_proto": _request_header(request, "x-forwarded-proto"),
@@ -161,8 +165,15 @@ def record_web_login_failure(
     audit_logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 
 
-def _entry_from_payload(payload: dict[str, Any]) -> LoginFailureEntry:
+def _entry_id_from_line(line: str) -> str:
+    """Return a stable identifier for one raw login-failure log line."""
+
+    return sha256(line.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _entry_from_payload(payload: dict[str, Any], *, entry_id: str) -> LoginFailureEntry:
     return LoginFailureEntry(
+        entry_id=entry_id,
         occurred_at_local=_bounded_text(payload.get("occurred_at_local", "")),
         occurred_at_utc=_bounded_text(payload.get("occurred_at_utc", "")),
         client_ip=_bounded_text(payload.get("client_ip", "unknown")),
@@ -183,6 +194,7 @@ def _entry_from_payload(payload: dict[str, Any]) -> LoginFailureEntry:
         next_url=redact_sensitive_text(_bounded_text(payload.get("next_url", ""))),
         host=redact_sensitive_text(_bounded_text(payload.get("host", ""))),
         direct_client_ip=_bounded_text(payload.get("direct_client_ip", "")),
+        cf_connecting_ip=_bounded_text(payload.get("cf_connecting_ip", "")),
         x_real_ip=_bounded_text(payload.get("x_real_ip", "")),
         x_forwarded_for=_bounded_text(payload.get("x_forwarded_for", "")),
         forwarded_proto=_bounded_text(payload.get("forwarded_proto", "")),
@@ -190,7 +202,11 @@ def _entry_from_payload(payload: dict[str, Any]) -> LoginFailureEntry:
     )
 
 
-def tail_login_failure_entries(path: Path, max_entries: int = 50) -> list[LoginFailureEntry]:
+def tail_login_failure_entries(
+    path: Path,
+    max_entries: int = 50,
+    hidden_entry_ids: set[str] | None = None,
+) -> list[LoginFailureEntry]:
     """Read recent structured login-failure audit records newest-first."""
 
     if not path.exists():
@@ -202,14 +218,18 @@ def tail_login_failure_entries(path: Path, max_entries: int = 50) -> list[LoginF
         text = file.read().decode("utf-8", errors="replace")
 
     entries: list[LoginFailureEntry] = []
+    hidden_ids = hidden_entry_ids or set()
     for line in reversed(text.splitlines()):
         if len(entries) >= max_entries:
             break
+        entry_id = _entry_id_from_line(line)
+        if entry_id in hidden_ids:
+            continue
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
             continue
         if not isinstance(payload, dict) or payload.get("event") != "web_login_failed":
             continue
-        entries.append(_entry_from_payload(payload))
+        entries.append(_entry_from_payload(payload, entry_id=entry_id))
     return entries

@@ -267,3 +267,37 @@ class MonthlyGasPrice(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
+
+
+class CloudflareIPBlock(Base):
+    """App-managed Cloudflare zone IP Access Rule block."""
+
+    __tablename__ = "cloudflare_ip_blocks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ip_address: Mapped[str] = mapped_column(String(45), unique=True, index=True)
+    cloudflare_rule_id: Mapped[str] = mapped_column(String(80), unique=True)
+    source: Mapped[str] = mapped_column(
+        String(40),
+        default="manual",
+        comment="How this app-managed Cloudflare IP block was created.",
+    )
+    reason: Mapped[str] = mapped_column(String(160), default="")
+    failure_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class HiddenLoginFailure(Base):
+    """Failed-login audit entry hidden from the Diagnostics list while preserving raw logs."""
+
+    __tablename__ = "hidden_login_failures"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    client_ip: Mapped[str] = mapped_column(String(45), default="")
+    occurred_at_utc: Mapped[str] = mapped_column(String(40), default="")
+    hidden_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

@@ -335,11 +335,19 @@
       <p class="panel-meta">Newest first from {{ login_failure_log_path }}. Password values are not stored.</p>
     </div>
   </div>
+  {% if cloudflare_block_result %}
+  <p class="api-test-result {{ cloudflare_block_result.status }}">
+    <strong>{{ "Pass" if cloudflare_block_result.passed else "Fail" }}:</strong>
+    {{ cloudflare_block_result.message }}
+    {% if cloudflare_block_result.value %}<span>{{ cloudflare_block_result.value }}</span>{% endif %}
+  </p>
+  {% endif %}
   <table>
     <thead>
       <tr>
         <th>Date/time</th>
         <th>Client IP</th>
+        <th>Actions</th>
         <th>Username</th>
         <th>Password length</th>
         <th>Web client</th>
@@ -350,9 +358,48 @@
     </thead>
     <tbody>
       {% for entry in login_failure_entries %}
+      {% set ip_status = login_failure_ip_statuses.get(entry.entry_id) %}
       <tr>
         <td>{{ entry.occurred_at_local or entry.occurred_at_utc }}</td>
-        <td>{{ entry.client_ip or "-" }}</td>
+        <td>
+          {{ entry.client_ip or "-" }}
+          {% if ip_status and ip_status.allowlisted %}
+          <span class="pill good">Allowlisted</span>
+          {% endif %}
+        </td>
+        <td>
+          <div class="row-actions">
+            <form method="post" action="/diagnostics/login-failures/hide">
+              <input type="hidden" name="entry_id" value="{{ entry.entry_id }}">
+              <input type="hidden" name="client_ip" value="{{ entry.client_ip }}">
+              <input type="hidden" name="occurred_at_utc" value="{{ entry.occurred_at_utc }}">
+              <button class="icon-button danger" type="submit" title="Hide failed-login entry" aria-label="Hide failed-login entry">X</button>
+            </form>
+            {% if ip_status and ip_status.blocked %}
+            <form method="post" action="/diagnostics/cloudflare-blocks/unblock">
+              <input type="hidden" name="ip_address" value="{{ ip_status.ip_address }}">
+              <button
+                class="icon-button block-toggle is-on"
+                type="submit"
+                title="Cloudflare block is on; click to unblock"
+                aria-label="Unblock IP at Cloudflare"
+                {% if not cloudflare_ip_blocking_configured %}disabled{% endif %}
+              >On</button>
+            </form>
+            {% else %}
+            <form method="post" action="/diagnostics/cloudflare-blocks/block">
+              <input type="hidden" name="ip_address" value="{{ ip_status.ip_address if ip_status else entry.client_ip }}">
+              <button
+                class="icon-button block-toggle is-off"
+                type="submit"
+                title="Cloudflare block is off; click to block"
+                aria-label="Block IP at Cloudflare"
+                {% if not cloudflare_ip_blocking_configured or not ip_status or not ip_status.valid or ip_status.allowlisted %}disabled{% endif %}
+              >Off</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
         <td>{{ entry.username or "-" }}{% if entry.username_truncated %}...{% endif %}</td>
         <td>{{ entry.password_length }}</td>
         <td>{{ entry.user_agent or "-" }}</td>
@@ -373,6 +420,8 @@
               <dd>{{ entry.method }} {{ entry.path }}{% if entry.next_url %} next={{ entry.next_url }}{% endif %}</dd>
               <dt>Direct client</dt>
               <dd>{{ entry.direct_client_ip or "-" }}</dd>
+              <dt>CF-Connecting-IP</dt>
+              <dd>{{ entry.cf_connecting_ip or "-" }}</dd>
               <dt>X-Real-IP</dt>
               <dd>{{ entry.x_real_ip or "-" }}</dd>
               <dt>X-Forwarded-For</dt>
@@ -390,7 +439,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="8">No failed login attempts found.</td></tr>
+      <tr><td colspan="9">No failed login attempts found.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -398,6 +447,62 @@
     <a class="button-link secondary" href="/diagnostics#login-failures">Refresh Login Failures</a>
     <a class="button-link secondary" href="/diagnostics/logs/login-failures">Download Login Failure Log</a>
   </div>
+</section>
+
+<section id="cloudflare-blocked-ips" class="panel">
+  <div class="panel-toolbar">
+    <div>
+      <h2>Cloudflare Blocked IPs</h2>
+      <p class="panel-meta">App-managed Cloudflare zone IP Access Rule blocks only.</p>
+    </div>
+  </div>
+  {% if cloudflare_block_result %}
+  <p class="api-test-result {{ cloudflare_block_result.status }}">
+    <strong>{{ "Pass" if cloudflare_block_result.passed else "Fail" }}:</strong>
+    {{ cloudflare_block_result.message }}
+    {% if cloudflare_block_result.value %}<span>{{ cloudflare_block_result.value }}</span>{% endif %}
+  </p>
+  {% endif %}
+  {% if not cloudflare_ip_blocking_configured %}
+  <p class="panel-meta">Cloudflare IP blocking is not fully configured.</p>
+  {% endif %}
+  <table>
+    <thead>
+      <tr>
+        <th>IP address</th>
+        <th>Source</th>
+        <th>Reason</th>
+        <th>Created</th>
+        <th>Rule ID</th>
+        <th>Remove</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for block in cloudflare_ip_blocks %}
+      <tr>
+        <td>{{ block.ip_address }}</td>
+        <td>{{ block.source.replace("_", " ").title() }}</td>
+        <td>{{ block.reason or "-" }}</td>
+        <td>{{ block.created_at|local_datetime }}</td>
+        <td><code>{{ block.cloudflare_rule_id }}</code></td>
+        <td>
+          <form method="post" action="/diagnostics/cloudflare-blocks/unblock">
+            <input type="hidden" name="ip_address" value="{{ block.ip_address }}">
+            <button
+              class="icon-button danger"
+              type="submit"
+              title="Remove Cloudflare block"
+              aria-label="Remove Cloudflare block"
+              {% if not cloudflare_ip_blocking_configured %}disabled{% endif %}
+            >X</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No app-managed Cloudflare IP blocks found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </section>
 
 <section id="app-log" class="panel log-panel">

@@ -293,12 +293,17 @@ app record count at the bottom of the card.
 ## Cloudflare Tunnel
 
 The Compose file includes `cloudflared` as a normal required service for a remotely managed
-Cloudflare Tunnel. In the Cloudflare dashboard, publish the application route to the internal
-service:
+Cloudflare Tunnel. The `cloudflared` container uses host networking so it can reach the host-bound
+nginx listener. In the Cloudflare dashboard, publish the application route to the host listener:
 
 ```text
-http://nginx:80
+http://127.0.0.1:80
 ```
+
+If `HTTP_PORT=2082` and `BIND_ADDRESS=127.0.0.1`, use `http://127.0.0.1:2082` as the Cloudflare
+Tunnel service URL. For a real interface bind such as `BIND_ADDRESS=192.168.1.50`, use
+`http://192.168.1.50:${HTTP_PORT}`. Leave `BIND_ADDRESS=0.0.0.0` to preserve the old all-interface
+host binding.
 
 Set the tunnel token in `.env`:
 
@@ -333,6 +338,13 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+CLOUDFLARE_IP_BLOCKING_ENABLED=false
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_IP_BLOCK_ALLOWLIST=
+CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
+HTTP_PORT=80
+BIND_ADDRESS=0.0.0.0
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 AUTOMATIC_BACKUPS_ENABLED=true
@@ -344,6 +356,12 @@ Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for t
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
 public nginx exposes only the OwnTracks ingestion endpoints under `/api/`. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
+When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
+Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
+The app auto-blocks an IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failed
+web-login attempts, and a successful login from that IP resets the local consecutive-failure count.
+Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that should never be
+blocked by the app.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
 `trip-calculation.log`, worker logs, and `mileage-logger-login-failures.log` directly. The app
 writes failed-login audit records inside the mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH`

@@ -612,6 +612,33 @@ button.small-button.danger {
   color: #fff7ed;
 }
 
+button.icon-button {
+  min-width: 34px;
+  min-height: 30px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+button.icon-button.danger {
+  border-color: rgba(239, 111, 108, 0.5);
+  background: linear-gradient(180deg, #ef6f6c, #b91c1c);
+  color: #fff7ed;
+}
+
+button.block-toggle.is-on {
+  border-color: rgba(239, 111, 108, 0.7);
+  background: linear-gradient(180deg, #ef6f6c, #991b1b);
+  color: #fff7ed;
+}
+
+button.block-toggle.is-off {
+  border-color: rgba(74, 222, 128, 0.45);
+  background: #15130f;
+  color: #86efac;
+}
+
 .button-link {
   display: inline-flex;
   align-items: center;
@@ -671,6 +698,11 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+code {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
 td input[type="text"] {
   width: min(280px, 34vw);
 }
@@ -723,6 +755,16 @@ td input[type="text"] {
 }
 
 .trip-actions form {
+  margin: 0;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row-actions form {
   margin: 0;
 }
 

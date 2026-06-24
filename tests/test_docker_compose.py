@@ -1,0 +1,23 @@
+import re
+from pathlib import Path
+
+COMPOSE_FILE = Path("docker-compose.yml")
+
+
+def _service_block(compose_text: str, service_name: str) -> str:
+    match = re.search(
+        rf"^  {re.escape(service_name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|^volumes:|\Z)",
+        compose_text,
+        flags=re.DOTALL | re.MULTILINE,
+    )
+    assert match is not None, f"missing compose service {service_name}"
+    return match.group("body")
+
+
+def test_nginx_host_port_uses_bind_address_and_cloudflared_host_network() -> None:
+    compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+    nginx_block = _service_block(compose_text, "nginx")
+    cloudflared_block = _service_block(compose_text, "cloudflared")
+
+    assert '"${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"' in nginx_block
+    assert "network_mode: host" in cloudflared_block

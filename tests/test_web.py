@@ -16,8 +16,10 @@ from mileage_logger.database import get_db
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     Base,
+    CloudflareIPBlock,
     DeletedTrip,
     GasPriceSnapshot,
+    HiddenLoginFailure,
     MonthlyGasPrice,
     OwnTracksLocation,
     Site,
@@ -25,11 +27,17 @@ from mileage_logger.models import (
     TripProcessingCheckpoint,
 )
 from mileage_logger.services.backups import create_automatic_backup, list_automatic_backup_files
+from mileage_logger.services.cloudflare_blocks import (
+    CloudflareAccessRule,
+    create_cloudflare_ip_block,
+    ip_is_allowlisted,
+)
 from mileage_logger.services.diagnostics import (
     paginated_owntracks_entries,
     recent_owntracks_entries,
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
+from mileage_logger.services.login_failures import tail_login_failure_entries
 from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import (
@@ -381,6 +389,7 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
             },
             headers={
                 "User-Agent": "ExampleBrowser/1.0",
+                "CF-Connecting-IP": "198.51.100.77",
                 "X-Real-IP": "203.0.113.10",
                 "X-Forwarded-For": "203.0.113.10, 10.0.0.8",
                 "X-Forwarded-Proto": "https",
@@ -392,7 +401,8 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
 
         assert response.status_code == 401
         assert payload["event"] == "web_login_failed"
-        assert payload["client_ip"] == "203.0.113.10"
+        assert payload["client_ip"] == "198.51.100.77"
+        assert payload["cf_connecting_ip"] == "198.51.100.77"
         assert payload["username"] == "admin"
         assert payload["password_length"] == len("wrong-password")
         assert payload["user_agent"] == "ExampleBrowser/1.0"
@@ -1012,6 +1022,187 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
         app.dependency_overrides.clear()
 
 
+def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        web_login_max_attempts=10,
+        login_failure_log_path=str(login_failure_log_path),
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="test-token",
+        cloudflare_zone_id="test-zone",
+        cloudflare_auto_block_failed_login_attempts=5,
+    )
+    created_blocks: list[str] = []
+
+    def fake_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
+        created_blocks.append(ip_address)
+        assert "5 consecutive failed web login attempts" in note
+        return CloudflareAccessRule(rule_id="cf-rule-1", ip_address=ip_address)
+
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.create_cloudflare_ip_block",
+        fake_create_cloudflare_ip_block,
+    )
+    client, session_factory = _test_client_session()
+    try:
+        for _ in range(5):
+            response = client.post(
+                "/login",
+                data={
+                    "username": "admin",
+                    "password": "wrong-password",
+                    "next_url": "/diagnostics",
+                },
+                headers={"CF-Connecting-IP": "198.51.100.55"},
+            )
+            assert response.status_code == 401
+
+        assert created_blocks == ["198.51.100.55"]
+        with session_factory() as db:
+            block = db.scalar(select(CloudflareIPBlock))
+            assert block is not None
+            assert block.ip_address == "198.51.100.55"
+            assert block.cloudflare_rule_id == "cf-rule-1"
+            assert block.source == "automatic"
+            assert block.failure_count == 5
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_successful_web_login_resets_consecutive_failures_before_auto_block(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        web_login_max_attempts=10,
+        login_failure_log_path=str(login_failure_log_path),
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="test-token",
+        cloudflare_zone_id="test-zone",
+        cloudflare_auto_block_failed_login_attempts=5,
+    )
+
+    def fail_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
+        raise AssertionError(f"unexpected block for {ip_address}: {note}")
+
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.create_cloudflare_ip_block",
+        fail_create_cloudflare_ip_block,
+    )
+    client, session_factory = _test_client_session()
+    try:
+        for _ in range(4):
+            response = client.post(
+                "/login",
+                data={
+                    "username": "admin",
+                    "password": "wrong-password",
+                    "next_url": "/diagnostics",
+                },
+                headers={"CF-Connecting-IP": "198.51.100.56"},
+            )
+            assert response.status_code == 401
+
+        success_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            headers={"CF-Connecting-IP": "198.51.100.56"},
+            follow_redirects=False,
+        )
+        assert success_response.status_code == 303
+
+        response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "wrong-password",
+                "next_url": "/diagnostics",
+            },
+            headers={"CF-Connecting-IP": "198.51.100.56"},
+        )
+        assert response.status_code == 401
+        with session_factory() as db:
+            assert db.scalar(select(CloudflareIPBlock)) is None
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_cloudflare_ip_block_allowlist_matches_ips_and_cidrs() -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        cloudflare_ip_block_allowlist="198.51.100.20, 203.0.113.0/24",
+    )
+
+    assert ip_is_allowlisted("198.51.100.20", settings)
+    assert ip_is_allowlisted("203.0.113.44", settings)
+    assert not ip_is_allowlisted("198.51.100.21", settings)
+
+
+def test_create_cloudflare_ip_block_sends_zone_access_rule_payload(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="test-token",
+        cloudflare_zone_id="test-zone",
+    )
+    captured_request = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return {"success": True, "result": {"id": "rule-123"}}
+
+    def fake_post(url, *, headers, json, timeout):
+        captured_request["url"] = url
+        captured_request["headers"] = headers
+        captured_request["json"] = json
+        captured_request["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("mileage_logger.services.cloudflare_blocks.httpx.post", fake_post)
+
+    result = create_cloudflare_ip_block(
+        "203.0.113.44",
+        note="Mileage Logger manual block",
+        settings=settings,
+    )
+
+    assert result.rule_id == "rule-123"
+    assert captured_request["url"].endswith(
+        "/zones/test-zone/firewall/access_rules/rules"
+    )
+    assert captured_request["headers"]["Authorization"] == "Bearer test-token"
+    assert captured_request["json"] == {
+        "mode": "block",
+        "configuration": {"target": "ip", "value": "203.0.113.44"},
+        "notes": "Mileage Logger manual block",
+    }
+
+
 def test_waypoints_page_paginates_twenty_per_page() -> None:
     client, session_factory = _test_client_session()
     try:
@@ -1221,6 +1412,198 @@ def test_diagnostics_shows_failed_login_attempts_and_download(
         ]
         assert download_response.headers["cache-control"] == "no-store"
     finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-19T12:00:00Z",
+        "occurred_at_local": "2026-06-19T08:00:00-04:00",
+        "client_ip": "203.0.113.10",
+        "direct_client_ip": "10.0.0.12",
+        "cf_connecting_ip": "203.0.113.10",
+        "x_real_ip": "",
+        "x_forwarded_for": "",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "reason": "invalid_credentials",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "password_length": 14,
+        "failed_count": 1,
+        "max_attempts": 5,
+        "lockout_applied": False,
+        "lockout_remaining_seconds": 0,
+    }
+    raw_log_line = json.dumps(payload)
+    login_failure_log_path.write_text(raw_log_line, encoding="utf-8")
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+        entry = tail_login_failure_entries(login_failure_log_path)[0]
+
+        response = client.post(
+            "/diagnostics/login-failures/hide",
+            data={
+                "entry_id": entry.entry_id,
+                "client_ip": entry.client_ip,
+                "occurred_at_utc": entry.occurred_at_utc,
+            },
+            follow_redirects=False,
+        )
+        diagnostics_response = client.get("/diagnostics")
+
+        assert response.status_code == 303
+        assert "203.0.113.10" not in diagnostics_response.text
+        assert login_failure_log_path.read_text(encoding="utf-8") == raw_log_line
+        with session_factory() as db:
+            hidden_entry = db.scalar(select(HiddenLoginFailure))
+            assert hidden_entry is not None
+            assert hidden_entry.entry_id == entry.entry_id
+            assert hidden_entry.client_ip == "203.0.113.10"
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_block(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-19T12:00:00Z",
+        "occurred_at_local": "2026-06-19T08:00:00-04:00",
+        "client_ip": "203.0.113.20",
+        "direct_client_ip": "10.0.0.12",
+        "cf_connecting_ip": "203.0.113.20",
+        "x_real_ip": "",
+        "x_forwarded_for": "",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "reason": "invalid_credentials",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "password_length": 14,
+        "failed_count": 1,
+        "max_attempts": 5,
+        "lockout_applied": False,
+        "lockout_remaining_seconds": 0,
+    }
+    login_failure_log_path.write_text(json.dumps(payload), encoding="utf-8")
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(login_failure_log_path),
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="test-token",
+        cloudflare_zone_id="test-zone",
+    )
+    deleted_rule_ids: list[str] = []
+
+    def fake_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
+        assert ip_address == "203.0.113.20"
+        assert "Diagnostics failed-login row block button" in note
+        return CloudflareAccessRule(rule_id="cf-manual-rule", ip_address=ip_address)
+
+    def fake_delete_cloudflare_ip_block(rule_id: str, *, settings: Settings):
+        deleted_rule_ids.append(rule_id)
+
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.create_cloudflare_ip_block",
+        fake_create_cloudflare_ip_block,
+    )
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.delete_cloudflare_ip_block",
+        fake_delete_cloudflare_ip_block,
+    )
+    client, session_factory = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+
+        initial_response = client.get("/diagnostics")
+        assert 'aria-label="Block IP at Cloudflare"' in initial_response.text
+        assert ">Off</button>" in initial_response.text
+
+        block_response = client.post(
+            "/diagnostics/cloudflare-blocks/block",
+            data={"ip_address": "203.0.113.20"},
+            follow_redirects=False,
+        )
+        assert block_response.status_code == 303
+        with session_factory() as db:
+            block = db.scalar(select(CloudflareIPBlock))
+            assert block is not None
+            assert block.ip_address == "203.0.113.20"
+            assert block.cloudflare_rule_id == "cf-manual-rule"
+            assert block.source == "manual"
+
+        blocked_response = client.get("/diagnostics")
+        assert "Cloudflare Blocked IPs" in blocked_response.text
+        assert "cf-manual-rule" in blocked_response.text
+        assert 'aria-label="Unblock IP at Cloudflare"' in blocked_response.text
+        assert ">On</button>" in blocked_response.text
+
+        unblock_response = client.post(
+            "/diagnostics/cloudflare-blocks/unblock",
+            data={"ip_address": "203.0.113.20"},
+            follow_redirects=False,
+        )
+        assert unblock_response.status_code == 303
+        assert deleted_rule_ids == ["cf-manual-rule"]
+        with session_factory() as db:
+            assert db.scalar(select(CloudflareIPBlock)) is None
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
@@ -2148,6 +2531,10 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "app_log_lines": [],
             "login_failure_log_path": "/tmp/mileage-logger-login-failures.log",
             "login_failure_entries": [],
+            "login_failure_ip_statuses": {},
+            "cloudflare_ip_blocks": [],
+            "cloudflare_ip_blocking_configured": False,
+            "cloudflare_block_result": None,
             "manual_odometer_result": None,
             "eia_test_result": None,
             "restore_result": None,

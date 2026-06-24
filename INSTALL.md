@@ -96,12 +96,18 @@ Important values:
 
 ```env
 HTTP_PORT=80
+BIND_ADDRESS=0.0.0.0
 WEB_ALLOWED_CIDRS=
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=<generated-web-password>
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+CLOUDFLARE_IP_BLOCKING_ENABLED=false
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_IP_BLOCK_ALLOWLIST=
+CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
@@ -330,12 +336,29 @@ the checkpoint to the entered value and OwnTracks distance continues from that n
 ## Cloudflare Tunnel
 
 The Compose file includes `cloudflared` as a normal required service for a remotely managed
-Cloudflare Tunnel. In the Cloudflare dashboard, publish the application route to the
-Compose-internal service:
+Cloudflare Tunnel. The `cloudflared` container uses host networking so it can reach the host-bound
+nginx listener. In the Cloudflare dashboard, publish the application route to the host listener:
 
 ```text
-http://nginx:80
+http://127.0.0.1:80
 ```
+
+Set `BIND_ADDRESS` to control which host IP Docker publishes nginx on. Leave
+`BIND_ADDRESS=0.0.0.0` to keep the old all-interface binding. For a tunnel-only listener, set:
+
+```env
+BIND_ADDRESS=127.0.0.1
+HTTP_PORT=2082
+```
+
+Then set the Cloudflare Tunnel service URL to:
+
+```text
+http://127.0.0.1:2082
+```
+
+For a real interface bind such as `BIND_ADDRESS=192.168.1.50`, use
+`http://192.168.1.50:${HTTP_PORT}` in Cloudflare.
 
 Then set:
 
@@ -374,6 +397,13 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+CLOUDFLARE_IP_BLOCKING_ENABLED=false
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ZONE_ID=
+CLOUDFLARE_IP_BLOCK_ALLOWLIST=
+CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
+HTTP_PORT=80
+BIND_ADDRESS=0.0.0.0
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 AUTOMATIC_BACKUPS_ENABLED=true
@@ -393,6 +423,12 @@ attempts and lockout rejections are written as structured JSON-lines records to
 `/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
 `HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
 The submitted password value is never stored; only its length is recorded.
+When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
+Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
+The app automatically blocks a client IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
+consecutive failed web-login attempts. A successful login from that IP resets the consecutive
+failure count. Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that
+should never be blocked by this app.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
 least `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 

@@ -23,8 +23,10 @@ from mileage_logger.logging_config import redact_sensitive_text
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     Base,
+    CloudflareIPBlock,
     DeletedTrip,
     GasPriceSnapshot,
+    HiddenLoginFailure,
     MonthlyGasPrice,
     OwnTracksLocation,
     Site,
@@ -39,6 +41,14 @@ from mileage_logger.services.backups import (
     list_automatic_backup_files,
     read_automatic_backup_content,
     restore_full_backup,
+)
+from mileage_logger.services.cloudflare_blocks import (
+    CloudflareBlockError,
+    cloudflare_ip_blocking_configured,
+    create_cloudflare_ip_block,
+    delete_cloudflare_ip_block,
+    ip_is_allowlisted,
+    normalize_ip_address,
 )
 from mileage_logger.services.diagnostics import (
     owntracks_movement_diagnostics,
@@ -77,6 +87,7 @@ from mileage_logger.web.auth import (
     authenticate_web_credentials,
     clear_login_failures,
     clear_request_authentication,
+    login_client_key,
     login_failure_state,
     login_is_locked,
     login_lockout_remaining_seconds,
@@ -736,6 +747,123 @@ def _require_backup_restore_auth(request: Request) -> None:
     )
 
 
+def _require_diagnostics_security_auth(request: Request) -> None:
+    """Require an authenticated web session before mutating Diagnostics security state."""
+
+    settings = get_settings()
+    if web_login_enabled(settings) and request_is_authenticated(request):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Diagnostics security actions require WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD "
+            "login."
+        ),
+    )
+
+
+def _cloudflare_block_for_ip(db: Session, ip_address: str) -> CloudflareIPBlock | None:
+    """Return the app-managed Cloudflare block row for an IP, if present."""
+
+    return db.scalar(
+        select(CloudflareIPBlock).where(CloudflareIPBlock.ip_address == ip_address).limit(1)
+    )
+
+
+def _create_app_cloudflare_block(
+    db: Session,
+    ip_address: str,
+    *,
+    source: str,
+    reason: str,
+    failure_count: int | None = None,
+    settings=None,
+) -> CloudflareIPBlock:
+    """Create a Cloudflare block and persist the app-managed rule ID."""
+
+    active_settings = settings or get_settings()
+    normalized_ip = normalize_ip_address(ip_address)
+    if normalized_ip is None:
+        raise CloudflareBlockError("Cannot block an invalid IP address.")
+    if ip_is_allowlisted(normalized_ip, active_settings):
+        raise CloudflareBlockError("IP address is on the Cloudflare block allowlist.")
+
+    existing_block = _cloudflare_block_for_ip(db, normalized_ip)
+    if existing_block is not None:
+        return existing_block
+
+    note = f"Mileage Logger {source} block: {reason}"
+    access_rule = create_cloudflare_ip_block(normalized_ip, note=note, settings=active_settings)
+    block = CloudflareIPBlock(
+        ip_address=normalized_ip,
+        cloudflare_rule_id=access_rule.rule_id,
+        source=source,
+        reason=reason,
+        failure_count=failure_count,
+        notes=note,
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    logger.warning(
+        "Created app-managed Cloudflare IP block ip=%s source=%s failure_count=%s",
+        normalized_ip,
+        source,
+        failure_count,
+    )
+    return block
+
+
+def _remove_app_cloudflare_block(
+    db: Session,
+    block: CloudflareIPBlock,
+    *,
+    settings=None,
+) -> None:
+    """Delete the Cloudflare rule and remove its app-managed local row."""
+
+    active_settings = settings or get_settings()
+    delete_cloudflare_ip_block(block.cloudflare_rule_id, settings=active_settings)
+    logger.warning("Removed app-managed Cloudflare IP block ip=%s", block.ip_address)
+    db.delete(block)
+    db.commit()
+
+
+def _maybe_auto_block_failed_login_ip(
+    db: Session,
+    request: Request,
+    failed_count: int,
+    settings,
+) -> None:
+    """Automatically block a login IP after the configured consecutive-failure threshold."""
+
+    if failed_count < settings.cloudflare_auto_block_failed_login_attempts:
+        return
+    if not cloudflare_ip_blocking_configured(settings):
+        return
+    normalized_ip = normalize_ip_address(login_client_key(request))
+    if normalized_ip is None:
+        logger.warning("Skipped Cloudflare auto-block for invalid login client IP")
+        return
+    if ip_is_allowlisted(normalized_ip, settings):
+        logger.warning("Skipped Cloudflare auto-block for allowlisted ip=%s", normalized_ip)
+        return
+    try:
+        _create_app_cloudflare_block(
+            db,
+            normalized_ip,
+            source="automatic",
+            reason=(
+                f"{settings.cloudflare_auto_block_failed_login_attempts} consecutive "
+                "failed web login attempts"
+            ),
+            failure_count=failed_count,
+            settings=settings,
+        )
+    except CloudflareBlockError as exc:
+        logger.warning("Could not auto-block failed login IP at Cloudflare: %s", exc)
+
+
 def _log_line_is_visible(line: str, min_level: int) -> bool:
     match = LOG_LINE_LEVEL_RE.search(line)
     if match is None:
@@ -931,6 +1059,7 @@ def login_form(
     username: str = Form(...),
     password: str = Form(...),
     next_url: str = Form(default="/"),
+    db: Session = Depends(get_db),
 ) -> Response:
     settings = get_settings()
     safe_next = valid_next_path(next_url)
@@ -950,6 +1079,12 @@ def login_form(
             lockout_remaining_seconds=lockout_remaining_seconds,
             next_url=safe_next,
             settings=settings,
+        )
+        _maybe_auto_block_failed_login_ip(
+            db,
+            request,
+            attempt_state.failed_count if attempt_state else 0,
+            settings,
         )
         logger.warning("Web login rejected reason=locked_out")
         return templates.TemplateResponse(
@@ -981,6 +1116,7 @@ def login_form(
         next_url=safe_next,
         settings=settings,
     )
+    _maybe_auto_block_failed_login_ip(db, request, attempt_state.failed_count, settings)
     logger.warning("Web login failed")
     return templates.TemplateResponse(
         request,
@@ -1367,6 +1503,9 @@ def diagnostics(
     restore_test: str | None = Query(default=None),
     restore_message: str | None = Query(default=None),
     restore_value: str | None = Query(default=None),
+    cloudflare_block_test: str | None = Query(default=None),
+    cloudflare_block_message: str | None = Query(default=None),
+    cloudflare_block_value: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     settings = get_settings()
@@ -1392,6 +1531,24 @@ def diagnostics(
     backup_restore_enabled = web_login_enabled(settings)
     disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
     database_summary = _diagnostic_database_summary(db, settings.database_url)
+    hidden_login_failure_ids = set(db.scalars(select(HiddenLoginFailure.entry_id)))
+    login_failure_entries = tail_login_failure_entries(
+        login_failure_log_path,
+        hidden_entry_ids=hidden_login_failure_ids,
+    )
+    cloudflare_ip_blocks = list(
+        db.scalars(select(CloudflareIPBlock).order_by(CloudflareIPBlock.created_at.desc()))
+    )
+    blocked_ip_addresses = {block.ip_address for block in cloudflare_ip_blocks}
+    login_failure_ip_statuses = {}
+    for entry in login_failure_entries:
+        normalized_ip = normalize_ip_address(entry.client_ip)
+        login_failure_ip_statuses[entry.entry_id] = {
+            "ip_address": normalized_ip or entry.client_ip,
+            "valid": normalized_ip is not None,
+            "blocked": normalized_ip in blocked_ip_addresses if normalized_ip else False,
+            "allowlisted": ip_is_allowlisted(normalized_ip, settings) if normalized_ip else False,
+        }
     automatic_backups = (
         [
             _serialize_automatic_backup(backup_file)
@@ -1428,7 +1585,10 @@ def diagnostics(
             "movement_state_changes": movement_diagnostics.state_changes,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
             "login_failure_log_path": login_failure_log_path,
-            "login_failure_entries": tail_login_failure_entries(login_failure_log_path),
+            "login_failure_entries": login_failure_entries,
+            "login_failure_ip_statuses": login_failure_ip_statuses,
+            "cloudflare_ip_blocks": cloudflare_ip_blocks,
+            "cloudflare_ip_blocking_configured": cloudflare_ip_blocking_configured(settings),
             "manual_odometer_result": _api_test_result(
                 odometer_test,
                 odometer_message,
@@ -1440,11 +1600,139 @@ def diagnostics(
                 restore_message,
                 restore_value,
             ),
+            "cloudflare_block_result": _api_test_result(
+                cloudflare_block_test,
+                cloudflare_block_message,
+                cloudflare_block_value,
+            ),
             "backup_restore_enabled": backup_restore_enabled,
             "automatic_backups_enabled": settings.automatic_backups_enabled,
             "automatic_backup_dir": settings.automatic_backup_dir,
             "automatic_backups": automatic_backups,
             "backup_upload_max_mb": settings.max_backup_restore_bytes // (1024 * 1024),
+        },
+    )
+
+
+@router.post("/diagnostics/login-failures/hide")
+def hide_login_failure_entry(
+    request: Request,
+    entry_id: str = Form(...),
+    client_ip: str = Form(default=""),
+    occurred_at_utc: str = Form(default=""),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Hide one failed-login audit entry from Diagnostics without editing the raw log."""
+
+    _require_diagnostics_security_auth(request)
+    cleaned_entry_id = entry_id.strip().lower()
+    if not re.fullmatch(r"[a-f0-9]{64}", cleaned_entry_id):
+        raise HTTPException(status_code=400, detail="Invalid failed-login entry ID.")
+    existing = db.scalar(
+        select(HiddenLoginFailure)
+        .where(HiddenLoginFailure.entry_id == cleaned_entry_id)
+        .limit(1)
+    )
+    if existing is None:
+        db.add(
+            HiddenLoginFailure(
+                entry_id=cleaned_entry_id,
+                client_ip=(normalize_ip_address(client_ip) or client_ip.strip())[:45],
+                occurred_at_utc=occurred_at_utc.strip()[:40],
+            )
+        )
+        db.commit()
+    return RedirectResponse(url="/diagnostics#login-failures", status_code=303)
+
+
+@router.post("/diagnostics/cloudflare-blocks/block")
+def block_login_ip_form(
+    request: Request,
+    ip_address: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Create an app-managed Cloudflare block for a Diagnostics login-failure IP."""
+
+    _require_diagnostics_security_auth(request)
+    normalized_ip = normalize_ip_address(ip_address)
+    if normalized_ip is None:
+        return _diagnostics_redirect(
+            "login-failures",
+            {
+                "cloudflare_block_test": "fail",
+                "cloudflare_block_message": "Cannot block an invalid IP address.",
+            },
+        )
+    try:
+        block = _create_app_cloudflare_block(
+            db,
+            normalized_ip,
+            source="manual",
+            reason="Diagnostics failed-login row block button",
+        )
+    except CloudflareBlockError as exc:
+        return _diagnostics_redirect(
+            "login-failures",
+            {
+                "cloudflare_block_test": "fail",
+                "cloudflare_block_message": str(exc),
+            },
+        )
+    return _diagnostics_redirect(
+        "login-failures",
+        {
+            "cloudflare_block_test": "pass",
+            "cloudflare_block_message": "Cloudflare IP block is active.",
+            "cloudflare_block_value": block.ip_address,
+        },
+    )
+
+
+@router.post("/diagnostics/cloudflare-blocks/unblock")
+def unblock_login_ip_form(
+    request: Request,
+    ip_address: str = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Remove one app-managed Cloudflare block and its local block-list row."""
+
+    _require_diagnostics_security_auth(request)
+    normalized_ip = normalize_ip_address(ip_address)
+    if normalized_ip is None:
+        return _diagnostics_redirect(
+            "cloudflare-blocked-ips",
+            {
+                "cloudflare_block_test": "fail",
+                "cloudflare_block_message": "Cannot unblock an invalid IP address.",
+            },
+        )
+    block = _cloudflare_block_for_ip(db, normalized_ip)
+    if block is None:
+        return _diagnostics_redirect(
+            "cloudflare-blocked-ips",
+            {
+                "cloudflare_block_test": "pass",
+                "cloudflare_block_message": "IP address is not in the app-managed block list.",
+                "cloudflare_block_value": normalized_ip,
+            },
+        )
+    try:
+        _remove_app_cloudflare_block(db, block)
+    except CloudflareBlockError as exc:
+        return _diagnostics_redirect(
+            "cloudflare-blocked-ips",
+            {
+                "cloudflare_block_test": "fail",
+                "cloudflare_block_message": str(exc),
+                "cloudflare_block_value": normalized_ip,
+            },
+        )
+    return _diagnostics_redirect(
+        "cloudflare-blocked-ips",
+        {
+            "cloudflare_block_test": "pass",
+            "cloudflare_block_message": "Cloudflare IP block was removed.",
+            "cloudflare_block_value": normalized_ip,
         },
     )
 

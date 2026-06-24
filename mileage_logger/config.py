@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     web_session_cookie_secure: bool = False
     web_login_max_attempts: int = Field(default=5, ge=1)
     web_login_lockout_seconds: int = Field(default=300, ge=1)
+    cloudflare_ip_blocking_enabled: bool = False
+    cloudflare_api_token: str = ""
+    cloudflare_zone_id: str = ""
+    cloudflare_ip_block_allowlist: str = ""
+    cloudflare_auto_block_failed_login_attempts: int = Field(default=5, ge=1)
 
     owntracks_api_token: str = ""
     owntracks_username: str = ""

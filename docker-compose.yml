@@ -32,6 +32,11 @@ services:
       WEB_SESSION_COOKIE_SECURE: "${WEB_SESSION_COOKIE_SECURE:-false}"
       WEB_LOGIN_MAX_ATTEMPTS: "${WEB_LOGIN_MAX_ATTEMPTS:-5}"
       WEB_LOGIN_LOCKOUT_SECONDS: "${WEB_LOGIN_LOCKOUT_SECONDS:-300}"
+      CLOUDFLARE_IP_BLOCKING_ENABLED: "${CLOUDFLARE_IP_BLOCKING_ENABLED:-false}"
+      CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"
+      CLOUDFLARE_ZONE_ID: "${CLOUDFLARE_ZONE_ID:-}"
+      CLOUDFLARE_IP_BLOCK_ALLOWLIST: "${CLOUDFLARE_IP_BLOCK_ALLOWLIST:-}"
+      CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS: "${CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS:-5}"
       CREATE_TABLES_ON_STARTUP: "${CREATE_TABLES_ON_STARTUP:-false}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger}"
       OWNTRACKS_API_TOKEN: "${OWNTRACKS_API_TOKEN:-}"
@@ -83,7 +88,7 @@ services:
       dockerfile: deploy/nginx/Dockerfile
     restart: unless-stopped
     ports:
-      - "${HTTP_PORT:-80}:80"
+      - "${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"
     environment:
       WEB_ALLOWED_CIDRS: "${WEB_ALLOWED_CIDRS:-}"
       TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
@@ -94,6 +99,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    network_mode: host
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN:?CLOUDFLARED_TUNNEL_TOKEN must be set}"

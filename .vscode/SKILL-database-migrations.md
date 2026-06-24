@@ -195,6 +195,14 @@ def downgrade() -> None:
 - Tombstone record preventing auto-recreation
 - Indexes the `(origin, destination, started_at, ended_at)` tuple
 
+**CloudflareIPBlock** (`cloudflare_ip_blocks` table)
+- App-managed Cloudflare zone IP Access Rule blocks for failed-login IPs
+- Stores the Cloudflare rule ID so unblock actions remove only rules this app created
+
+**HiddenLoginFailure** (`hidden_login_failures` table)
+- Diagnostics-only suppression list for failed-login audit entry IDs
+- Hides rows from the UI while preserving the raw JSON-lines audit log download
+
 ---
 
 ## Schema Inspection

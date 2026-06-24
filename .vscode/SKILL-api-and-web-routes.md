@@ -339,10 +339,17 @@ def protected_page(request: Request) -> TemplateResponse:
 5. Failed attempts: Temporary lockout (`WEB_LOGIN_MAX_ATTEMPTS` x `WEB_LOGIN_LOCKOUT_SECONDS`)
    and a structured JSON-lines audit record written to `LOGIN_FAILURE_LOG_PATH`
 6. Lockout rejections are also failed login attempts and must be written to the same audit log
+7. Successful login clears the in-memory consecutive-failure state for that client IP
+8. When Cloudflare IP blocking is enabled, the app creates an app-managed Cloudflare zone IP
+   Access Rule after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failures for the
+   same client IP
 
 The failed-login audit log must never store the submitted password value. Keep the submitted
 username, password length, client IP/header details, user agent, request path, reason, attempt
 count, lockout state, and UTC/local timestamps available for Diagnostics.
+Behind Cloudflare Tunnel, `CF-Connecting-IP` is the preferred login client IP source. Keep
+`CLOUDFLARE_IP_BLOCK_ALLOWLIST` checks in front of both automatic and manual block actions so
+trusted IPs/CIDRs cannot be blocked by this app.
 
 ---
 
@@ -516,7 +523,10 @@ def update_trip(...):
 The Diagnostics page also reads `LOGIN_FAILURE_LOG_PATH` through
 `mileage_logger.services.login_failures.tail_login_failure_entries()`. When changing login,
 diagnostics, or web authentication behavior, preserve the failed-login table and
-`/diagnostics/logs/login-failures` download endpoint.
+`/diagnostics/logs/login-failures` download endpoint. Individual failed-login rows may be hidden
+from the Diagnostics table through `hidden_login_failures`, but the raw JSON-lines audit log must
+remain intact. Cloudflare block/unblock controls should only create and remove app-managed rows in
+`cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules.
 
 ### Diagnostics Full Backup And Restore
 

@@ -91,7 +91,14 @@ docker compose up -d --build
 - Writes structured JSON-lines records for failed web UI login attempts
 - Saves client IP details, submitted username, password length, user agent, request path,
   lockout state, and UTC/local timestamps without storing the raw password
-- Feeds the Diagnostics failed-login table and download endpoint
+- Feeds the Diagnostics failed-login table, hide controls, Cloudflare block buttons, and download
+  endpoint
+
+**[cloudflare_blocks.py](mileage_logger/services/cloudflare_blocks.py)** — Cloudflare IP blocking
+- Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login IP addresses
+- Uses `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and the app-managed block table to avoid
+  touching unrelated Cloudflare rules
+- Enforces `CLOUDFLARE_IP_BLOCK_ALLOWLIST` so trusted IPs/CIDRs are not blocked by the app
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates landscape PDF with trip table
@@ -147,7 +154,9 @@ docker compose up -d --build
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
 - **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
   `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
-  `MAX_BACKUP_RESTORE_BYTES`
+  `MAX_BACKUP_RESTORE_BYTES`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
+  `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
+  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -198,18 +207,22 @@ docker compose up -d --build
    In Docker, this is `/data/logs/mileage-logger-login-failures.log`, backed by `HOST_LOG_DIR`.
    `HOST_LOGIN_FAILURE_LOG_PATH` may point to a host symlink such as
    `/var/log/mileage-logger-login-failures.log`.
-5. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
+5. Diagnostics can hide individual failed-login rows from the UI while preserving the raw audit log
+   download. When Cloudflare IP blocking is enabled and configured, Diagnostics can block/unblock
+   app-managed Cloudflare zone IP Access Rules. Automatic blocking occurs after the configured
+   consecutive failed-login threshold and successful login resets that IP's consecutive count.
+6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log; restore replaces all app table
    data from a validated `.json.gz` backup and is enabled only when web login is configured.
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
    backup can be downloaded individually, and the selected file can be restored after typed
    `RESTORE` confirmation.
-6. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
+7. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
    before the detailed OwnTracks state-change log.
-7. Diagnostics shows hard drive space for key runtime paths, combines paths into one row when
+8. Diagnostics shows hard drive space for key runtime paths, combines paths into one row when
    exact free bytes and total bytes match, and includes current database size plus total app record
    count at the bottom of the card.
-8. Trip calculation details logged to `mileage_logger.trip_calculation` logger
+9. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---
 
@@ -235,6 +248,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
 - Uses `docker-compose.yml` with 5 services (postgres, app, nginx, cloudflared, gas-snapshot)
+- Docker publishes nginx on `${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}`. The bundled
+  `cloudflared` service uses host networking so Cloudflare Tunnel can target the same host-bound
+  listener, such as `http://127.0.0.1:2082` when `BIND_ADDRESS=127.0.0.1` and `HTTP_PORT=2082`.
 - PostgreSQL data is stored in the named `postgres_data` Docker volume and persists across normal
   `docker compose up -d --build` rebuilds. Do not use `docker compose down -v`, prune volumes, or
   change the Compose/Portainer stack name unless you have a verified backup and migration plan.

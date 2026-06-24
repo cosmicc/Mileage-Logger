@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added a Docker `BIND_ADDRESS` setting for the nginx host-port binding and changed bundled
+  `cloudflared` to host networking so Cloudflare Tunnel can route to that bound host listener.
+- Added Diagnostics controls to hide failed-login rows, manually block/unblock failed-login IPs at
+  Cloudflare, list app-managed Cloudflare IP blocks, and automatically block an IP after the
+  configured consecutive failed-login threshold.
 - Added database size and total app-record count totals to the bottom of the Diagnostics hard drive
   space card.
 - Changed the Trips page to show newest trip dates first while leaving the Dashboard recent trips
