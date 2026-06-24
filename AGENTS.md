@@ -200,6 +200,7 @@ docker compose up -d --build
   displayed non-trip remainder is never negative.
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
+  Display the card's reimbursement gallons at one decimal place.
 - The shared top bar includes a mobile-only `X` close control that calls `window.close()` for
   installed full-screen mobile web-app sessions. Browsers may ignore the close request outside
   contexts they allow scripts to close.

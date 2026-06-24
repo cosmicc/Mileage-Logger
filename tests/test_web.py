@@ -703,7 +703,7 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
                         start_longitude=Decimal("-83.0458"),
                         end_latitude=Decimal("42.3440"),
                         end_longitude=Decimal("-83.0600"),
-                        miles=Decimal("75.0"),
+                        miles=Decimal("77.4"),
                     ),
                     MonthlyGasPrice(
                         year=2026,
@@ -729,8 +729,9 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
         )
         assert "Waypoints" not in stats_section
         assert "Month Reimbursement" in stats_section
-        assert "$14.00" in stats_section
-        assert "4 reimbursement gallons" in stats_section
+        assert "$14.34" in stats_section
+        assert "4.0 reimbursement gallons" in stats_section
+        assert "4.096 reimbursement gallons" not in stats_section
         assert "mi PDF total" not in stats_section
         assert stats_section.index("<span>OwnTracks Events</span>") < stats_section.index(
             "<span>Trips</span>"
@@ -748,9 +749,9 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
                 monthly_gas=monthly_gas,
                 vehicle_mpg=Decimal("25.0"),
             )
-            assert reimbursement_summary["total"] == Decimal("14.00")
-            assert reimbursement_summary["reimbursement_gallons"] == Decimal("4.000")
-            assert reimbursement_summary["reimbursement_gallons_display"] == "4"
+            assert reimbursement_summary["total"] == Decimal("14.34")
+            assert reimbursement_summary["reimbursement_gallons"] == Decimal("4.096")
+            assert reimbursement_summary["reimbursement_gallons_display"] == "4.0"
     finally:
         app.dependency_overrides.clear()
 

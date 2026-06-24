@@ -4,7 +4,7 @@ import shutil
 from calendar import month_name
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from math import ceil
 from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
@@ -126,11 +126,10 @@ def _format_odometer(value) -> str:
     return f"{Decimal(value):.1f}"
 
 
-def _format_compact_decimal(value: Decimal, *, places: int = 3) -> str:
-    """Return a fixed-precision decimal without unnecessary trailing zeroes."""
+def _format_truncated_one_decimal(value: Decimal) -> str:
+    """Return a decimal truncated to one displayed decimal place."""
 
-    text = f"{Decimal(value):.{places}f}"
-    return text.rstrip("0").rstrip(".") or "0"
+    return f"{Decimal(value).quantize(Decimal('0.1'), rounding=ROUND_DOWN):.1f}"
 
 
 def _format_odometer_source(value) -> str:
@@ -466,7 +465,9 @@ def _dashboard_reimbursement_summary(
             "total": None,
             "total_miles": total_miles,
             "reimbursement_gallons": reimbursement_gallons,
-            "reimbursement_gallons_display": _format_compact_decimal(reimbursement_gallons),
+            "reimbursement_gallons_display": _format_truncated_one_decimal(
+                reimbursement_gallons
+            ),
         }
     return {
         "total": calculate_reimbursement(
@@ -476,7 +477,7 @@ def _dashboard_reimbursement_summary(
         ),
         "total_miles": total_miles,
         "reimbursement_gallons": reimbursement_gallons,
-        "reimbursement_gallons_display": _format_compact_decimal(reimbursement_gallons),
+        "reimbursement_gallons_display": _format_truncated_one_decimal(reimbursement_gallons),
     }
 
 

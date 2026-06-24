@@ -410,7 +410,8 @@ print(f"Reimbursement: ${reimbursement}")
 
 Dashboard reimbursement summaries should reuse this same PDF-report calculation path: monthly trip
 miles from `monthly_miles()`, reimbursement gallons from `calculate_reimbursement_gallons()`, the
-current saved monthly gas price, and `VEHICLE_MPG`.
+current saved monthly gas price, and `VEHICLE_MPG`. Display the Dashboard reimbursement gallons at
+one decimal place.
 
 ---
 

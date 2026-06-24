@@ -285,7 +285,8 @@ the checkpoint to the entered value and OwnTracks distance continues from that n
 Dashboard total-driven cards sum OwnTracks coordinate segments directly for the selected local day
 or month, so manual odometer resets do not affect trip plus non-trip totals.
 The Dashboard current-month reimbursement card uses the same trip-mile total, reimbursement
-gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report.
+gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
+displayed gallons limited to one decimal place.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. That card sits in the same
 Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also

@@ -4,7 +4,8 @@
 
 - Changed the Dashboard summary cards to remove the Waypoints card, move Trips into that slot, and
   show the current-month reimbursement total using the same mileage, gas price, and MPG formula as
-  the downloadable PDF report summary, with reimbursement gallons shown under the price.
+  the downloadable PDF report summary, with one-decimal reimbursement gallons shown under the
+  price.
 - Tightened Diagnostics list cards so recent OwnTracks entries, OwnTracks state changes, failed
   login attempts, and app-managed Cloudflare blocked IPs show 10 rows per page, shortened the app
   log window, and made automatic-backup rows slimmer with truncated filenames and accessible
