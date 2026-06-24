@@ -34,6 +34,7 @@ from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import (
     _dashboard_distance_summary,
+    _diagnostic_database_summary,
     _diagnostic_disk_usages,
     _human_duration_since,
     templates,
@@ -2121,6 +2122,10 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                     used_percent_style="62.0%",
                 )
             ],
+            "database_summary": SimpleNamespace(
+                size_display="128.0 KB",
+                total_records_display="42 records",
+            ),
             "recent_locations": [],
             "owntracks_entries_page": SimpleNamespace(
                 first_item=0,
@@ -2172,6 +2177,17 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "Used space as a share of each drive" in rendered
     assert "drive-space-track" in rendered
     assert 'style="width: 62.0%"' in rendered
+    hard_drive_start = rendered.index("<h2>Hard Drive Space</h2>")
+    latest_records_start = rendered.index("<h2>Latest Records</h2>")
+    disk_details_start = rendered.index('<dl class="diagnostic-list">', hard_drive_start)
+    database_summary_start = rendered.index('<div class="database-summary">')
+    assert hard_drive_start < disk_details_start < database_summary_start < latest_records_start
+    database_summary = rendered[database_summary_start:latest_records_start]
+    assert "Database Data" in database_summary
+    assert "Database Size" in database_summary
+    assert "128.0 KB" in database_summary
+    assert "Total Records" in database_summary
+    assert "42 records" in database_summary
 
     app_log_start = rendered.index('<section id="app-log" class="panel log-panel">')
     backup_start = rendered.index('<section id="data-backup" class="panel">')
@@ -2201,6 +2217,19 @@ def test_diagnostics_disk_usage_combines_paths_on_same_drive(tmp_path) -> None:
     assert combined_disk.paths == (str(log_dir), str(backup_dir))
     assert combined_disk.free_bytes == 400
     assert combined_disk.used_percent_style == "60.0%"
+
+
+def test_diagnostics_database_summary_counts_all_app_records() -> None:
+    db = _session()
+    _seed_full_backup_data(db)
+
+    summary = _diagnostic_database_summary(db, "sqlite://")
+
+    assert summary.total_records == 7
+    assert summary.total_records_display == "7 records"
+    assert summary.size_bytes is not None
+    assert summary.size_bytes > 0
+    assert summary.size_display.endswith(("B", "KB", "MB"))
 
 
 def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:

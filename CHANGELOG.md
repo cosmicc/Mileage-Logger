@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added database size and total app-record count totals to the bottom of the Diagnostics hard drive
+  space card.
 - Changed the Trips page to show newest trip dates first while leaving the Dashboard recent trips
   unchanged.
 - Added used-space display bars to the Diagnostics hard drive space card.

@@ -12,9 +12,9 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from mileage_logger.config import get_settings
@@ -22,6 +22,7 @@ from mileage_logger.database import get_db
 from mileage_logger.logging_config import redact_sensitive_text
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+    Base,
     DeletedTrip,
     GasPriceSnapshot,
     MonthlyGasPrice,
@@ -236,6 +237,16 @@ class DiagnosticDiskUsage:
     @property
     def primary_path(self) -> str:
         return self.paths[0] if self.paths else self.inspected_path
+
+
+@dataclass(frozen=True)
+class DiagnosticDatabaseSummary:
+    """Database storage and row totals rendered in the Diagnostics drive-space card."""
+
+    size_bytes: int | None
+    size_display: str
+    total_records: int
+    total_records_display: str
 
 
 def _current_year_month() -> tuple[int, int]:
@@ -521,6 +532,13 @@ def _format_storage_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
+def _format_record_count(record_count: int) -> str:
+    """Return a human-readable record count with thousands separators."""
+
+    suffix = "record" if record_count == 1 else "records"
+    return f"{record_count:,} {suffix}"
+
+
 def _serialize_automatic_backup(
     backup_file: AutomaticBackupFile,
 ) -> DiagnosticAutomaticBackup:
@@ -574,6 +592,51 @@ def _diagnostic_storage_paths(settings) -> tuple[str, ...]:
         seen.add(cleaned_path)
         unique_paths.append(cleaned_path)
     return tuple(unique_paths)
+
+
+def _database_size_bytes(db: Session, database_url: str) -> int | None:
+    """Return the current database storage size in bytes when the dialect supports it."""
+
+    dialect_name = db.get_bind().dialect.name
+    try:
+        if dialect_name == "postgresql":
+            database_size = db.scalar(text("select pg_database_size(current_database())"))
+            return int(database_size) if database_size is not None else None
+        if dialect_name == "sqlite":
+            page_count = db.scalar(text("PRAGMA page_count"))
+            page_size = db.scalar(text("PRAGMA page_size"))
+            if page_count is not None and page_size is not None:
+                return int(page_count) * int(page_size)
+    except (SQLAlchemyError, ValueError, TypeError):
+        logger.exception("Could not read database storage size")
+
+    sqlite_path = _sqlite_database_path(database_url)
+    if sqlite_path is None:
+        return None
+    try:
+        return sqlite_path.stat().st_size if sqlite_path.exists() else None
+    except OSError:
+        logger.exception("Could not read SQLite database file size for path=%s", sqlite_path)
+        return None
+
+
+def _diagnostic_database_summary(
+    db: Session,
+    database_url: str,
+) -> DiagnosticDatabaseSummary:
+    """Return total app-table records and the current database storage footprint."""
+
+    total_records = 0
+    for table in Base.metadata.sorted_tables:
+        total_records += int(db.scalar(select(func.count()).select_from(table)) or 0)
+
+    size_bytes = _database_size_bytes(db, database_url)
+    return DiagnosticDatabaseSummary(
+        size_bytes=size_bytes,
+        size_display=_format_storage_size(size_bytes) if size_bytes is not None else "Unavailable",
+        total_records=total_records,
+        total_records_display=_format_record_count(total_records),
+    )
 
 
 def _existing_disk_usage_target(path: Path) -> Path | None:
@@ -1328,6 +1391,7 @@ def diagnostics(
     movement_diagnostics = owntracks_movement_diagnostics(db)
     backup_restore_enabled = web_login_enabled(settings)
     disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
+    database_summary = _diagnostic_database_summary(db, settings.database_url)
     automatic_backups = (
         [
             _serialize_automatic_backup(backup_file)
@@ -1357,6 +1421,7 @@ def diagnostics(
             "latest_monthly_gas": latest_monthly_gas,
             "latest_odometer": latest_odometer,
             "disk_usages": disk_usages,
+            "database_summary": database_summary,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
             "movement_state": movement_diagnostics.current_state,

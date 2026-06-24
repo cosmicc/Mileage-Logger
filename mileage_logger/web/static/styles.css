@@ -876,6 +876,18 @@ td input[type="text"] {
   background: #4ade80;
 }
 
+.database-summary {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.database-summary h3 {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 14px;
+}
+
 .backup-details {
   margin-top: 14px;
 }

@@ -287,7 +287,8 @@ The Diagnostics Manual Odometer card shows the current reading and its source ne
 the existing checkpoint can be checked before entering a correction. That card sits in the same
 Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also
 shows hard drive space for key runtime paths with used-space bars, combining paths into one row
-when their exact free space and total capacity match.
+when their exact free space and total capacity match, and includes current database size plus total
+app record count at the bottom of the card.
 
 ## Cloudflare Tunnel
 

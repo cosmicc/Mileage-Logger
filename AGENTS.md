@@ -206,8 +206,9 @@ docker compose up -d --build
    `RESTORE` confirmation.
 6. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
    before the detailed OwnTracks state-change log.
-7. Diagnostics shows hard drive space for key runtime paths and combines paths into one row when
-   exact free bytes and total bytes match.
+7. Diagnostics shows hard drive space for key runtime paths, combines paths into one row when
+   exact free bytes and total bytes match, and includes current database size plus total app record
+   count at the bottom of the card.
 8. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---
