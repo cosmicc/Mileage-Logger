@@ -205,7 +205,8 @@ docker compose up -d --build
   Display the card's reimbursement gallons at one decimal place.
 - The shared top bar uses boxed navigation links on desktop. On mobile, hide the brand/icon, keep
   the navigation buttons in one full-width top-bar row, avoid fixed bottom navigation, and use
-  standalone install display mode so phone system navigation remains visible.
+  a normal non-edge-to-edge viewport plus standalone/browser manifest fallback so phone system
+  navigation remains visible.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs
@@ -232,9 +233,9 @@ docker compose up -d --build
 7. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
    before the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and
    recent OwnTracks database entries are paginated in compact 10-row pages.
-8. Diagnostics shows hard drive space for key runtime paths, combines paths into one row when
-   exact used bytes and total bytes match, and includes current database size plus total app record
-   count at the bottom of the card.
+8. Diagnostics shows the app version in the Application card, shows hard drive space for key
+   runtime paths, combines paths into one row when exact used bytes and total bytes match, and
+   includes current database size plus total app record count at the bottom of the card.
 9. Trip calculation details logged to `mileage_logger.trip_calculation` logger
 
 ---

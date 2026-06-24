@@ -64,12 +64,13 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
-  OwnTracks state in the configured local timezone. The Diagnostics Manual Odometer, EIA API, and
-  OwnTracks State cards share one equal-width status row, hard drive rows combine matching used and
-  total space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the
-  bottom under the App Log.
+  OwnTracks state in the configured local timezone. The Diagnostics Application card shows the app
+  version, the Manual Odometer, EIA API, and OwnTracks State cards share one equal-width status
+  row, hard drive rows combine matching used and total space readings, detailed lists use compact
+  10-row pages, and Full Data Backup stays at the bottom under the App Log.
 - Installed mobile web-app layout keeps navigation in one full-width top-bar row and leaves the
-  bottom safe area clear for phone system navigation.
+  bottom safe area clear for phone system navigation without opting into edge-to-edge phone
+  drawing.
 - Failed web-login audit records shown on Diagnostics and written into the host log directory, with
   an optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.

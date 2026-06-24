@@ -17,6 +17,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
+from mileage_logger import __version__ as APP_VERSION
 from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
 from mileage_logger.logging_config import redact_sensitive_text
@@ -177,7 +178,7 @@ def web_manifest() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "manifest.webmanifest",
         media_type="application/manifest+json",
-        headers={"Cache-Control": "no-cache"},
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -196,7 +197,7 @@ def service_worker() -> FileResponse:
         STATIC_DIR / "service-worker.js",
         media_type="text/javascript; charset=utf-8",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-store",
             "Service-Worker-Allowed": "/",
         },
     )
@@ -1652,6 +1653,7 @@ def diagnostics(
         request,
         "diagnostics.html",
         {
+            "app_version": APP_VERSION,
             "settings": settings,
             "database_url": _masked_database_url(settings.database_url),
             "location_count": owntracks_entries_page.total,

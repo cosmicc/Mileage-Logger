@@ -2,9 +2,14 @@
 
 ## Unreleased
 
+No unreleased changes.
+
+## 1.2.0 - 2026-06-24
+
 - Desktop navigation links now use boxed button styling like Logout.
 - Mobile navigation now stays in one full-width top-bar row, with the bottom of the screen left
-  clear for phone system navigation.
+  clear for phone system navigation and without opting the page into edge-to-edge phone drawing.
+- Diagnostics now shows the app version in the Application card.
 - Generated trips now start from the latest stored rolling odometer checkpoint when it is newer
   than the previous trip odometer, and the end odometer follows the trip distance.
 

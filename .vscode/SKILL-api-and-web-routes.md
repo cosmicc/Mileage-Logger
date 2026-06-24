@@ -206,11 +206,13 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
   card matches the downloadable report. Keep displayed reimbursement gallons to one decimal place.
 - `layout.html` keeps the authenticated navigation in the shared top bar. Desktop nav links use
   boxed button styling like Logout. On mobile, CSS hides the brand/icon and keeps nav links in one
-  full-width top-bar row instead of using a fixed bottom nav, so phone system navigation remains
+  full-width top-bar row instead of using a fixed bottom nav. Keep the mobile viewport
+  non-edge-to-edge and preserve the manifest browser fallback so phone system navigation remains
   visible.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
-  drive-space bars and database summary in `diagnostics.html`.
+  drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
+  also shows the source-controlled app version from `mileage_logger.__version__`.
 
 ### Basic Pattern
 

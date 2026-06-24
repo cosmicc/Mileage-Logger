@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
+from mileage_logger import __version__
 from mileage_logger.app import app
 from mileage_logger.config import Settings
 from mileage_logger.database import get_db
@@ -457,7 +458,11 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         response = client.get("/")
 
         assert response.status_code == 200
-        assert "viewport-fit=cover" in response.text
+        assert (
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            in response.text
+        )
+        assert "viewport-fit=cover" not in response.text
         assert 'name="apple-mobile-web-app-capable" content="yes"' in response.text
         assert (
             'name="apple-mobile-web-app-status-bar-style" content="black-translucent"'
@@ -496,15 +501,17 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
         assert manifest_response.headers["content-type"].startswith("application/manifest+json")
         manifest = manifest_response.json()
         assert manifest["display"] == "standalone"
-        assert manifest["display_override"][:2] == ["standalone", "minimal-ui"]
+        assert manifest["display_override"] == ["standalone", "minimal-ui", "browser"]
         assert manifest["start_url"] == "/"
         assert manifest["scope"] == "/"
+        assert manifest_response.headers["cache-control"] == "no-store"
         assert {icon["purpose"] for icon in manifest["icons"]} == {"any", "maskable"}
         assert "/static/icons/mileage-logger-icon-512.png" in {
             icon["src"] for icon in manifest["icons"]
         }
 
         assert service_worker_response.status_code == 200
+        assert service_worker_response.headers["cache-control"] == "no-store"
         assert service_worker_response.headers["service-worker-allowed"] == "/"
         assert "fetch(event.request)" in service_worker_response.text
         assert "caches.open" not in service_worker_response.text
@@ -1444,6 +1451,8 @@ def test_diagnostics_shows_single_colored_app_log_and_download(
         download_response = client.get("/diagnostics/logs/app")
 
         assert response.status_code == 200
+        assert "App Version" in response.text
+        assert __version__ in response.text
         assert "App Log" in response.text
         assert "Refresh App Log" in response.text
         assert "Trip Calculation Log" not in response.text
@@ -2816,6 +2825,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     rendered = templates.env.get_template("diagnostics.html").render(
         {
             "settings": Settings(database_url="sqlite://"),
+            "app_version": __version__,
             "database_url": "sqlite://",
             "location_count": 0,
             "site_count": 0,

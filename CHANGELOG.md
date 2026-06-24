@@ -2,10 +2,19 @@
 
 ## Unreleased
 
+No unreleased changes.
+
+## 1.2.0 - 2026-06-24
+
 - Changed desktop navigation links to use the same boxed button treatment as Logout.
 - Changed the mobile web-app shell so the top navigation buttons span the full width, the mobile
-  close/title controls stay removed, fixed bottom navigation stays removed, and standalone install
-  display mode keeps phone system navigation visible.
+  close/title controls stay removed, fixed bottom navigation stays removed, the viewport no longer
+  opts into phone edge-to-edge drawing, and the manifest includes a browser fallback for phone
+  system navigation.
+- Changed install metadata responses to use no-store caching so phones pick up updated manifest
+  and service-worker shell settings promptly.
+- Added the app version to the Diagnostics Application card.
+- Bumped the Mileage Logger package version to 1.2.0.
 - Fixed generated trip odometer starts to prefer the newest stored rolling checkpoint before the
   trip over older prior-trip odometers, then calculate the end odometer from that start plus the
   generated trip distance.

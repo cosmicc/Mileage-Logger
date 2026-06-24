@@ -1,6 +1,6 @@
 [project]
 name = "mileage-logger"
-version = "1.1.4"
+version = "1.2.0"
 description = "OwnTracks mileage logger with PostgreSQL storage and monthly reimbursement PDFs."
 readme = "README.md"
 requires-python = ">=3.12"
