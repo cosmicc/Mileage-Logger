@@ -380,6 +380,9 @@ public nginx exposes only the OwnTracks ingestion endpoints under `/api/`. `WEB_
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
+`CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with `Account Firewall Access Rules Write`
+access for the configured zone; do not use `CLOUDFLARED_TUNNEL_TOKEN` or a Global API Key in that
+field.
 The app auto-blocks an IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failed
 web-login attempts, and a successful login from that IP resets the local consecutive-failure count.
 The Cloudflare blocked-IP card also accepts a manual valid IP address plus a required reason, shows

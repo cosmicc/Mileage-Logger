@@ -103,7 +103,9 @@ docker compose up -d --build
 - Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login and manually
   entered IP addresses
 - Uses `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and the app-managed block table to avoid
-  touching unrelated Cloudflare rules
+  touching unrelated Cloudflare rules. `CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with
+  `Account Firewall Access Rules Write` access for the configured zone, not
+  `CLOUDFLARED_TUNNEL_TOKEN` or a Global API Key.
 - Enforces `CLOUDFLARE_IP_BLOCK_ALLOWLIST` so trusted IPs/CIDRs are not blocked by the app, and
   records the block reason and manual/automatic source shown on Diagnostics
 

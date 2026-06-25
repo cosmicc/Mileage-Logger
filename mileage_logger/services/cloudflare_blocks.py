@@ -101,7 +101,14 @@ def _api_error_message(payload: object) -> str:
         if isinstance(error, dict):
             message = str(error.get("message") or "").strip()
             code = str(error.get("code") or "").strip()
-            if code and message:
+            if code == "10000":
+                messages.append(
+                    "Cloudflare rejected the API credentials (10000: Authentication error). "
+                    "Set CLOUDFLARE_API_TOKEN to a Cloudflare API token with Account Firewall "
+                    "Access Rules Write access for CLOUDFLARE_ZONE_ID; do not use "
+                    "CLOUDFLARED_TUNNEL_TOKEN or a Global API Key in this field."
+                )
+            elif code and message:
                 messages.append(f"{code}: {message}")
             elif message:
                 messages.append(message)

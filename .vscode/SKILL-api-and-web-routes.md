@@ -552,10 +552,13 @@ Cloudflare block/unblock controls should only create and remove app-managed rows
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each
 row's remove action deleting both the Cloudflare rule and the local row. Automatic blocks should
 also record a reason, and the blocked-IP table should render an Auto or Manual source pill for each
-block. Keep the Diagnostics successful-login table, failed-login table, Cloudflare blocked-IP
-table, recent OwnTracks entries, and OwnTracks state-change log paginated at 10 visible rows per
-page so the cards stay compact. Their mobile pagination controls should keep First, Previous, Next,
-and Last in one full-width row with the page count rendered as plain text below the buttons.
+block. Cloudflare API error `10000` means the configured API credential was rejected; keep the user
+message pointed at `CLOUDFLARE_API_TOKEN`, the `Account Firewall Access Rules Write` permission,
+and the distinction from `CLOUDFLARED_TUNNEL_TOKEN` and Global API Keys. Keep the Diagnostics
+successful-login table, failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries,
+and OwnTracks state-change log paginated at 10 visible rows per page so the cards stay compact.
+Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
+with the page count rendered as plain text below the buttons.
 
 ### Diagnostics Full Backup And Restore
 

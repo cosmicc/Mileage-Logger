@@ -427,6 +427,9 @@ to `/data/logs/mileage-logger-login-failures.log` inside the app container, whic
 The submitted password value is never stored; failed-login entries record only its length.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
+`CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with `Account Firewall Access Rules Write`
+access for the configured zone; do not use `CLOUDFLARED_TUNNEL_TOKEN` or a Global API Key in that
+field.
 The app automatically blocks a client IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
 consecutive failed web-login attempts. A successful login from that IP resets the consecutive
 failure count. The Cloudflare blocked-IP card can also send a manually entered valid IP address

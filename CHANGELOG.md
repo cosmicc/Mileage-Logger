@@ -19,6 +19,9 @@
 - Added a manual valid-IP Cloudflare block form to Diagnostics, requiring a reason and showing
   Auto/Manual source pills with each reason in the app-managed blocked-IP list with per-row removal
   from Cloudflare and the local list.
+- Changed Cloudflare authentication failures to explain that `CLOUDFLARE_API_TOKEN` must be a
+  Cloudflare API token with `Account Firewall Access Rules Write` access, not the tunnel token or a
+  Global API Key.
 
 ## 1.2.0 - 2026-06-24
 

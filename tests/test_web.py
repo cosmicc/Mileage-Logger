@@ -31,6 +31,7 @@ from mileage_logger.models import (
 from mileage_logger.services.backups import create_automatic_backup, list_automatic_backup_files
 from mileage_logger.services.cloudflare_blocks import (
     CloudflareAccessRule,
+    CloudflareBlockError,
     create_cloudflare_ip_block,
     ip_is_allowlisted,
 )
@@ -1330,6 +1331,45 @@ def test_create_cloudflare_ip_block_sends_zone_access_rule_payload(monkeypatch) 
         "configuration": {"target": "ip", "value": "203.0.113.44"},
         "notes": "Mileage Logger manual block",
     }
+
+
+def test_create_cloudflare_ip_block_explains_authentication_error(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="bad-token",
+        cloudflare_zone_id="test-zone",
+    )
+
+    class FakeResponse:
+        status_code = 403
+
+        @staticmethod
+        def json():
+            return {
+                "success": False,
+                "errors": [{"code": 10000, "message": "Authentication error"}],
+            }
+
+    def fake_post(url, *, headers, json, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("mileage_logger.services.cloudflare_blocks.httpx.post", fake_post)
+
+    try:
+        create_cloudflare_ip_block(
+            "203.0.113.44",
+            note="Mileage Logger manual block",
+            settings=settings,
+        )
+    except CloudflareBlockError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected CloudflareBlockError for rejected credentials.")
+
+    assert "Cloudflare rejected the API credentials" in message
+    assert "CLOUDFLARE_API_TOKEN" in message
+    assert "CLOUDFLARED_TUNNEL_TOKEN" in message
 
 
 def test_waypoints_page_paginates_twenty_per_page() -> None:
