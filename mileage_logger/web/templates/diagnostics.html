@@ -466,6 +466,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
             {% else %}
             <form method="post" action="/diagnostics/cloudflare-blocks/block">
               <input type="hidden" name="ip_address" value="{{ ip_status.ip_address if ip_status else entry.client_ip }}">
+              <input type="hidden" name="result_anchor" value="login-failures">
               <button
                 class="icon-button block-toggle is-off"
                 type="submit"
@@ -542,6 +543,40 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   {% if not cloudflare_ip_blocking_configured %}
   <p class="panel-meta">Cloudflare IP blocking is not fully configured.</p>
   {% endif %}
+  <form class="form-row cloudflare-block-form" method="post" action="/diagnostics/cloudflare-blocks/block">
+    <input type="hidden" name="result_anchor" value="cloudflare-blocked-ips">
+    <label>
+      IP Address
+      <input
+        class="cloudflare-ip-input"
+        type="text"
+        name="ip_address"
+        maxlength="45"
+        autocomplete="off"
+        placeholder="203.0.113.20"
+        required
+        {% if not cloudflare_ip_blocking_configured %}disabled{% endif %}
+      >
+    </label>
+    <label>
+      Reason
+      <input
+        class="cloudflare-reason-input"
+        type="text"
+        name="reason"
+        maxlength="160"
+        autocomplete="off"
+        placeholder="Manual diagnostics block"
+        required
+        {% if not cloudflare_ip_blocking_configured %}disabled{% endif %}
+      >
+    </label>
+    <button
+      class="small-button"
+      type="submit"
+      {% if not cloudflare_ip_blocking_configured %}disabled{% endif %}
+    >Send</button>
+  </form>
   <table>
     <thead>
       <tr>
@@ -557,7 +592,11 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       {% for block in cloudflare_ip_blocks %}
       <tr>
         <td>{{ block.ip_address }}</td>
-        <td>{{ block.source.replace("_", " ").title() }}</td>
+        <td>
+          <span class="pill block-source-pill {{ 'automatic' if block.source == 'automatic' else 'manual' }}">
+            {{ "Auto" if block.source == "automatic" else "Manual" }}
+          </span>
+        </td>
         <td>{{ block.reason or "-" }}</td>
         <td>{{ block.created_at|local_datetime }}</td>
         <td><code>{{ block.cloudflare_rule_id }}</code></td>

@@ -16,6 +16,9 @@
   row with the page count shown as plain text below.
 - Changed the shared top-bar brand icon and Mileage Logger text to display-only content instead of
   a clickable home link.
+- Added a manual valid-IP Cloudflare block form to Diagnostics, requiring a reason and showing
+  Auto/Manual source pills with each reason in the app-managed blocked-IP list with per-row removal
+  from Cloudflare and the local list.
 
 ## 1.2.0 - 2026-06-24
 

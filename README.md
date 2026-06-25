@@ -381,6 +381,9 @@ When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove ap
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 The app auto-blocks an IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failed
 web-login attempts, and a successful login from that IP resets the local consecutive-failure count.
+The Cloudflare blocked-IP card also accepts a manual valid IP address plus a required reason, shows
+manual or automatic source pills with the block reason in the app-managed block list, and removes
+both the Cloudflare rule and local list row when you remove the block.
 Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that should never be
 blocked by the app.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,

@@ -429,7 +429,10 @@ When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove ap
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 The app automatically blocks a client IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
 consecutive failed web-login attempts. A successful login from that IP resets the consecutive
-failure count. Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that
+failure count. The Cloudflare blocked-IP card can also send a manually entered valid IP address
+with a required reason, then shows the reason with an Auto or Manual source pill in the app-managed
+list. Removing a block from the list removes both the Cloudflare rule and the local app-managed
+row. Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that
 should never be blocked by this app.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
 least `OWNTRACKS_TRAVEL_DISTANCE_M` meters.

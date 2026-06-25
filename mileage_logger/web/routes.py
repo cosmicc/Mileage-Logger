@@ -1793,37 +1793,57 @@ def hide_login_failure_entry(
 def block_login_ip_form(
     request: Request,
     ip_address: str = Form(...),
+    reason: str = Form(default=""),
+    result_anchor: str = Form(default="login-failures"),
     db: Session = Depends(get_db),
 ) -> RedirectResponse:
-    """Create an app-managed Cloudflare block for a Diagnostics login-failure IP."""
+    """Create an app-managed Cloudflare block from a Diagnostics action."""
 
     _require_diagnostics_security_auth(request)
+    redirect_anchor = (
+        "cloudflare-blocked-ips"
+        if result_anchor == "cloudflare-blocked-ips"
+        else "login-failures"
+    )
     normalized_ip = normalize_ip_address(ip_address)
     if normalized_ip is None:
         return _diagnostics_redirect(
-            "login-failures",
+            redirect_anchor,
             {
                 "cloudflare_block_test": "fail",
                 "cloudflare_block_message": "Cannot block an invalid IP address.",
             },
         )
+    cleaned_reason = reason.strip()
+    if not cleaned_reason and redirect_anchor == "cloudflare-blocked-ips":
+        return _diagnostics_redirect(
+            redirect_anchor,
+            {
+                "cloudflare_block_test": "fail",
+                "cloudflare_block_message": "A block reason is required.",
+                "cloudflare_block_value": normalized_ip,
+            },
+        )
+    block_reason = (
+        cleaned_reason[:160] if cleaned_reason else "Diagnostics failed-login row block button"
+    )
     try:
         block = _create_app_cloudflare_block(
             db,
             normalized_ip,
             source="manual",
-            reason="Diagnostics failed-login row block button",
+            reason=block_reason,
         )
     except CloudflareBlockError as exc:
         return _diagnostics_redirect(
-            "login-failures",
+            redirect_anchor,
             {
                 "cloudflare_block_test": "fail",
                 "cloudflare_block_message": str(exc),
             },
         )
     return _diagnostics_redirect(
-        "login-failures",
+        redirect_anchor,
         {
             "cloudflare_block_test": "pass",
             "cloudflare_block_message": "Cloudflare IP block is active.",

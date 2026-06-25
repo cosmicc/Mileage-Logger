@@ -100,10 +100,12 @@ docker compose up -d --build
   intentionally has no separate footer refresh or download buttons
 
 **[cloudflare_blocks.py](mileage_logger/services/cloudflare_blocks.py)** — Cloudflare IP blocking
-- Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login IP addresses
+- Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login and manually
+  entered IP addresses
 - Uses `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, and the app-managed block table to avoid
   touching unrelated Cloudflare rules
-- Enforces `CLOUDFLARE_IP_BLOCK_ALLOWLIST` so trusted IPs/CIDRs are not blocked by the app
+- Enforces `CLOUDFLARE_IP_BLOCK_ALLOWLIST` so trusted IPs/CIDRs are not blocked by the app, and
+  records the block reason and manual/automatic source shown on Diagnostics
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates landscape PDF with trip table
@@ -228,10 +230,13 @@ docker compose up -d --build
    `/var/log/mileage-logger-login-failures.log`.
 5. Diagnostics can hide individual failed-login rows from the UI while preserving the raw audit log
    download. When Cloudflare IP blocking is enabled and configured, Diagnostics can block/unblock
-   app-managed Cloudflare zone IP Access Rules. Automatic blocking occurs after the configured
-   consecutive failed-login threshold and successful login resets that IP's consecutive count.
-   Diagnostics paginates successful-login rows, failed-login rows, and app-managed Cloudflare
-   blocks in compact 10-row pages.
+   failed-login IPs and manually entered valid IPs through app-managed Cloudflare zone IP Access
+   Rules. Manual blocks require a reason, automatic blocks record the failed-login threshold
+   reason, and the app-managed blocked-IP list shows each reason with an Auto or Manual pill plus a
+   remove button that deletes the Cloudflare rule and local row. Automatic blocking occurs after
+   the configured consecutive failed-login threshold and successful login resets that IP's
+   consecutive count. Diagnostics paginates successful-login rows, failed-login rows, and
+   app-managed Cloudflare blocks in compact 10-row pages.
 6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log, and the manual full-backup
    download control sits with the lower upload-restore controls. Restore replaces all app table

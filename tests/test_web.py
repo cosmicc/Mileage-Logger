@@ -1201,6 +1201,7 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
             assert block.ip_address == "198.51.100.55"
             assert block.cloudflare_rule_id == "cf-rule-1"
             assert block.source == "automatic"
+            assert block.reason == "5 consecutive failed web login attempts"
             assert block.failure_count == 5
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
@@ -1665,8 +1666,12 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
                     CloudflareIPBlock(
                         ip_address=f"198.51.100.{100 + index}",
                         cloudflare_rule_id=f"cf-rule-{index:02d}",
-                        source="manual",
-                        reason=f"test block {index:02d}",
+                        source="automatic" if index == 11 else "manual",
+                        reason=(
+                            "5 consecutive failed web login attempts"
+                            if index == 11
+                            else f"test block {index:02d}"
+                        ),
                         created_at=datetime(2026, 6, 19, 12, index, tzinfo=UTC),
                     )
                 )
@@ -1730,6 +1735,11 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         assert cloudflare_section.count("<tr>") == 11
         assert "198.51.100.111" in cloudflare_section
         assert "198.51.100.102" in cloudflare_section
+        assert '<span class="pill block-source-pill automatic">' in cloudflare_section
+        assert '<span class="pill block-source-pill manual">' in cloudflare_section
+        assert "Auto" in cloudflare_section
+        assert "Manual" in cloudflare_section
+        assert "5 consecutive failed web login attempts" in cloudflare_section
         assert "198.51.100.101" not in cloudflare_section
         assert "198.51.100.100" not in cloudflare_section
 
@@ -1938,6 +1948,120 @@ def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_bloc
             assert db.scalar(select(CloudflareIPBlock)) is None
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_manual_cloudflare_block_form_validates_and_records_reason(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(login_failure_log_path),
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="test-token",
+        cloudflare_zone_id="test-zone",
+    )
+    created_requests: list[tuple[str, str]] = []
+
+    def fake_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
+        created_requests.append((ip_address, note))
+        return CloudflareAccessRule(
+            rule_id=f"rule-{ip_address.replace('.', '-')}",
+            ip_address=ip_address,
+        )
+
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.create_cloudflare_ip_block",
+        fake_create_cloudflare_ip_block,
+    )
+    client, session_factory = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            follow_redirects=False,
+        )
+        assert login_response.status_code == 303
+
+        initial_response = client.get("/diagnostics")
+        assert 'class="form-row cloudflare-block-form"' in initial_response.text
+        assert 'name="reason"' in initial_response.text
+        assert ">Send</button>" in initial_response.text
+
+        invalid_response = client.post(
+            "/diagnostics/cloudflare-blocks/block",
+            data={
+                "ip_address": "not-an-ip",
+                "reason": "Manual diagnostics block",
+                "result_anchor": "cloudflare-blocked-ips",
+            },
+            follow_redirects=False,
+        )
+        assert invalid_response.status_code == 303
+        assert invalid_response.headers["location"].endswith("#cloudflare-blocked-ips")
+        assert "Cannot+block+an+invalid+IP+address" in invalid_response.headers["location"]
+        assert created_requests == []
+
+        missing_reason_response = client.post(
+            "/diagnostics/cloudflare-blocks/block",
+            data={
+                "ip_address": "198.51.100.77",
+                "reason": "   ",
+                "result_anchor": "cloudflare-blocked-ips",
+            },
+            follow_redirects=False,
+        )
+        assert missing_reason_response.status_code == 303
+        assert missing_reason_response.headers["location"].endswith(
+            "#cloudflare-blocked-ips"
+        )
+        assert "A+block+reason+is+required" in missing_reason_response.headers["location"]
+        assert created_requests == []
+
+        block_response = client.post(
+            "/diagnostics/cloudflare-blocks/block",
+            data={
+                "ip_address": " 198.51.100.77 ",
+                "reason": "Manual abuse report",
+                "result_anchor": "cloudflare-blocked-ips",
+            },
+            follow_redirects=False,
+        )
+        assert block_response.status_code == 303
+        assert block_response.headers["location"].endswith("#cloudflare-blocked-ips")
+        assert created_requests == [
+            (
+                "198.51.100.77",
+                "Mileage Logger manual block: Manual abuse report",
+            )
+        ]
+        with session_factory() as db:
+            block = db.scalar(select(CloudflareIPBlock))
+            assert block is not None
+            assert block.ip_address == "198.51.100.77"
+            assert block.reason == "Manual abuse report"
+            assert block.source == "manual"
+            assert block.cloudflare_rule_id == "rule-198-51-100-77"
+
+        blocked_response = client.get("/diagnostics")
+        assert "198.51.100.77" in blocked_response.text
+        assert "Manual abuse report" in blocked_response.text
+        assert '<span class="pill block-source-pill manual">' in blocked_response.text
+        assert "Manual" in blocked_response.text
+        assert "rule-198-51-100-77" in blocked_response.text
+        assert 'aria-label="Remove Cloudflare block"' in blocked_response.text
+    finally:
         app.dependency_overrides.clear()
 
 

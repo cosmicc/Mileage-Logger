@@ -838,10 +838,41 @@ td input[type="text"] {
   color: #fca5a5;
 }
 
+.pill.block-source-pill {
+  min-width: 64px;
+  justify-content: center;
+}
+
+.pill.block-source-pill.manual {
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.14);
+  color: #86efac;
+}
+
+.pill.block-source-pill.automatic {
+  border: 1px solid rgba(226, 173, 69, 0.3);
+  background: rgba(226, 173, 69, 0.14);
+  color: #f1cf88;
+}
+
 .diagnostics-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
+}
+
+.cloudflare-block-form {
+  margin: 0 0 16px;
+}
+
+.cloudflare-ip-input {
+  width: 220px;
+  min-width: 220px;
+}
+
+.cloudflare-reason-input {
+  width: min(420px, 36vw);
+  min-width: 260px;
 }
 
 .panel-toolbar {

@@ -358,7 +358,8 @@ def protected_page(request: Request) -> TemplateResponse:
    in-memory consecutive-failure state for that client IP
 8. When Cloudflare IP blocking is enabled, the app creates an app-managed Cloudflare zone IP
    Access Rule after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failures for the
-   same client IP
+   same client IP. Diagnostics also supports manually entered valid IP addresses with a required
+   block reason.
 
 The login audit log must never store the submitted password value. Keep failed-login submitted
 username, password length, client IP/header details, user agent, request path, reason, attempt
@@ -547,9 +548,13 @@ failed-login rows may be hidden from the Diagnostics table through `hidden_login
 raw JSON-lines audit log must remain intact. Keep the Diagnostics card actions scoped to the
 individual failed-login rows rather than adding separate footer refresh or download buttons.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
-`cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Keep the Diagnostics
-successful-login table, failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries,
-and OwnTracks state-change log paginated at 10 visible rows per page so the cards stay compact.
+`cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
+calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each
+row's remove action deleting both the Cloudflare rule and the local row. Automatic blocks should
+also record a reason, and the blocked-IP table should render an Auto or Manual source pill for each
+block. Keep the Diagnostics successful-login table, failed-login table, Cloudflare blocked-IP
+table, recent OwnTracks entries, and OwnTracks state-change log paginated at 10 visible rows per
+page so the cards stay compact.
 
 ### Diagnostics Full Backup And Restore
 
