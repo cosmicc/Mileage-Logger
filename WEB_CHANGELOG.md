@@ -1,8 +1,13 @@
 # Web Changelog
 
-## Unreleased
+## 1.2.1 - Unreleased
 
-No unreleased changes.
+- Dashboard now shows a loading message while the calculated home-page cards and recent trips load.
+- Trips now uses a single month/year picker and shows the selected month as `Showing June 2026
+  (06/2026)`.
+- Diagnostics now lists successful logins above failed logins, with both lists paginated.
+- Automatic backups created at app startup are labeled in Diagnostics.
+- Waypoints pagination is more compact on mobile, and the top-bar brand is no longer clickable.
 
 ## 1.2.0 - 2026-06-24
 

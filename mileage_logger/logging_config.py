@@ -79,7 +79,7 @@ def log_level_value(settings: Settings | None = None) -> int:
 
 
 def configure_login_failure_logging(settings: Settings | None = None) -> Path | None:
-    """Configure the dedicated structured web-login failure audit log."""
+    """Configure the dedicated structured web-login audit log."""
 
     active_settings = settings or get_settings()
     log_path = Path(active_settings.login_failure_log_path)
@@ -95,7 +95,7 @@ def configure_login_failure_logging(settings: Settings | None = None) -> Path | 
         )
     except OSError:
         logging.getLogger(__name__).error(
-            "Could not configure login failure audit log path=%s",
+            "Could not configure login audit log path=%s",
             log_path,
             exc_info=True,
         )

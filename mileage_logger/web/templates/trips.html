@@ -3,24 +3,24 @@
 <section class="page-header">
   <div>
     <h1>Trips</h1>
-    <p>{{ year }}-{{ "%02d"|format(month) }} mileage review.</p>
+    <p>Showing {{ selected_month_display }}</p>
   </div>
   <div class="header-actions">
-    <form action="/trips" method="get" class="form-row month-selector">
-      <label>Year <input class="year-input" type="number" name="year" min="2000" max="2100" value="{{ year }}" required></label>
-      <label>Month
-        <select name="month" required>
-          {% for value, label in month_options %}
-          <option value="{{ value }}" {% if value == month %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
+    <form action="/trips" method="get" class="form-row month-selector" data-trip-month-form>
+      <label>
+        Month
+        <input
+          class="month-input"
+          type="month"
+          name="selected_month"
+          min="2000-01"
+          max="2100-12"
+          value="{{ selected_month_value }}"
+          aria-label="Trip month and year"
+          required
+        >
       </label>
-      <button type="submit">View Month</button>
     </form>
-    <div class="month-links">
-      <a class="button-link secondary" href="/trips?year={{ previous_year }}&month={{ previous_month }}">Previous</a>
-      <a class="button-link secondary" href="/trips?year={{ next_year }}&month={{ next_month }}">Next</a>
-    </div>
     <form action="/reports/{{ year }}/{{ month }}" method="post">
       <button type="submit">Download PDF Report</button>
     </form>
@@ -167,4 +167,19 @@
     </tbody>
   </table>
 </section>
+<script>
+  (() => {
+    const monthInput = document.querySelector("[data-trip-month-form] input[type='month']");
+    if (!monthInput) {
+      return;
+    }
+    monthInput.addEventListener("change", () => {
+      if (!monthInput.value || !monthInput.checkValidity()) {
+        return;
+      }
+      const [year, month] = monthInput.value.split("-");
+      window.location.assign(`/trips?year=${encodeURIComponent(year)}&month=${encodeURIComponent(month)}`);
+    });
+  })();
+</script>
 {% endblock %}

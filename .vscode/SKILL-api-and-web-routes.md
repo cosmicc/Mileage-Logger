@@ -204,11 +204,17 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
   gallons, monthly gas price, and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home
   card matches the downloadable report. Keep displayed reimbursement gallons to one decimal place.
+- The Dashboard root route renders a lightweight loading shell. Keep expensive Dashboard queries in
+  `/dashboard/content` and render `dashboard_content.html` there so direct homepage loads can show
+  the loading state before calculated cards arrive.
 - `layout.html` keeps the authenticated navigation in the shared top bar. Desktop nav links use
   boxed button styling like Logout. On mobile, CSS hides the brand/icon and keeps nav links in one
   full-width top-bar row instead of using a fixed bottom nav. Keep the mobile viewport
   non-edge-to-edge and preserve the manifest browser fallback so phone system navigation remains
-  visible.
+  visible. The brand icon/text is display-only and not a home link.
+- `trips.html` uses a single native month/year picker for the selected report month. It should
+  default to the current local month, auto-load the chosen month, and show the month as
+  `Showing June 2026 (06/2026)` style text under the page title.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
@@ -348,14 +354,17 @@ def protected_page(request: Request) -> TemplateResponse:
 5. Failed attempts: Temporary lockout (`WEB_LOGIN_MAX_ATTEMPTS` x `WEB_LOGIN_LOCKOUT_SECONDS`)
    and a structured JSON-lines audit record written to `LOGIN_FAILURE_LOG_PATH`
 6. Lockout rejections are also failed login attempts and must be written to the same audit log
-7. Successful login clears the in-memory consecutive-failure state for that client IP
+7. Successful login appends a structured audit record to the login audit file, then clears the
+   in-memory consecutive-failure state for that client IP
 8. When Cloudflare IP blocking is enabled, the app creates an app-managed Cloudflare zone IP
    Access Rule after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failures for the
    same client IP
 
-The failed-login audit log must never store the submitted password value. Keep the submitted
+The login audit log must never store the submitted password value. Keep failed-login submitted
 username, password length, client IP/header details, user agent, request path, reason, attempt
-count, lockout state, and UTC/local timestamps available for Diagnostics.
+count, lockout state, and UTC/local timestamps available for Diagnostics. Keep successful-login
+submitted username, matched account, client IP/header details, user agent, request path, and
+UTC/local timestamps available for the successful-login table.
 Behind Cloudflare Tunnel, `CF-Connecting-IP` is the preferred login client IP source. Keep
 `CLOUDFLARE_IP_BLOCK_ALLOWLIST` checks in front of both automatic and manual block actions so
 trusted IPs/CIDRs cannot be blocked by this app.
@@ -529,17 +538,18 @@ def update_trip(...):
     # Shows in logs and `/diagnostics` page
 ```
 
-The Diagnostics page also reads `LOGIN_FAILURE_LOG_PATH` through
-`mileage_logger.services.login_failures.tail_login_failure_entries()`. When changing login,
-diagnostics, or web authentication behavior, preserve the failed-login table and
-`/diagnostics/logs/login-failures` download endpoint. Individual failed-login rows may be hidden
-from the Diagnostics table through `hidden_login_failures`, but the raw JSON-lines audit log must
-remain intact. Keep the Diagnostics card actions scoped to the individual failed-login rows rather
-than adding separate footer refresh or download buttons. Cloudflare block/unblock controls should
-only create and remove app-managed rows in `cloudflare_ip_blocks`; do not touch unrelated
-Cloudflare rules. Keep the Diagnostics failed-login table, Cloudflare blocked-IP table, recent
-OwnTracks entries, and OwnTracks state-change log paginated at 10 visible rows per page so the
-cards stay compact.
+The Diagnostics page reads `LOGIN_FAILURE_LOG_PATH` through
+`mileage_logger.services.login_failures.tail_login_success_entries()` and
+`tail_login_failure_entries()`. When changing login, diagnostics, or web authentication behavior,
+preserve the successful-login table above the failed-login table, the failed-login table actions,
+and the compatibility `/diagnostics/logs/login-failures` raw audit download endpoint. Individual
+failed-login rows may be hidden from the Diagnostics table through `hidden_login_failures`, but the
+raw JSON-lines audit log must remain intact. Keep the Diagnostics card actions scoped to the
+individual failed-login rows rather than adding separate footer refresh or download buttons.
+Cloudflare block/unblock controls should only create and remove app-managed rows in
+`cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Keep the Diagnostics
+successful-login table, failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries,
+and OwnTracks state-change log paginated at 10 visible rows per page so the cards stay compact.
 
 ### Diagnostics Full Backup And Restore
 
@@ -556,14 +566,15 @@ app rows. Keep them behind configured web login, keep `Cache-Control: no-store` 
 downloads, validate retained automatic-backup filenames before reading files, validate the uploaded
 backup before deleting current rows, and require the typed confirmation value `RESTORE` for upload
 and automatic-backup restore forms. Keep the manual full-backup download copy and button with the
-lower upload-restore controls rather than in the card header. Automatic backups run
-hourly when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in `AUTOMATIC_BACKUP_DIR`, and retain the
-newest 6 hourly backups plus one daily backup for today and each of the prior 2 days. The backup
-format is gzip-compressed JSON of all SQLAlchemy app tables plus an OwnTracks waypoint export; it is
-not a raw PostgreSQL cluster, Docker volume, role, password, or host-log backup. Keep retained
-automatic-backup rows single-line friendly by truncating long filenames visually and avoiding a
-visible confirmation label in each row; the typed `RESTORE` field should still keep an accessible
-label.
+lower upload-restore controls rather than in the card header. Automatic backups run once at app
+startup and then hourly when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in
+`AUTOMATIC_BACKUP_DIR`, and retain the newest 6 hourly backups plus one daily backup for today and
+each of the prior 2 days. Startup-created automatic backups use the startup filename prefix and
+Diagnostics labels them as Startup. The backup format is gzip-compressed JSON of all SQLAlchemy app
+tables plus an OwnTracks waypoint export; it is not a raw PostgreSQL cluster, Docker volume, role,
+password, or host-log backup. Keep retained automatic-backup rows single-line friendly by
+truncating long filenames visually and avoiding a visible confirmation label in each row; the typed
+`RESTORE` field should still keep an accessible label.
 
 ---
 

@@ -35,10 +35,12 @@ BACKUP_UPLOAD_MAX_BYTES = 250 * 1024 * 1024
 BACKUP_TABLES = tuple(Base.metadata.sorted_tables)
 BACKUP_TABLE_NAMES = tuple(table.name for table in BACKUP_TABLES)
 AUTOMATIC_BACKUP_FILENAME_PREFIX = "mileage-logger-auto-backup-"
+AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX = "mileage-logger-auto-backup-startup-"
 AUTOMATIC_BACKUP_FILENAME_SUFFIX = ".json.gz"
 AUTOMATIC_BACKUP_INTERVAL_SECONDS = 60 * 60
 AUTOMATIC_HOURLY_BACKUPS_TO_KEEP = 6
 AUTOMATIC_DAILY_BACKUP_DAYS_TO_KEEP = 3
+AUTOMATIC_BACKUP_REASONS = {"scheduled", "startup"}
 _BACKUP_RESTORE_LOCK = threading.RLock()
 
 
@@ -78,6 +80,7 @@ class AutomaticBackupFile:
     path: Path
     created_at_utc: datetime
     size_bytes: int
+    reason: str = "scheduled"
 
 
 @dataclass(frozen=True)
@@ -96,12 +99,23 @@ def full_backup_filename(now: datetime | None = None) -> str:
     return f"mileage-logger-full-backup-{timestamp}.json.gz"
 
 
-def automatic_backup_filename(now: datetime | None = None) -> str:
+def automatic_backup_filename(
+    now: datetime | None = None,
+    *,
+    reason: str = "scheduled",
+) -> str:
     """Return a timestamped automatic backup filename safe for filesystem use."""
 
+    if reason not in AUTOMATIC_BACKUP_REASONS:
+        raise ValueError("Automatic backup reason must be scheduled or startup.")
     current_dt = (now or datetime.now(UTC)).astimezone(UTC)
     timestamp = current_dt.strftime("%Y%m%d-%H%M%SZ")
-    return f"{AUTOMATIC_BACKUP_FILENAME_PREFIX}{timestamp}{AUTOMATIC_BACKUP_FILENAME_SUFFIX}"
+    prefix = (
+        AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX
+        if reason == "startup"
+        else AUTOMATIC_BACKUP_FILENAME_PREFIX
+    )
+    return f"{prefix}{timestamp}{AUTOMATIC_BACKUP_FILENAME_SUFFIX}"
 
 
 def create_full_backup(db: Session, *, now: datetime | None = None) -> FullBackup:
@@ -172,13 +186,16 @@ def create_automatic_backup(
     backup_directory: str | Path,
     *,
     now: datetime | None = None,
+    reason: str = "scheduled",
 ) -> AutomaticBackupResult:
     """Write one full-data automatic backup file and purge expired backups."""
 
+    if reason not in AUTOMATIC_BACKUP_REASONS:
+        raise BackupValidationError("Automatic backup reason is not supported.")
     current_dt = (now or datetime.now(UTC)).astimezone(UTC)
     directory = _ensure_private_backup_directory(Path(backup_directory))
     backup = create_full_backup(db, now=current_dt)
-    backup_path = directory / automatic_backup_filename(current_dt)
+    backup_path = directory / automatic_backup_filename(current_dt, reason=reason)
     _write_private_file_atomically(backup_path, backup.content)
     backup_file = _automatic_backup_file_from_path(backup_path)
     if backup_file is None:
@@ -243,18 +260,24 @@ def read_automatic_backup_content(
         raise BackupValidationError("Automatic backup file could not be read.") from exc
 
 
-def run_automatic_backup_once(application_settings: "Settings") -> AutomaticBackupResult:
+def run_automatic_backup_once(
+    application_settings: "Settings",
+    *,
+    reason: str = "scheduled",
+) -> AutomaticBackupResult:
     """Create one scheduled backup using an isolated database session."""
 
     with database.SessionLocal() as db:
         result = create_automatic_backup(
             db,
             application_settings.automatic_backup_dir,
+            reason=reason,
         )
 
     logger.info(
-        "Created automatic Mileage Logger backup filename=%s size_bytes=%s deleted=%s",
+        "Created automatic Mileage Logger backup filename=%s reason=%s size_bytes=%s deleted=%s",
         result.backup_file.filename,
+        result.backup_file.reason,
         result.backup_file.size_bytes,
         len(result.deleted_filenames),
     )
@@ -264,14 +287,20 @@ def run_automatic_backup_once(application_settings: "Settings") -> AutomaticBack
 async def automatic_backup_scheduler(application_settings: "Settings") -> None:
     """Run automatic full-data backups until the application shuts down."""
 
+    backup_reason = "startup"
     while True:
         try:
-            await asyncio.to_thread(run_automatic_backup_once, application_settings)
+            await asyncio.to_thread(
+                run_automatic_backup_once,
+                application_settings,
+                reason=backup_reason,
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Automatic Mileage Logger backup failed")
 
+        backup_reason = "scheduled"
         await asyncio.sleep(AUTOMATIC_BACKUP_INTERVAL_SECONDS)
 
 
@@ -309,9 +338,10 @@ def _automatic_backup_file_from_path(path: Path) -> AutomaticBackupFile | None:
 
     if path.is_symlink() or not path.is_file():
         return None
-    created_at_utc = _parse_automatic_backup_datetime(path.name)
-    if created_at_utc is None:
+    parsed_filename = _parse_automatic_backup_filename(path.name)
+    if parsed_filename is None:
         return None
+    created_at_utc, reason = parsed_filename
     try:
         stat_result = path.stat()
     except OSError:
@@ -323,24 +353,40 @@ def _automatic_backup_file_from_path(path: Path) -> AutomaticBackupFile | None:
         path=path,
         created_at_utc=created_at_utc,
         size_bytes=stat_result.st_size,
+        reason=reason,
     )
 
 
-def _parse_automatic_backup_datetime(filename: str) -> datetime | None:
-    """Parse a UTC timestamp from an automatic backup filename."""
+def _parse_automatic_backup_filename(filename: str) -> tuple[datetime, str] | None:
+    """Parse a UTC timestamp and reason from an automatic backup filename."""
 
-    if not filename.startswith(AUTOMATIC_BACKUP_FILENAME_PREFIX):
-        return None
     if not filename.endswith(AUTOMATIC_BACKUP_FILENAME_SUFFIX):
+        return None
+    if filename.startswith(AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX):
+        prefix = AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX
+        reason = "startup"
+    elif filename.startswith(AUTOMATIC_BACKUP_FILENAME_PREFIX):
+        prefix = AUTOMATIC_BACKUP_FILENAME_PREFIX
+        reason = "scheduled"
+    else:
         return None
 
     timestamp_text = filename[
-        len(AUTOMATIC_BACKUP_FILENAME_PREFIX) : -len(AUTOMATIC_BACKUP_FILENAME_SUFFIX)
+        len(prefix) : -len(AUTOMATIC_BACKUP_FILENAME_SUFFIX)
     ]
     try:
-        return datetime.strptime(timestamp_text, "%Y%m%d-%H%M%SZ").replace(tzinfo=UTC)
+        return datetime.strptime(timestamp_text, "%Y%m%d-%H%M%SZ").replace(tzinfo=UTC), reason
     except ValueError:
         return None
+
+
+def _parse_automatic_backup_datetime(filename: str) -> datetime | None:
+    """Parse a UTC timestamp from a legacy or reasoned automatic backup filename."""
+
+    parsed_filename = _parse_automatic_backup_filename(filename)
+    if parsed_filename is None:
+        return None
+    return parsed_filename[0]
 
 
 def _validate_automatic_backup_filename(filename: str) -> None:

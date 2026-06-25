@@ -68,9 +68,9 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
 
-It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the failed-login
-log file inside that directory, and the optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the Docker host. If your user cannot write to
-`/var/log`, create them before starting Docker:
+It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the web-login
+audit log file inside that directory, and the optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the
+Docker host. If your user cannot write to `/var/log`, create them before starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/log/mileage-logger
@@ -420,11 +420,11 @@ The web login protects rendered browser pages only. The app leaves `/api/` outsi
 internally, while public nginx exposes only the OwnTracks ingestion endpoints so OwnTracks can
 continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
-the app name before authentication and temporarily locks out repeated failed attempts. Failed login
-attempts and lockout rejections are written as structured JSON-lines records to
-`/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
+the app name before authentication and temporarily locks out repeated failed attempts. Successful
+logins, failed login attempts, and lockout rejections are written as structured JSON-lines records
+to `/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
 `HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
-The submitted password value is never stored; only its length is recorded.
+The submitted password value is never stored; failed-login entries record only its length.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 The app automatically blocks a client IP after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
@@ -465,8 +465,8 @@ http://127.0.0.1:${HTTP_PORT:-80}/diagnostics
 3. Go to `Waypoints` to review saved waypoints or export an OwnTracks waypoint backup.
 4. Configure OwnTracks to send waypoint transition events and normal location updates.
 5. Review automatically generated trips from the `Trips` page.
-6. Open `Trips`, choose the report month, add manual trips, and correct dates, waypoint names, or
-   miles if needed.
+6. Open `Trips`, choose the report month/year, add manual trips, and correct waypoints or miles if
+   needed.
 7. Confirm `VEHICLE_MPG` is set correctly and add or fetch the monthly gas price for that month.
 8. Click `Download PDF Report` to generate and download the PDF.
 
@@ -485,9 +485,9 @@ PDF reports are generated only when you click `Download PDF Report`; they are st
 browser and are not saved on the server.
 
 Runtime logs are written to `/data/logs` inside the app container, and Docker binds that directory
-to `HOST_LOG_DIR` on the server. The failed-login audit file is stored in the same mounted
-directory as `mileage-logger-login-failures.log`; do not bind-mount that file individually because
-Docker can create a directory at the source path and prevent the container from starting.
+to `HOST_LOG_DIR` on the server. The web-login audit file is stored in the same mounted directory
+as `mileage-logger-login-failures.log`; do not bind-mount that file individually because Docker
+can create a directory at the source path and prevent the container from starting.
 Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also sets the container `TZ`
 value from `LOCAL_TIMEZONE`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.
@@ -563,8 +563,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mileage-logger-gas-snapshot.timer
 ```
 
-You can also view recent app logs and failed-login audit records from the in-app `Diagnostics`
-page.
+You can also view recent app logs and web-login audit records from the in-app `Diagnostics` page.
 
 ## MQTT Mode
 
@@ -644,11 +643,12 @@ upload the file, and type `RESTORE`; the app validates the backup before replaci
 table rows in one transaction. Backup files contain sensitive location history and should be stored
 securely.
 
-The app also creates automatic hourly full-data backups by default. In Docker they are stored under
-`/data/logs/backups`, backed by `HOST_LOG_DIR` on the host, unless `AUTOMATIC_BACKUP_DIR` is set to
-another private path. Diagnostics lists retained automatic backups and can restore a selected file
-after you type `RESTORE`. Retention keeps the newest 6 hourly backups plus one daily backup for
-today and each of the prior 2 days.
+The app also creates one automatic startup full-data backup and then hourly full-data backups by
+default. In Docker they are stored under `/data/logs/backups`, backed by `HOST_LOG_DIR` on the
+host, unless `AUTOMATIC_BACKUP_DIR` is set to another private path. Diagnostics labels startup
+backups, lists retained automatic backups, and can restore a selected file after you type
+`RESTORE`. Retention keeps the newest 6 hourly backups plus one daily backup for today and each of
+the prior 2 days.
 
 Back up PostgreSQL:
 

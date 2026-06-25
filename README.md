@@ -7,6 +7,8 @@ monthly reimbursement PDF logs.
 ## Current Scope
 
 - FastAPI web app with server-rendered review screens.
+- Dashboard opens with a loading message before fetching calculated mileage and reimbursement
+  summaries.
 - PostgreSQL models and Alembic migration.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
@@ -16,7 +18,8 @@ monthly reimbursement PDF logs.
 - Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
   the latest current reading before saving a new checkpoint.
 - Manual trip entry defaults to today's local date and uses saved waypoint dropdowns for From/To,
-  with trip-row waypoint and mileage review on the Trips page.
+  with trip-row waypoint and mileage review on the Trips page. Trips uses one month/year picker
+  that loads the selected month automatically.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -63,16 +66,16 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
-- In-app diagnostics page for app logs, trip calculation logs, failed-login audit records, and
-  OwnTracks state in the configured local timezone. The Diagnostics Application card shows the app
-  version, the Manual Odometer, EIA API, and OwnTracks State cards share one equal-width status
-  row, hard drive rows combine matching used and total space readings, detailed lists use compact
-  10-row pages, and Full Data Backup stays at the bottom under the App Log.
+- In-app diagnostics page for app logs, trip calculation logs, successful and failed web-login
+  audit records, and OwnTracks state in the configured local timezone. The Diagnostics Application
+  card shows the app version, the Manual Odometer, EIA API, and OwnTracks State cards share one
+  equal-width status row, hard drive rows combine matching used and total space readings, detailed
+  lists use compact 10-row pages, and Full Data Backup stays at the bottom under the App Log.
 - Installed mobile web-app layout keeps navigation in one full-width top-bar row and leaves the
   bottom safe area clear for phone system navigation without opting into edge-to-edge phone
   drawing.
-- Failed web-login audit records shown on Diagnostics and written into the host log directory, with
-  an optional `/var/log/mileage-logger-login-failures.log` host symlink.
+- Web-login audit records shown on Diagnostics and written into the host log directory, with an
+  optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
 
 Create a production `.env` with generated passwords:
@@ -88,7 +91,7 @@ start the stack:
 docker compose up -d --build
 ```
 
-`scripts/init_docker_env.sh` tries to create the host log directory, login-failure log file, and
+`scripts/init_docker_env.sh` tries to create the host log directory, web-login audit log file, and
 the short `/var/log/mileage-logger-login-failures.log` symlink. If your user cannot write to
 `/var/log`, create them before starting Docker:
 
@@ -164,10 +167,12 @@ The app still leaves `/api/` outside the web login internally, but public nginx 
 OwnTracks ingestion endpoints. If you access the app over plain HTTP for local testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
 not show the app name before authentication and temporarily locks out repeated failed attempts.
-Each failed login attempt and lockout rejection is appended to `LOGIN_FAILURE_LOG_PATH` as a
-structured JSON-lines record with client IP details, submitted username, password length, user
-agent, request path, reason, attempt count, lockout state, and timestamps. The raw submitted
-password is never stored.
+Each successful login, failed login attempt, and lockout rejection is appended to
+`LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
+details, submitted username, password length, user agent, request path, reason, attempt count,
+lockout state, and timestamps. Successful entries include client IP details, submitted username,
+matched account, web client, request path, and timestamps. The raw submitted password is never
+stored.
 
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
@@ -201,9 +206,9 @@ The app also creates automatic full-data backups every hour when
 `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups` such as `/data/logs/backups` in Docker.
 Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
 retention policy keeps the newest 6 hourly backups plus one daily backup for today and each of the
-prior 2 days. Each listed automatic backup also has its own download button. Backup downloads use
-`Cache-Control: no-store` and require the same web login as restore because the files contain
-location history.
+prior 2 days. Startup-created automatic backups are labeled in the table. Each listed automatic
+backup also has its own download button. Backup downloads use `Cache-Control: no-store` and
+require the same web login as restore because the files contain location history.
 
 To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
 file first, then replaces the current app table rows in one transaction. Restore is a replace, not
@@ -299,7 +304,8 @@ Diagnostics row as the EIA API test card and the current OwnTracks State card. D
 shows hard drive space for key runtime paths with used-space bars, combining paths into one row
 when their exact used space and total capacity match, and includes current database size plus total
 app record count at the bottom of the card. Recent OwnTracks entries, OwnTracks state changes,
-failed-login attempts, and app-managed Cloudflare blocked IPs are displayed 10 rows at a time.
+successful-login attempts, failed-login attempts, and app-managed Cloudflare blocked IPs are
+displayed 10 rows at a time.
 
 ## Cloudflare Tunnel
 
@@ -379,13 +385,14 @@ Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that
 blocked by the app.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
 `trip-calculation.log`, worker logs, gas snapshot logs, and
-`mileage-logger-login-failures.log` directly. The app writes failed-login audit records inside the
+`mileage-logger-login-failures.log` directly. The app writes web-login audit records inside the
 mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH` is only a host-side symlink alias for the
-shorter `/var/log/mileage-logger-login-failures.log` path. The same failed-login entries are shown
-in Diagnostics.
+shorter `/var/log/mileage-logger-login-failures.log` path. Successful and failed login entries are
+shown separately in Diagnostics.
 Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
 mount, and are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
 are truncated in the Diagnostics table but remain visible on hover and available to download.
+Backups created by the app startup pass are labeled as startup backups.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least
 `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`; error lines are always included at every level.
@@ -418,9 +425,9 @@ systemd inside the container.
 2. Review or export saved waypoints from the `Waypoints` page.
 3. Configure OwnTracks to send waypoint transition events and normal location updates.
 4. Let the app automatically create trips from incoming OwnTracks transitions.
-5. Review `Trips`, switch to the needed month, add manual trips with the local-today date default,
-   and edit row waypoint dropdowns or miles if needed. Existing row dates and odometers are
-   read-only.
+5. Review `Trips`, choose the needed month/year with the month picker, add manual trips with the
+   local-today date default, and edit row waypoint dropdowns or miles if needed. Existing row dates
+   and odometers are read-only.
 6. Add or fetch a monthly gas price for that report month.
 7. Download the monthly PDF report from the `Trips` page.
 

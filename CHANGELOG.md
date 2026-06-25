@@ -1,8 +1,21 @@
 # Changelog
 
-## Unreleased
+## 1.2.1 - Unreleased
 
-No unreleased changes.
+- Bumped the Mileage Logger package version to 1.2.1 without publishing a release.
+- Added a lightweight Dashboard loading shell so direct homepage loads show a loading message while
+  the calculated Dashboard content is fetched from an authenticated content route.
+- Changed Trips month navigation to a single month/year picker that defaults to the current local
+  month, auto-loads selected months, and displays the selected month as `Showing June 2026
+  (06/2026)` style text.
+- Added successful web-login audit records and a paginated Successful Login Attempts table above
+  the Failed Login Attempts table on Diagnostics.
+- Changed automatic backups created by the app startup pass to use a startup-marked filename and
+  show a Startup label in the retained automatic-backup table.
+- Changed the Waypoints mobile pagination layout so First, Previous, Next, and Last stay in one
+  row with the page count shown as plain text below.
+- Changed the shared top-bar brand icon and Mileage Logger text to display-only content instead of
+  a clickable home link.
 
 ## 1.2.0 - 2026-06-24
 

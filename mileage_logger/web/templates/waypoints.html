@@ -19,22 +19,24 @@
         of {{ waypoint_pagination.total }}
       </p>
     </div>
-    <div class="pagination-controls" aria-label="OwnTracks waypoint pages">
-      {% if waypoint_pagination.has_previous %}
-      <a class="button-link secondary" href="/waypoints?page=1">First</a>
-      <a class="button-link secondary" href="/waypoints?page={{ waypoint_pagination.page - 1 }}">Previous</a>
-      {% else %}
-      <span class="pagination-disabled">First</span>
-      <span class="pagination-disabled">Previous</span>
-      {% endif %}
-      <span class="pagination-status">Page {{ waypoint_pagination.page }} of {{ waypoint_pagination.total_pages }}</span>
-      {% if waypoint_pagination.has_next %}
-      <a class="button-link secondary" href="/waypoints?page={{ waypoint_pagination.page + 1 }}">Next</a>
-      <a class="button-link secondary" href="/waypoints?page={{ waypoint_pagination.total_pages }}">Last</a>
-      {% else %}
-      <span class="pagination-disabled">Next</span>
-      <span class="pagination-disabled">Last</span>
-      {% endif %}
+    <div class="pagination-controls waypoint-pagination" aria-label="OwnTracks waypoint pages">
+      <div class="pagination-button-row">
+        {% if waypoint_pagination.has_previous %}
+        <a class="button-link secondary" href="/waypoints?page=1">First</a>
+        <a class="button-link secondary" href="/waypoints?page={{ waypoint_pagination.page - 1 }}">Previous</a>
+        {% else %}
+        <span class="pagination-disabled">First</span>
+        <span class="pagination-disabled">Previous</span>
+        {% endif %}
+        {% if waypoint_pagination.has_next %}
+        <a class="button-link secondary" href="/waypoints?page={{ waypoint_pagination.page + 1 }}">Next</a>
+        <a class="button-link secondary" href="/waypoints?page={{ waypoint_pagination.total_pages }}">Last</a>
+        {% else %}
+        <span class="pagination-disabled">Next</span>
+        <span class="pagination-disabled">Last</span>
+        {% endif %}
+      </div>
+      <span class="pagination-status-text">Page {{ waypoint_pagination.page }} of {{ waypoint_pagination.total_pages }}</span>
     </div>
   </div>
   <table>

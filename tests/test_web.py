@@ -39,7 +39,10 @@ from mileage_logger.services.diagnostics import (
     recent_owntracks_entries,
 )
 from mileage_logger.services.gas_prices import AaaMichiganGasPriceProvider, GasPriceReading
-from mileage_logger.services.login_failures import tail_login_failure_entries
+from mileage_logger.services.login_failures import (
+    tail_login_failure_entries,
+    tail_login_success_entries,
+)
 from mileage_logger.services.mileage import haversine_miles
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import (
@@ -315,12 +318,14 @@ def test_web_login_leaves_api_routes_open(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
-def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
+def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
         web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -341,6 +346,11 @@ def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
         assert login_response.headers["location"] == "/trips?year=2026&month=6"
         assert page_response.status_code == 200
         assert "Monthly Trips" in page_response.text
+        success_entries = tail_login_success_entries(login_failure_log_path)
+        assert len(success_entries) == 1
+        assert success_entries[0].username == "admin"
+        assert success_entries[0].account == "admin"
+        assert "secret-password" not in login_failure_log_path.read_text(encoding="utf-8")
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -458,6 +468,8 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         response = client.get("/")
 
         assert response.status_code == 200
+        assert "Loading mileage totals, reimbursement details, and recent trips." in response.text
+        assert 'data-dashboard-content-url="/dashboard/content"' in response.text
         assert (
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             in response.text
@@ -471,6 +483,8 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert 'rel="manifest" href="/manifest.webmanifest"' in response.text
         assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' in response.text
         assert "/static/icons/mileage-logger-icon.svg" in response.text
+        assert '<div class="brand" aria-label="Mileage Logger">' in response.text
+        assert '<a class="brand" href="/">' not in response.text
         assert 'class="app-close-button"' not in response.text
         assert "window.close()" not in response.text
         assert "border: 1px solid var(--line);" in response.text
@@ -648,7 +662,7 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
             )
             db.commit()
 
-        response = client.get("/")
+        response = client.get("/dashboard/content")
 
         assert response.status_code == 200
         assert "Distance driven summary" in response.text
@@ -728,7 +742,7 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
             )
             db.commit()
 
-        response = client.get("/")
+        response = client.get("/dashboard/content")
 
         assert response.status_code == 200
         stats_section = _html_section(
@@ -812,7 +826,7 @@ def test_dashboard_trip_plus_non_trip_total_is_never_below_trip_total(monkeypatc
                 month=6,
             )
 
-        response = client.get("/")
+        response = client.get("/dashboard/content")
 
         assert summary["today_total"] == Decimal("8.4")
         assert summary["today_trips"] == Decimal("8.4")
@@ -930,7 +944,7 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
             )
             db.commit()
 
-        response = client.get("/")
+        response = client.get("/dashboard/content")
 
         assert response.status_code == 200
         assert "2026-06-16 11:30:00 PM" in response.text
@@ -1035,7 +1049,7 @@ def test_dashboard_distance_totals_ignore_manual_odometer_reset(monkeypatch) -> 
             )
             db.commit()
 
-        response = client.get("/")
+        response = client.get("/dashboard/content")
 
         assert response.status_code == 200
         assert f"<strong>{today_total}</strong>" in response.text
@@ -1072,7 +1086,7 @@ def test_dashboard_replaces_vehicle_mpg_with_location_state(monkeypatch) -> None
             )
             db.commit()
 
-        response = client.get("/")
+        response = client.get("/dashboard/content")
 
         assert response.status_code == 200
         assert "Vehicle MPG" not in response.text
@@ -1352,6 +1366,9 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
         assert "Showing 21-40" in response.text
         assert "of 45" in response.text
         assert "Page 2 of 3" in response.text
+        assert 'class="pagination-controls waypoint-pagination"' in response.text
+        assert 'class="pagination-button-row"' in response.text
+        assert 'class="pagination-status-text">Page 2 of 3</span>' in response.text
         assert "OwnTracks Region ID" not in response.text
         assert "region-25" not in response.text
         assert "/waypoints?page=1" in response.text
@@ -1476,6 +1493,26 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
     monkeypatch,
 ) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
+    success_payload = {
+        "event": "web_login_succeeded",
+        "occurred_at_utc": "2026-06-19T11:59:00Z",
+        "occurred_at_local": "2026-06-19T07:59:00-04:00",
+        "client_ip": "203.0.113.9",
+        "direct_client_ip": "10.0.0.11",
+        "cf_connecting_ip": "203.0.113.9",
+        "x_real_ip": "",
+        "x_forwarded_for": "",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "SuccessBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "account": "admin",
+    }
     payload = {
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-19T12:00:00Z",
@@ -1500,7 +1537,10 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(json.dumps(payload), encoding="utf-8")
+    login_failure_log_path.write_text(
+        f"{json.dumps(success_payload)}\n{json.dumps(payload)}\n",
+        encoding="utf-8",
+    )
     monkeypatch.setattr(
         "mileage_logger.web.routes.get_settings",
         lambda: Settings(
@@ -1515,6 +1555,16 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
         download_response = client.get("/diagnostics/logs/login-failures")
 
         assert response.status_code == 200
+        success_section = _html_section(
+            response.text,
+            '<section id="login-successes" class="panel">',
+            '<section id="login-failures" class="panel">',
+        )
+        assert "Successful Login Attempts" in success_section
+        assert "203.0.113.9" in success_section
+        assert "SuccessBrowser/1.0" in success_section
+        assert "<th>Account</th>" in success_section
+        assert "admin" in success_section
         assert "Failed Login Attempts" in response.text
         assert "203.0.113.10" in response.text
         assert "admin" in response.text
@@ -1538,6 +1588,32 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
     monkeypatch,
 ) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
+    success_lines = []
+    for index in range(12):
+        success_lines.append(
+            json.dumps(
+                {
+                    "event": "web_login_succeeded",
+                    "occurred_at_utc": f"2026-06-19T11:{index:02d}:00Z",
+                    "occurred_at_local": f"2026-06-19T07:{index:02d}:00-04:00",
+                    "client_ip": f"198.51.100.{50 + index}",
+                    "direct_client_ip": "10.0.0.12",
+                    "cf_connecting_ip": f"198.51.100.{50 + index}",
+                    "x_real_ip": "",
+                    "x_forwarded_for": "",
+                    "forwarded_proto": "https",
+                    "host": "mileage.example.test",
+                    "user_agent": f"SuccessBrowser/{index}",
+                    "method": "POST",
+                    "path": "/login",
+                    "next_url": "/diagnostics",
+                    "username": f"success-{index:02d}",
+                    "username_length": 10,
+                    "username_truncated": False,
+                    "account": "admin",
+                }
+            )
+        )
     lines = []
     for index in range(12):
         lines.append(
@@ -1569,7 +1645,10 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
                 }
             )
         )
-    login_failure_log_path.write_text("\n".join(lines), encoding="utf-8")
+    login_failure_log_path.write_text(
+        "\n".join([*success_lines, *lines]),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(
         "mileage_logger.web.routes.get_settings",
         lambda: Settings(
@@ -1595,6 +1674,29 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
 
         response = client.get("/diagnostics")
         assert response.status_code == 200
+
+        success_section = _html_section(
+            response.text,
+            '<section id="login-successes" class="panel">',
+            '<section id="login-failures" class="panel">',
+        )
+        assert "Showing 1-10 of 12 from" in success_section
+        assert success_section.count("<tr>") == 11
+        assert "success-11" in success_section
+        assert "success-02" in success_section
+        assert "success-01" not in success_section
+        assert "success-00" not in success_section
+
+        second_success_page = client.get("/diagnostics?login_successes_page=2")
+        second_success_section = _html_section(
+            second_success_page.text,
+            '<section id="login-successes" class="panel">',
+            '<section id="login-failures" class="panel">',
+        )
+        assert "Showing 11-12 of 12 from" in second_success_section
+        assert "success-01" in second_success_section
+        assert "success-00" in second_success_section
+        assert "success-02" not in second_success_section
 
         login_section = _html_section(
             response.text,
@@ -1676,7 +1778,7 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    raw_log_line = json.dumps(payload)
+    raw_log_line = f"{json.dumps(payload)}\n"
     login_failure_log_path.write_text(raw_log_line, encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
@@ -1699,6 +1801,8 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
             follow_redirects=False,
         )
         assert login_response.status_code == 303
+        log_text_before_hide = login_failure_log_path.read_text(encoding="utf-8")
+        assert raw_log_line in log_text_before_hide
         entry = tail_login_failure_entries(login_failure_log_path)[0]
 
         response = client.post(
@@ -1714,7 +1818,7 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
 
         assert response.status_code == 303
         assert "203.0.113.10" not in diagnostics_response.text
-        assert login_failure_log_path.read_text(encoding="utf-8") == raw_log_line
+        assert login_failure_log_path.read_text(encoding="utf-8") == log_text_before_hide
         with session_factory() as db:
             hidden_entry = db.scalar(select(HiddenLoginFailure))
             assert hidden_entry is not None
@@ -1756,7 +1860,7 @@ def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_bloc
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(json.dumps(payload), encoding="utf-8")
+    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
         web_login_username="admin",
@@ -1971,6 +2075,7 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
                 db,
                 settings.automatic_backup_dir,
                 now=datetime(2026, 6, 20, 12, 0, tzinfo=UTC),
+                reason="startup",
             )
 
         diagnostics_response = client.get("/diagnostics")
@@ -1980,6 +2085,10 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
         )
         assert diagnostics_response.status_code == 200
         assert "Automatic Backups" in diagnostics_response.text
+        assert backup_result.backup_file.reason == "startup"
+        assert "mileage-logger-auto-backup-startup-20260620-120000Z.json.gz" == (
+            backup_result.backup_file.filename
+        )
         assert backup_result.backup_file.filename in diagnostics_response.text
         automatic_backup_section = _html_section(
             diagnostics_response.text,
@@ -1991,6 +2100,7 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
             in automatic_backup_section
         )
         assert ">Confirmation" not in automatic_backup_section
+        assert '<span class="pill warning">Startup</span>' in automatic_backup_section
         assert "Type RESTORE to confirm automatic backup restore" in automatic_backup_section
         assert "/diagnostics/automatic-backups/download" in diagnostics_response.text
         assert download_response.status_code == 200
@@ -2257,7 +2367,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         entries_section = _html_section(
             response.text,
             '<section id="owntracks-entries" class="panel">',
-            '<section id="login-failures" class="panel">',
+            '<section id="login-successes" class="panel">',
         )
         assert "Showing 1-10 of 12 entries." in entries_section
         assert entries_section.count("<tr>") == 11
@@ -2270,7 +2380,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         second_entries_section = _html_section(
             second_entries_page.text,
             '<section id="owntracks-entries" class="panel">',
-            '<section id="login-failures" class="panel">',
+            '<section id="login-successes" class="panel">',
         )
         assert "Showing 11-12 of 12 entries." in second_entries_section
         assert "owntracks/user/device-01" in second_entries_section
@@ -2471,6 +2581,12 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         )
 
         assert page_response.status_code == 200
+        assert "Showing June 2026 (06/2026)" in page_response.text
+        assert 'type="month"' in page_response.text
+        assert 'value="2026-06"' in page_response.text
+        assert "View Month" not in page_response.text
+        assert 'href="/trips?year=2026&amp;month=5"' not in page_response.text
+        assert 'href="/trips?year=2026&amp;month=7"' not in page_response.text
         assert "Add Trip" in page_response.text
         assert 'name="trip_date" value="2026-06-22"' in page_response.text
         assert 'name="origin_site_id"' in page_response.text
@@ -2887,6 +3003,16 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             ),
             "app_log_lines": [],
             "login_failure_log_path": "/tmp/mileage-logger-login-failures.log",
+            "login_success_entries": [],
+            "login_success_entries_page": SimpleNamespace(
+                first_item=0,
+                last_item=0,
+                total=0,
+                has_previous=False,
+                has_next=False,
+                page=1,
+                total_pages=1,
+            ),
             "login_failure_entries": [],
             "login_failure_entries_page": SimpleNamespace(
                 first_item=0,
@@ -2961,6 +3087,10 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     stylesheet = Path("mileage_logger/web/static/styles.css").read_text(encoding="utf-8")
 
     assert ".automatic-backup-table .backup-file-name" in stylesheet
+    assert ".dashboard-loading-shell" in stylesheet
+    assert ".loading-spinner" in stylesheet
+    assert ".waypoint-pagination" in stylesheet
+    assert ".pagination-button-row .button-link" in stylesheet
     assert "text-overflow: ellipsis;" in stylesheet
     assert ".log-view {\n  height: 450px;" in stylesheet
     assert "  .log-view {\n    height: 42vh;" in stylesheet

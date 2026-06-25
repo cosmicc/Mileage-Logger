@@ -340,6 +340,68 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   </table>
 </section>
 
+<section id="login-successes" class="panel">
+  <div class="panel-toolbar">
+    <div>
+      <h2>Successful Login Attempts</h2>
+      <p class="panel-meta">
+        {{ showing_meta(login_success_entries_page) }} from {{ login_failure_log_path }}.
+      </p>
+    </div>
+    {{ pagination_controls(login_success_entries_page, "login_successes_page", "login-successes", "Successful login attempt pages") }}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Date/time</th>
+        <th>Client IP</th>
+        <th>Username</th>
+        <th>Account</th>
+        <th>Web client</th>
+        <th>Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in login_success_entries %}
+      <tr>
+        <td>{{ entry.occurred_at_local or entry.occurred_at_utc }}</td>
+        <td>{{ entry.client_ip or "-" }}</td>
+        <td>{{ entry.username or "-" }}{% if entry.username_truncated %}...{% endif %}</td>
+        <td>{{ entry.account or "-" }}</td>
+        <td>{{ entry.user_agent or "-" }}</td>
+        <td>
+          <details class="payload-details">
+            <summary>Info</summary>
+            <dl class="diagnostic-list compact-list">
+              <dt>UTC</dt>
+              <dd>{{ entry.occurred_at_utc or "-" }}</dd>
+              <dt>Request</dt>
+              <dd>{{ entry.method }} {{ entry.path }}{% if entry.next_url %} next={{ entry.next_url }}{% endif %}</dd>
+              <dt>Direct client</dt>
+              <dd>{{ entry.direct_client_ip or "-" }}</dd>
+              <dt>CF-Connecting-IP</dt>
+              <dd>{{ entry.cf_connecting_ip or "-" }}</dd>
+              <dt>X-Real-IP</dt>
+              <dd>{{ entry.x_real_ip or "-" }}</dd>
+              <dt>X-Forwarded-For</dt>
+              <dd>{{ entry.x_forwarded_for or "-" }}</dd>
+              <dt>Forwarded proto</dt>
+              <dd>{{ entry.forwarded_proto or "-" }}</dd>
+              <dt>Host</dt>
+              <dd>{{ entry.host or "-" }}</dd>
+              <dt>Username length</dt>
+              <dd>{{ entry.username_length }}</dd>
+            </dl>
+          </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No successful login attempts found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
 <section id="login-failures" class="panel">
   <div class="panel-toolbar">
     <div>
@@ -563,6 +625,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <thead>
         <tr>
           <th>Created</th>
+          <th>Type</th>
           <th>File</th>
           <th>Size</th>
           <th>Download</th>
@@ -573,6 +636,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         {% for backup in automatic_backups %}
         <tr>
           <td>{{ backup.created_at_display }}</td>
+          <td><span class="pill {{ backup.source_css_class }}">{{ backup.source_label }}</span></td>
           <td class="backup-file-name" title="{{ backup.filename }}">{{ backup.filename }}</td>
           <td>{{ backup.size_display }}</td>
           <td>

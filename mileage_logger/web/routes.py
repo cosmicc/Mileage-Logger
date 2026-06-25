@@ -63,7 +63,9 @@ from mileage_logger.services.gas_prices import (
 )
 from mileage_logger.services.login_failures import (
     record_web_login_failure,
+    record_web_login_success,
     tail_login_failure_entries,
+    tail_login_success_entries,
 )
 from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_MANUAL,
@@ -113,6 +115,7 @@ templates = Jinja2Templates(directory=[WEB_DIR / "templates", WEB_DIR / "static"
 DIAGNOSTICS_TABLE_PAGE_SIZE = 10
 DIAGNOSTICS_STATE_CHANGE_LIMIT = 500
 DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES = 200
+DIAGNOSTICS_LOGIN_SUCCESS_MAX_ENTRIES = 200
 
 
 def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
@@ -241,6 +244,8 @@ class DiagnosticAutomaticBackup:
 
     filename: str
     created_at_display: str
+    source_label: str
+    source_css_class: str
     size_display: str
     download_url: str
 
@@ -286,14 +291,22 @@ def _year_month_for_local_date(today: date) -> tuple[int, int]:
     return today.year, today.month
 
 
-def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
-    month_index = (year * 12) + month - 1 + offset
-    return month_index // 12, (month_index % 12) + 1
-
-
 def _validate_month(month: int) -> None:
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="month must be 1 through 12")
+
+
+def _parse_month_input(value: str) -> tuple[int, int]:
+    """Parse a browser month input value in YYYY-MM format."""
+
+    try:
+        parsed_date = datetime.strptime(value.strip(), "%Y-%m").date()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="selected_month must use YYYY-MM format",
+        ) from exc
+    return parsed_date.year, parsed_date.month
 
 
 def _quantize_distance(value: Decimal) -> Decimal:
@@ -615,9 +628,12 @@ def _serialize_automatic_backup(
 ) -> DiagnosticAutomaticBackup:
     """Return display-safe metadata for one automatic backup file."""
 
+    source_label = "Startup" if backup_file.reason == "startup" else "Hourly"
     return DiagnosticAutomaticBackup(
         filename=backup_file.filename,
         created_at_display=_format_local_datetime(backup_file.created_at_utc),
+        source_label=source_label,
+        source_css_class="warning" if backup_file.reason == "startup" else "muted",
         size_display=_format_file_size(backup_file.size_bytes),
         download_url=(
             "/diagnostics/automatic-backups/download?"
@@ -1157,6 +1173,13 @@ def login_form(
             status_code=429,
         )
     if authenticate_web_credentials(username, password, settings):
+        record_web_login_success(
+            request=request,
+            username=username,
+            account=settings.web_login_username,
+            next_url=safe_next,
+            settings=settings,
+        )
         clear_login_failures(request)
         mark_request_authenticated(request)
         logger.info("Web login succeeded")
@@ -1195,8 +1218,9 @@ def logout_form(request: Request) -> RedirectResponse:
     return RedirectResponse(url="/login", status_code=303)
 
 
-@router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+def _dashboard_template_context(db: Session) -> dict:
+    """Return the expensive Dashboard context loaded after the shell renders."""
+
     settings = get_settings()
     app_now = local_now()
     app_today = app_now.date()
@@ -1228,24 +1252,38 @@ def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
             .limit(8)
         )
     )
+    return {
+        "year": year,
+        "month": month,
+        "location_count": location_count,
+        "trip_count": trip_count,
+        "distance_summary": distance_summary,
+        "reimbursement_summary": reimbursement_summary,
+        "location_state": location_state,
+        "latest_odometer": latest_odometer,
+        "recent_trips": recent_trips,
+        "monthly_gas": monthly_gas,
+        "app_local_datetime": app_now,
+        "app_timezone": settings.local_timezone,
+        "app_timezone_abbr": app_now.tzname(),
+    }
+
+
+@router.get("/", response_class=HTMLResponse)
+def dashboard(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "dashboard.html",
-        {
-            "year": year,
-            "month": month,
-            "location_count": location_count,
-            "trip_count": trip_count,
-            "distance_summary": distance_summary,
-            "reimbursement_summary": reimbursement_summary,
-            "location_state": location_state,
-            "latest_odometer": latest_odometer,
-            "recent_trips": recent_trips,
-            "monthly_gas": monthly_gas,
-            "app_local_datetime": app_now,
-            "app_timezone": settings.local_timezone,
-            "app_timezone_abbr": app_now.tzname(),
-        },
+        {"dashboard_content_url": "/dashboard/content"},
+    )
+
+
+@router.get("/dashboard/content", response_class=HTMLResponse)
+def dashboard_content(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "dashboard_content.html",
+        _dashboard_template_context(db),
     )
 
 
@@ -1254,13 +1292,14 @@ def trips(
     request: Request,
     year: int | None = None,
     month: int | None = None,
+    selected_month: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    if year is None or month is None:
+    if selected_month:
+        year, month = _parse_month_input(selected_month)
+    elif year is None or month is None:
         year, month = _current_year_month()
     _validate_month(month)
-    previous_year, previous_month = _shift_month(year, month, -1)
-    next_year, next_month = _shift_month(year, month, 1)
     start = date(year, month, 1)
     end = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
     stmt = (
@@ -1287,14 +1326,11 @@ def trips(
             "trips": all_trips,
             "year": year,
             "month": month,
+            "selected_month_value": f"{year}-{month:02d}",
+            "selected_month_display": f"{month_name[month]} {year} ({month:02d}/{year})",
             "today": local_today(),
             "waypoints": waypoints,
             "waypoint_names": [waypoint.name for waypoint in waypoints],
-            "month_options": [(value, month_name[value]) for value in range(1, 13)],
-            "previous_year": previous_year,
-            "previous_month": previous_month,
-            "next_year": next_year,
-            "next_month": next_month,
             "suppressed_trips": suppressed_trips,
         },
     )
@@ -1561,6 +1597,7 @@ def diagnostics(
     request: Request,
     owntracks_page: int = Query(default=1, ge=1),
     state_changes_page: int = Query(default=1, ge=1),
+    login_successes_page: int = Query(default=1, ge=1),
     login_failures_page: int = Query(default=1, ge=1),
     cloudflare_blocks_page: int = Query(default=1, ge=1),
     odometer_test: str | None = Query(default=None),
@@ -1617,6 +1654,15 @@ def diagnostics(
         login_failure_log_path,
         max_entries=DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES,
         hidden_entry_ids=hidden_login_failure_ids,
+    )
+    login_success_entries = tail_login_success_entries(
+        login_failure_log_path,
+        max_entries=DIAGNOSTICS_LOGIN_SUCCESS_MAX_ENTRIES,
+    )
+    login_success_entries, login_success_entries_page = _paginate_items(
+        login_success_entries,
+        page=login_successes_page,
+        page_size=DIAGNOSTICS_TABLE_PAGE_SIZE,
     )
     login_failure_entries, login_failure_entries_page = _paginate_items(
         login_failure_entries,
@@ -1679,6 +1725,8 @@ def diagnostics(
             "movement_state_changes_page": movement_state_changes_page,
             "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
             "login_failure_log_path": login_failure_log_path,
+            "login_success_entries": login_success_entries,
+            "login_success_entries_page": login_success_entries_page,
             "login_failure_entries": login_failure_entries,
             "login_failure_entries_page": login_failure_entries_page,
             "login_failure_ip_statuses": login_failure_ip_statuses,
@@ -2029,7 +2077,7 @@ def restore_automatic_backup_form(
 def download_login_failure_log() -> Response:
     log_path = Path(get_settings().login_failure_log_path)
     if not log_path.exists():
-        raise HTTPException(status_code=404, detail="Login failure log not found")
+        raise HTTPException(status_code=404, detail="Login audit log not found")
     return Response(
         content=redact_sensitive_text(log_path.read_text(encoding="utf-8", errors="replace")),
         media_type="application/jsonl; charset=utf-8",

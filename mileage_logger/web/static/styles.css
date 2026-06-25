@@ -210,6 +210,50 @@ p {
   font-weight: 700;
 }
 
+.dashboard-loading-shell {
+  display: grid;
+  min-height: min(520px, calc(100dvh - 150px));
+  place-items: center;
+}
+
+.loading-overlay-card {
+  display: flex;
+  width: min(520px, 100%);
+  align-items: center;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid rgba(59, 130, 246, 0.32);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--surface), var(--surface-soft));
+  box-shadow: var(--shadow);
+}
+
+.loading-overlay-card h1 {
+  margin-bottom: 4px;
+  font-size: 26px;
+}
+
+.loading-overlay-card p {
+  margin-bottom: 0;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 3px solid rgba(147, 197, 253, 0.28);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: loading-spin 0.9s linear infinite;
+}
+
+@keyframes loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -526,6 +570,11 @@ input.compact {
   gap: 10px;
 }
 
+.month-input {
+  width: 166px;
+  min-width: 166px;
+}
+
 .month-links {
   display: inline-flex;
   gap: 8px;
@@ -838,6 +887,32 @@ td input[type="text"] {
   border-radius: 7px;
   background: rgba(21, 19, 15, 0.7);
   color: var(--muted);
+  font-weight: 850;
+}
+
+.waypoint-pagination {
+  align-items: flex-end;
+  flex-direction: column;
+}
+
+.pagination-button-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pagination-button-row .button-link,
+.pagination-button-row .pagination-disabled {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.pagination-status-text {
+  color: var(--muted);
+  font-size: 13px;
   font-weight: 850;
 }
 
@@ -1187,6 +1262,18 @@ td input[type="text"] {
   .month-links {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .pagination-button-row {
+    gap: 5px;
+  }
+
+  .pagination-button-row .button-link,
+  .pagination-button-row .pagination-disabled {
+    width: auto;
+    padding-right: 4px;
+    padding-left: 4px;
+    font-size: 12px;
   }
 
   .login-page {

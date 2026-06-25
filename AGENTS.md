@@ -91,12 +91,13 @@ docker compose up -d --build
   other API routes stay internal to the app container and Docker network.
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
-- Writes structured JSON-lines records for failed web UI login attempts
-- Saves client IP details, submitted username, password length, user agent, request path,
-  lockout state, and UTC/local timestamps without storing the raw password
-- Feeds the Diagnostics failed-login table, per-row hide controls, per-row Cloudflare block
-  buttons, and the raw download endpoint; the card intentionally has no separate footer refresh or
-  download buttons
+- Writes structured JSON-lines records for successful and failed web UI login attempts
+- Saves client IP details, submitted username, matched account for successful logins, failed-login
+  password length, user agent, request path, lockout state, and UTC/local timestamps without
+  storing the raw password
+- Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
+  controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
+  intentionally has no separate footer refresh or download buttons
 
 **[cloudflare_blocks.py](mileage_logger/services/cloudflare_blocks.py)** — Cloudflare IP blocking
 - Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login IP addresses
@@ -112,12 +113,12 @@ docker compose up -d --build
 **[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
 - Creates a gzip-compressed JSON backup of every SQLAlchemy app table plus OwnTracks waypoint export
 - Restores validated backup files transactionally by replacing current app table rows
-- Creates hourly automatic full-data backups when `AUTOMATIC_BACKUPS_ENABLED=true`, stores them in
-  `AUTOMATIC_BACKUP_DIR`, and prunes to the newest 6 hourly backups plus one daily backup for today
-  and each of the prior 2 days
+- Creates a startup automatic backup followed by hourly automatic full-data backups when
+  `AUTOMATIC_BACKUPS_ENABLED=true`, stores them in `AUTOMATIC_BACKUP_DIR`, and prunes to the
+  newest 6 hourly backups plus one daily backup for today and each of the prior 2 days
 - Backs Diagnostics full backup/restore controls, retained automatic-backup downloads, and retained
-  automatic-backup restore; backup download and restore require web login, and restore also requires
-  typed confirmation
+  automatic-backup restore; backup download and restore require web login, restore also requires
+  typed confirmation, and startup-created backup rows are labeled as Startup
 
 ---
 
@@ -191,6 +192,9 @@ docker compose up -d --build
 - Existing trip rows display trip dates and odometers as read-only values. Row update forms accept
   selected origin/destination waypoint IDs from dropdowns plus mileage edits; posted dates,
   free-text names, and odometer fields are not accepted for existing rows.
+- The Trips page month selector is a single browser month/year picker. It defaults to the app's
+  current `LOCAL_TIMEZONE` month, auto-loads the selected month, and displays the month as
+  `Showing June 2026 (06/2026)` style text under the Trips title.
 - Manual trip creation defaults the date field to the app's `LOCAL_TIMEZONE` current date and uses
   origin/destination waypoint dropdowns populated from saved waypoints. Manual inserts calculate
   and save start/end odometers immediately from the current rolling OwnTracks odometer checkpoint,
@@ -206,14 +210,19 @@ docker compose up -d --build
 - The shared top bar uses boxed navigation links on desktop. On mobile, hide the brand/icon, keep
   the navigation buttons in one full-width top-bar row, avoid fixed bottom navigation, and use
   a normal non-edge-to-edge viewport plus standalone/browser manifest fallback so phone system
-  navigation remains visible.
+  navigation remains visible. The brand icon/text is display-only and must not be a clickable home
+  link.
+- The Dashboard root route renders a lightweight loading shell first. The expensive Dashboard
+  summary queries render through `/dashboard/content`, which is fetched by the shell so direct
+  homepage loads show a loading message before calculations finish.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs
 2. View app logs: `docker compose logs -f app`
 3. App logs are stored at `LOG_DIR`; Docker binds `/data/logs` to the host path in
    `HOST_LOG_DIR` so the Docker server can view `app.log`, `trip-calculation.log`, and worker logs.
-4. Failed web login attempts are written to `LOGIN_FAILURE_LOG_PATH` and shown on `/diagnostics`.
+4. Successful and failed web login attempts are written to `LOGIN_FAILURE_LOG_PATH` and shown on
+   `/diagnostics` in separate compact tables.
    In Docker, this is `/data/logs/mileage-logger-login-failures.log`, backed by `HOST_LOG_DIR`.
    `HOST_LOGIN_FAILURE_LOG_PATH` may point to a host symlink such as
    `/var/log/mileage-logger-login-failures.log`.
@@ -221,15 +230,15 @@ docker compose up -d --build
    download. When Cloudflare IP blocking is enabled and configured, Diagnostics can block/unblock
    app-managed Cloudflare zone IP Access Rules. Automatic blocking occurs after the configured
    consecutive failed-login threshold and successful login resets that IP's consecutive count.
-   Diagnostics paginates failed-login rows and app-managed Cloudflare blocks in compact 10-row
-   pages.
+   Diagnostics paginates successful-login rows, failed-login rows, and app-managed Cloudflare
+   blocks in compact 10-row pages.
 6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log, and the manual full-backup
    download control sits with the lower upload-restore controls. Restore replaces all app table
    data from a validated `.json.gz` backup and is enabled only when web login is configured.
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
-   backup can be downloaded individually, and the selected file can be restored after typed
-   `RESTORE` confirmation.
+   backup can be downloaded individually, startup-created files are labeled, and the selected file
+   can be restored after typed `RESTORE` confirmation.
 7. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
    before the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and
    recent OwnTracks database entries are paginated in compact 10-row pages.
@@ -280,8 +289,8 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups`; treat backup files as sensitive location
   history. Retained automatic backups can be downloaded individually from Diagnostics after web
   login.
-- Runtime app logs and failed-login audit records are host bind-mounted through `HOST_LOG_DIR`.
-  Do not bind-mount the failed-login log as an individual file; use the host symlink documented in
+- Runtime app logs and web-login audit records are host bind-mounted through `HOST_LOG_DIR`.
+  Do not bind-mount the login audit log as an individual file; use the host symlink documented in
   `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.
 
 ---
