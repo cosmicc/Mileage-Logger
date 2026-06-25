@@ -305,7 +305,8 @@ shows hard drive space for key runtime paths with used-space bars, combining pat
 when their exact used space and total capacity match, and includes current database size plus total
 app record count at the bottom of the card. Recent OwnTracks entries, OwnTracks state changes,
 successful-login attempts, failed-login attempts, and app-managed Cloudflare blocked IPs are
-displayed 10 rows at a time.
+displayed 10 rows at a time with mobile pagination buttons in one full-width row and the page count
+shown as text below.
 
 ## Cloudflare Tunnel
 

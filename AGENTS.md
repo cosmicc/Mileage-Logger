@@ -236,7 +236,8 @@ docker compose up -d --build
    remove button that deletes the Cloudflare rule and local row. Automatic blocking occurs after
    the configured consecutive failed-login threshold and successful login resets that IP's
    consecutive count. Diagnostics paginates successful-login rows, failed-login rows, and
-   app-managed Cloudflare blocks in compact 10-row pages.
+   app-managed Cloudflare blocks in compact 10-row pages; on mobile, pagination keeps First,
+   Previous, Next, and Last in one full-width row with the page count as text below.
 6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log, and the manual full-backup
    download control sits with the lower upload-restore controls. Restore replaces all app table
@@ -246,7 +247,8 @@ docker compose up -d --build
    can be restored after typed `RESTORE` confirmation.
 7. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
    before the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and
-   recent OwnTracks database entries are paginated in compact 10-row pages.
+   recent OwnTracks database entries are paginated in compact 10-row pages with the same mobile
+   full-width pagination row used by the login and Cloudflare block lists.
 8. Diagnostics shows the app version in the Application card, shows hard drive space for key
    runtime paths, combines paths into one row when exact used bytes and total bytes match, and
    includes current database size plus total app record count at the bottom of the card.

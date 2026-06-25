@@ -554,7 +554,8 @@ row's remove action deleting both the Cloudflare rule and the local row. Automat
 also record a reason, and the blocked-IP table should render an Auto or Manual source pill for each
 block. Keep the Diagnostics successful-login table, failed-login table, Cloudflare blocked-IP
 table, recent OwnTracks entries, and OwnTracks state-change log paginated at 10 visible rows per
-page so the cards stay compact.
+page so the cards stay compact. Their mobile pagination controls should keep First, Previous, Next,
+and Last in one full-width row with the page count rendered as plain text below the buttons.
 
 ### Diagnostics Full Backup And Restore
 

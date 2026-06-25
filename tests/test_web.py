@@ -1679,6 +1679,9 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
 
         response = client.get("/diagnostics")
         assert response.status_code == 200
+        assert response.text.count('class="pagination-controls diagnostics-pagination"') == 5
+        assert response.text.count('class="pagination-button-row"') >= 5
+        assert response.text.count('class="pagination-status-text">Page 1 of 2</span>') >= 3
 
         success_section = _html_section(
             response.text,
@@ -1686,6 +1689,8 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="login-failures" class="panel">',
         )
         assert "Showing 1-10 of 12 from" in success_section
+        assert 'class="pagination-button-row"' in success_section
+        assert 'class="pagination-status-text">Page 1 of 2</span>' in success_section
         assert success_section.count("<tr>") == 11
         assert "success-11" in success_section
         assert "success-02" in success_section
@@ -1709,6 +1714,8 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="cloudflare-blocked-ips" class="panel">',
         )
         assert "Showing 1-10 of 12 from" in login_section
+        assert 'class="pagination-button-row"' in login_section
+        assert 'class="pagination-status-text">Page 1 of 2</span>' in login_section
         assert login_section.count("<tr>") == 11
         assert "user-11" in login_section
         assert "user-02" in login_section
@@ -1732,6 +1739,8 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="app-log" class="panel log-panel">',
         )
         assert "Showing 1-10 of 12 app-managed Cloudflare" in cloudflare_section
+        assert 'class="pagination-button-row"' in cloudflare_section
+        assert 'class="pagination-status-text">Page 1 of 2</span>' in cloudflare_section
         assert cloudflare_section.count("<tr>") == 11
         assert "198.51.100.111" in cloudflare_section
         assert "198.51.100.102" in cloudflare_section
@@ -2471,6 +2480,8 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
             '<section id="owntracks-entries" class="panel">',
         )
         assert "Showing 1-10 of 12 state changes." in state_section
+        assert 'class="pagination-button-row"' in state_section
+        assert 'class="pagination-status-text">Page 1 of 2</span>' in state_section
         assert state_section.count("<tr>") == 11
         assert "State 11" in state_section
         assert "State 02" in state_section
@@ -2494,6 +2505,8 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
             '<section id="login-successes" class="panel">',
         )
         assert "Showing 1-10 of 12 entries." in entries_section
+        assert 'class="pagination-button-row"' in entries_section
+        assert 'class="pagination-status-text">Page 1 of 2</span>' in entries_section
         assert entries_section.count("<tr>") == 11
         assert "owntracks/user/device-11" in entries_section
         assert "owntracks/user/device-02" in entries_section
@@ -3214,7 +3227,10 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".dashboard-loading-shell" in stylesheet
     assert ".loading-spinner" in stylesheet
     assert ".waypoint-pagination" in stylesheet
+    assert ".diagnostics-pagination" in stylesheet
+    assert ".panel-toolbar .pagination-controls" in stylesheet
     assert ".pagination-button-row .button-link" in stylesheet
+    assert "flex: 1 1 0;" in stylesheet
     assert "text-overflow: ellipsis;" in stylesheet
     assert ".log-view {\n  height: 450px;" in stylesheet
     assert "  .log-view {\n    height: 42vh;" in stylesheet

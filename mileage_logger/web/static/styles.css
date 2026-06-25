@@ -926,6 +926,11 @@ td input[type="text"] {
   flex-direction: column;
 }
 
+.diagnostics-pagination {
+  align-items: flex-end;
+  flex-direction: column;
+}
+
 .pagination-button-row {
   display: flex;
   width: 100%;
@@ -1179,6 +1184,15 @@ td input[type="text"] {
     width: 100%;
   }
 
+  .panel-toolbar .pagination-controls {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .panel-toolbar .pagination-button-row {
+    width: 100%;
+  }
+
   nav {
     width: 100%;
     flex-wrap: nowrap;
@@ -1302,6 +1316,7 @@ td input[type="text"] {
   .pagination-button-row .button-link,
   .pagination-button-row .pagination-disabled {
     width: auto;
+    flex: 1 1 0;
     padding-right: 4px;
     padding-left: 4px;
     font-size: 12px;

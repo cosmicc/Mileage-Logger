@@ -7,7 +7,9 @@
   (06/2026)`.
 - Diagnostics now lists successful logins above failed logins, with both lists paginated.
 - Automatic backups created at app startup are labeled in Diagnostics.
-- Waypoints pagination is more compact on mobile, and the top-bar brand is no longer clickable.
+- Waypoints and Diagnostics pagination are more compact on mobile, with the nav buttons filling one
+  row and the page count shown underneath.
+- The top-bar brand is no longer clickable.
 - Diagnostics now lets you manually send a valid IP address and reason to Cloudflare, then shows
   the reason with an Auto or Manual pill in the removable blocked-IP list.
 

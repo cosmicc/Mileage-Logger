@@ -1,22 +1,24 @@
 {% extends "layout.html" %}
 {% block content %}
 {% macro pagination_controls(pagination, page_param, anchor, label) -%}
-<div class="pagination-controls" aria-label="{{ label }}">
-  {% if pagination.has_previous %}
-  <a class="button-link secondary" href="/diagnostics?{{ page_param }}=1#{{ anchor }}">First</a>
-  <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.page - 1 }}#{{ anchor }}">Previous</a>
-  {% else %}
-  <span class="pagination-disabled">First</span>
-  <span class="pagination-disabled">Previous</span>
-  {% endif %}
-  <span class="pagination-status">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-  {% if pagination.has_next %}
-  <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.page + 1 }}#{{ anchor }}">Next</a>
-  <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.total_pages }}#{{ anchor }}">Last</a>
-  {% else %}
-  <span class="pagination-disabled">Next</span>
-  <span class="pagination-disabled">Last</span>
-  {% endif %}
+<div class="pagination-controls diagnostics-pagination" aria-label="{{ label }}">
+  <div class="pagination-button-row">
+    {% if pagination.has_previous %}
+    <a class="button-link secondary" href="/diagnostics?{{ page_param }}=1#{{ anchor }}">First</a>
+    <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.page - 1 }}#{{ anchor }}">Previous</a>
+    {% else %}
+    <span class="pagination-disabled">First</span>
+    <span class="pagination-disabled">Previous</span>
+    {% endif %}
+    {% if pagination.has_next %}
+    <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.page + 1 }}#{{ anchor }}">Next</a>
+    <a class="button-link secondary" href="/diagnostics?{{ page_param }}={{ pagination.total_pages }}#{{ anchor }}">Last</a>
+    {% else %}
+    <span class="pagination-disabled">Next</span>
+    <span class="pagination-disabled">Last</span>
+    {% endif %}
+  </div>
+  <span class="pagination-status-text">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
 </div>
 {%- endmacro %}
 

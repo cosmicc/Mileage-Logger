@@ -12,8 +12,8 @@
   the Failed Login Attempts table on Diagnostics.
 - Changed automatic backups created by the app startup pass to use a startup-marked filename and
   show a Startup label in the retained automatic-backup table.
-- Changed the Waypoints mobile pagination layout so First, Previous, Next, and Last stay in one
-  row with the page count shown as plain text below.
+- Changed Waypoints and Diagnostics mobile pagination so First, Previous, Next, and Last stay in
+  one full-width row with the page count shown as plain text below.
 - Changed the shared top-bar brand icon and Mileage Logger text to display-only content instead of
   a clickable home link.
 - Added a manual valid-IP Cloudflare block form to Diagnostics, requiring a reason and showing
