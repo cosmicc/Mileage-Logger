@@ -1,8 +1,9 @@
 # Web Changelog
 
-## 1.2.1 - Unreleased
+## 1.2.1 - 2026-06-27
 
 - Dashboard now shows a loading message while the calculated home-page cards and recent trips load.
+- Trips now shows a loading message while the selected-month cards and trip records load.
 - Trips now uses a single month/year picker and shows the selected month as `Showing June 2026
   (06/2026)`.
 - Trips now shows selected-month summary cards above Add Trip for mileage, OwnTracks events, trip
@@ -18,8 +19,8 @@
 - The top-bar brand is no longer clickable.
 - Diagnostics now lets you manually send a valid IP address and reason to Cloudflare, then shows
   the reason with an Auto or Manual pill in the removable blocked-IP list.
-- Failed-login rows now correct stale proxy/internal client IP values for display and Cloudflare
-  block buttons without changing successful-login client IP display.
+- Successful and failed login rows now use the Cloudflare-derived client IP when available, so the
+  failed-login block button targets the real browser IP.
 
 ## 1.2.0 - 2026-06-24
 

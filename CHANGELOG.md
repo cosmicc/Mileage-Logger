@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.2.1 - Unreleased
+## 1.2.1 - 2026-06-27
 
-- Bumped the Mileage Logger package version to 1.2.1 without publishing a release.
+- Bumped the Mileage Logger package version to 1.2.1.
 - Added a lightweight Dashboard loading shell so direct homepage loads show a loading message while
   the calculated Dashboard content is fetched from an authenticated content route.
 - Added a lightweight Trips loading shell so selected-month cards and trip rows are fetched from
