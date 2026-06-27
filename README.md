@@ -19,7 +19,7 @@ monthly reimbursement PDF logs.
   the latest current reading before saving a new checkpoint.
 - Manual trip entry defaults to today's local date and uses saved waypoint dropdowns for From/To,
   with trip-row waypoint and mileage review on the Trips page. Trips uses one month/year picker
-  that loads the selected month automatically.
+  that loads the selected month automatically and shows compact selected-month summary cards.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -300,8 +300,9 @@ trip. The trip end odometer is always advanced from the start odometer by the st
 so the odometer display follows the trip miles. Segments fully inside the same saved waypoint are
 ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset the checkpoint
 to the entered value and OwnTracks distance continues from that new rolling value.
-Dashboard total-driven cards sum OwnTracks coordinate segments directly for the selected local day
-or month, so manual odometer resets do not affect trip plus non-trip totals.
+Dashboard total-driven cards and the Trips selected-month cards sum OwnTracks coordinate segments
+directly for the selected local day or month, so manual odometer resets do not affect trip plus
+non-trip totals.
 The Dashboard current-month reimbursement card uses the same trip-mile total, reimbursement
 gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
 displayed gallons limited to one decimal place.
@@ -450,7 +451,9 @@ systemd inside the container.
 4. Let the app automatically create trips from incoming OwnTracks transitions.
 5. Review `Trips`, choose the needed month/year with the month picker, add manual trips with the
    local-today date default, and edit row waypoint dropdowns or miles if needed. Existing row dates
-   and odometers are read-only.
+   and odometers are read-only. The summary cards above Add Trip show the selected month's
+   trip plus non-trip miles, trip-only miles, OwnTracks events, trip count, reimbursement, and
+   monthly average gas price.
 6. Add or fetch a monthly gas price for that report month.
 7. Download the monthly PDF report from the `Trips` page.
 

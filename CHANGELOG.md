@@ -8,6 +8,8 @@
 - Changed Trips month navigation to a single month/year picker that defaults to the current local
   month, auto-loads selected months, and displays the selected month as `Showing June 2026
   (06/2026)` style text.
+- Added compact selected-month summary cards to Trips above Add Trip for trip plus non-trip miles,
+  trip-only miles, OwnTracks events, trip count, reimbursement, and monthly average gas.
 - Added successful web-login audit records and a paginated Successful Login Attempts table above
   the Failed Login Attempts table on Diagnostics.
 - Changed automatic backups created by the app startup pass to use a startup-marked filename and

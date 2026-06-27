@@ -2915,6 +2915,97 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_trips_page_shows_selected_month_summary_cards() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    _location(
+                        datetime(2026, 6, 5, 13, 0, tzinfo=UTC),
+                        datetime(2026, 6, 5, 13, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                    ),
+                    _location(
+                        datetime(2026, 6, 20, 13, 0, tzinfo=UTC),
+                        datetime(2026, 6, 20, 13, 0, tzinfo=UTC),
+                        {"_type": "transition", "event": "enter"},
+                    ),
+                    _location(
+                        datetime(2026, 7, 2, 13, 0, tzinfo=UTC),
+                        datetime(2026, 7, 2, 13, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 12),
+                        started_at=datetime(2026, 6, 12, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 12, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("25.0"),
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 16),
+                        started_at=datetime(2026, 6, 16, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("77.4"),
+                    ),
+                    Trip(
+                        trip_date=date(2026, 7, 2),
+                        started_at=datetime(2026, 7, 2, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 7, 2, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("8.0"),
+                    ),
+                    MonthlyGasPrice(
+                        year=2026,
+                        month=6,
+                        state="MI",
+                        average_price_per_gallon=Decimal("3.500"),
+                        buffer_per_gallon=Decimal("0.00"),
+                        effective_rate=Decimal("3.500"),
+                        source="test",
+                        source_detail="trips summary test",
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/trips?year=2026&month=6")
+
+        assert response.status_code == 200
+        summary_section = _html_section(
+            response.text,
+            '<section class="trips-summary-grid"',
+            '<section class="panel">',
+        )
+        assert response.text.index('<section class="trips-summary-grid"') < response.text.index(
+            "<h2>Add Trip</h2>"
+        )
+        assert "Month Trips + Non-Trips" in summary_section
+        assert "Month Trips Only" in summary_section
+        assert "OwnTracks Events" in summary_section
+        assert "Month Reimbursement" in summary_section
+        assert "Monthly Avg Gas" in summary_section
+        assert "<strong>102.4</strong>" in summary_section
+        assert "<strong>2</strong>" in summary_section
+        assert "$14.34" in summary_section
+        assert "4.0 reimbursement gallons" in summary_section
+        assert "$3.500" in summary_section
+        assert "MI regular" in summary_section
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_trips_page_lists_newest_trips_first() -> None:
     client, session_factory = _test_client_session()
     try:
@@ -3392,6 +3483,9 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".automatic-backup-table .backup-file-name" in stylesheet
     assert ".dashboard-loading-shell" in stylesheet
     assert ".loading-spinner" in stylesheet
+    assert ".trips-summary-grid" in stylesheet
+    assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in stylesheet
+    assert ".trip-summary-card strong" in stylesheet
     assert ".waypoint-pagination" in stylesheet
     assert ".diagnostics-pagination" in stylesheet
     assert ".panel-toolbar .pagination-controls" in stylesheet

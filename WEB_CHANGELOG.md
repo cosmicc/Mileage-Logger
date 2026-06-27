@@ -5,6 +5,8 @@
 - Dashboard now shows a loading message while the calculated home-page cards and recent trips load.
 - Trips now uses a single month/year picker and shows the selected month as `Showing June 2026
   (06/2026)`.
+- Trips now shows selected-month summary cards above Add Trip for mileage, OwnTracks events, trip
+  count, reimbursement, and monthly gas price.
 - Diagnostics now lists successful logins above failed logins, with both lists paginated.
 - Automatic backups created at app startup are labeled in Diagnostics.
 - Waypoints and Diagnostics pagination are more compact on mobile, with the nav buttons filling one

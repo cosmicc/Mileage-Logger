@@ -434,8 +434,6 @@ def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: i
 
     tomorrow = today + timedelta(days=1)
     today_start_dt, today_end_dt = local_day_bounds(today)
-    month_start_date, month_end_date = _month_date_bounds(year, month)
-    month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
     today_components = _distance_components(
         _owntracks_total_miles_for_datetime_range(
             db,
@@ -444,14 +442,7 @@ def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: i
         ),
         _trip_miles_for_date_range(db, today, tomorrow),
     )
-    month_components = _distance_components(
-        _owntracks_total_miles_for_datetime_range(
-            db,
-            month_start_dt,
-            month_end_dt,
-        ),
-        _trip_miles_for_date_range(db, month_start_date, month_end_date),
-    )
+    month_components = _monthly_distance_components(db, year=year, month=month)
     return {
         "today_total": today_components["total"],
         "today_trips": today_components["trips"],
@@ -459,6 +450,81 @@ def _dashboard_distance_summary(db: Session, *, today: date, year: int, month: i
         "month_total": month_components["total"],
         "month_trips": month_components["trips"],
         "month_non_trips": month_components["non_trips"],
+    }
+
+
+def _monthly_distance_components(db: Session, *, year: int, month: int) -> dict[str, Decimal]:
+    """Return selected-month distance components for Trips and Dashboard cards."""
+
+    month_start_date, month_end_date = _month_date_bounds(year, month)
+    month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
+    return _distance_components(
+        _owntracks_total_miles_for_datetime_range(
+            db,
+            month_start_dt,
+            month_end_dt,
+        ),
+        _trip_miles_for_date_range(db, month_start_date, month_end_date),
+    )
+
+
+def _owntracks_event_count_for_datetime_range(
+    db: Session,
+    start_dt: datetime,
+    end_dt: datetime,
+) -> int:
+    """Count OwnTracks rows captured inside a half-open UTC datetime range."""
+
+    return int(
+        db.scalar(
+            select(func.count(OwnTracksLocation.id))
+            .where(OwnTracksLocation.captured_at >= start_dt)
+            .where(OwnTracksLocation.captured_at < end_dt)
+        )
+        or 0
+    )
+
+
+def _trips_month_summary(
+    db: Session,
+    *,
+    year: int,
+    month: int,
+    trip_count: int,
+) -> dict:
+    """Return compact selected-month metrics shown above the Trips add form."""
+
+    settings = get_settings()
+    monthly_gas = db.scalar(
+        select(MonthlyGasPrice)
+        .where(MonthlyGasPrice.year == year)
+        .where(MonthlyGasPrice.month == month)
+        .where(MonthlyGasPrice.state == settings.gas_price_state.upper())
+        .order_by(MonthlyGasPrice.updated_at.desc(), MonthlyGasPrice.id.desc())
+        .limit(1)
+    )
+    month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
+    distance_components = _monthly_distance_components(db, year=year, month=month)
+    reimbursement_summary = _dashboard_reimbursement_summary(
+        db,
+        year=year,
+        month=month,
+        monthly_gas=monthly_gas,
+        vehicle_mpg=settings.vehicle_mpg,
+    )
+    return {
+        "month_total": distance_components["total"],
+        "month_trips": distance_components["trips"],
+        "month_non_trips": distance_components["non_trips"],
+        "owntracks_event_count": _owntracks_event_count_for_datetime_range(
+            db,
+            month_start_dt,
+            month_end_dt,
+        ),
+        "trip_count": trip_count,
+        "reimbursement": reimbursement_summary,
+        "monthly_gas": monthly_gas,
+        "monthly_gas_message": "" if monthly_gas is not None else "No monthly price",
     }
 
 
@@ -1310,6 +1376,12 @@ def trips(
         .order_by(Trip.trip_date.desc(), Trip.started_at.desc(), Trip.id.desc())
     )
     all_trips = list(db.scalars(stmt))
+    trips_summary = _trips_month_summary(
+        db,
+        year=year,
+        month=month,
+        trip_count=len(all_trips),
+    )
     waypoints = _waypoints_for_trip_forms(db)
     suppressed_trips = list(
         db.scalars(
@@ -1329,6 +1401,7 @@ def trips(
             "selected_month_value": f"{year}-{month:02d}",
             "selected_month_display": f"{month_name[month]} {year} ({month:02d}/{year})",
             "today": local_today(),
+            "trips_summary": trips_summary,
             "waypoints": waypoints,
             "waypoint_names": [waypoint.name for waypoint in waypoints],
             "suppressed_trips": suppressed_trips,

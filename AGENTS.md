@@ -207,6 +207,9 @@ docker compose up -d --build
 - The Trips page month selector is a single browser month/year picker. It defaults to the app's
   current `LOCAL_TIMEZONE` month, auto-loads the selected month, and displays the month as
   `Showing June 2026 (06/2026)` style text under the Trips title.
+- The Trips page shows compact selected-month summary cards between the month selector line and
+  Add Trip. Keep the cards scoped to the selected month: trips plus non-trips, trips only,
+  OwnTracks events, trip count, reimbursement, and monthly average gas.
 - Manual trip creation defaults the date field to the app's `LOCAL_TIMEZONE` current date and uses
   origin/destination waypoint dropdowns populated from saved waypoints. Manual inserts calculate
   and save start/end odometers immediately from the current rolling OwnTracks odometer checkpoint,

@@ -27,6 +27,39 @@
   </div>
 </section>
 
+<section class="trips-summary-grid" aria-label="Selected month summary">
+  <div class="trip-summary-card trip-summary-card-primary">
+    <span>Month Trips + Non-Trips</span>
+    <strong>{{ "%.1f"|format(trips_summary.month_total) }}</strong>
+    <small>mi selected month</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Month Trips Only</span>
+    <strong>{{ "%.1f"|format(trips_summary.month_trips) }}</strong>
+    <small>mi reviewed trips</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>OwnTracks Events</span>
+    <strong>{{ trips_summary.owntracks_event_count }}</strong>
+    <small>captured this month</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Trips</span>
+    <strong>{{ trips_summary.trip_count }}</strong>
+    <small>shown below</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Month Reimbursement</span>
+    <strong>{% if trips_summary.reimbursement.total is not none %}${{ "%.2f"|format(trips_summary.reimbursement.total) }}{% else %}N/A{% endif %}</strong>
+    <small>{{ trips_summary.reimbursement.reimbursement_gallons_display }} reimbursement gallons</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Monthly Avg Gas</span>
+    <strong>{% if trips_summary.monthly_gas %}${{ "%.3f"|format(trips_summary.monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
+    <small>{% if trips_summary.monthly_gas %}{{ trips_summary.monthly_gas.state }} regular{% else %}{{ trips_summary.monthly_gas_message }}{% endif %}</small>
+  </div>
+</section>
+
 <section class="panel">
   <h2>Add Trip</h2>
   <form action="/trips" method="post" class="form-row manual-trip-form">

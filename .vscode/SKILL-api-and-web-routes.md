@@ -215,6 +215,9 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.
+- `trips.html` shows compact selected-month cards directly below the month selector rule and above
+  Add Trip. Keep these scoped to the selected month: trips plus non-trips, trips only, OwnTracks
+  events by captured time, trip count, reimbursement, and monthly average gas price.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
