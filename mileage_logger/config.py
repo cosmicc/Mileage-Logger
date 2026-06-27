@@ -1,3 +1,4 @@
+import ipaddress
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
@@ -6,6 +7,16 @@ from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["debug", "info", "warning"]
+PRODUCTION_ENVIRONMENTS = {"prod", "production"}
+UNSAFE_SECRET_KEYS = {"", "change-me"}
+
+
+def _is_blank(value: str) -> bool:
+    return not value.strip()
+
+
+def _secret_key_is_unsafe(value: str) -> bool:
+    return value.strip().casefold() in UNSAFE_SECRET_KEYS
 
 
 class Settings(BaseSettings):
@@ -22,6 +33,7 @@ class Settings(BaseSettings):
     web_session_cookie_secure: bool = False
     web_login_max_attempts: int = Field(default=5, ge=1)
     web_login_lockout_seconds: int = Field(default=300, ge=1)
+    trusted_proxy_cidrs: str = ""
     cloudflare_ip_blocking_enabled: bool = False
     cloudflare_api_token: str = ""
     cloudflare_zone_id: str = ""
@@ -72,6 +84,44 @@ class Settings(BaseSettings):
         if normalized not in {"debug", "info", "warning"}:
             raise ValueError("LOG_LEVEL must be debug, info, or warning")
         return normalized
+
+    @field_validator("trusted_proxy_cidrs", mode="before")
+    @classmethod
+    def validate_trusted_proxy_cidrs(cls, value: object) -> str:
+        """Normalize and validate trusted reverse-proxy IP ranges."""
+
+        entries = [entry.strip() for entry in str(value or "").split(",") if entry.strip()]
+        for entry in entries:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    "TRUSTED_PROXY_CIDRS must contain valid IP addresses or CIDR ranges"
+                ) from exc
+        return ",".join(entries)
+
+    @model_validator(mode="after")
+    def validate_web_security_settings(self) -> Self:
+        """Fail closed for unsafe web authentication settings."""
+
+        app_env = self.app_env.strip().casefold()
+        username_configured = not _is_blank(self.web_login_username)
+        password_configured = not _is_blank(self.web_login_password)
+        web_login_configured = username_configured and password_configured
+        if username_configured != password_configured:
+            raise ValueError(
+                "WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD must both be set or both be blank"
+            )
+        if web_login_configured and _secret_key_is_unsafe(self.secret_key):
+            raise ValueError("SECRET_KEY must be changed before enabling web login")
+        if app_env in PRODUCTION_ENVIRONMENTS:
+            if not web_login_configured:
+                raise ValueError(
+                    "WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD must be set when APP_ENV=production"
+                )
+            if _secret_key_is_unsafe(self.secret_key):
+                raise ValueError("SECRET_KEY must be changed when APP_ENV=production")
+        return self
 
     @model_validator(mode="after")
     def default_automatic_backup_dir(self) -> Self:

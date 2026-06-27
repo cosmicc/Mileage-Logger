@@ -155,11 +155,13 @@ the public nginx reverse proxy.
 To require a simple username/password login for browser pages, set both web login variables:
 
 ```env
+SECRET_KEY=generate-a-long-random-value
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+TRUSTED_PROXY_CIDRS=172.16.0.0/12
 ```
 
 The login protects rendered web pages such as `/`, `/trips`, `/waypoints`, and `/diagnostics`.
@@ -167,6 +169,11 @@ The app still leaves `/api/` outside the web login internally, but public nginx 
 OwnTracks ingestion endpoints. If you access the app over plain HTTP for local testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
 not show the app name before authentication and temporarily locks out repeated failed attempts.
+`WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
+`SECRET_KEY` must be changed from `change-me`; production Docker starts fail closed if the login
+credentials or session secret are missing. `TRUSTED_PROXY_CIDRS` is optional for direct local
+development, but Docker sets it to the bridge proxy range so login lockouts and Cloudflare
+auto-blocks can use nginx-set client IP headers without trusting spoofed browser headers.
 Each successful login, failed login attempt, and lockout rejection is appended to
 `LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
 details, submitted username, password length, user agent, request path, reason, attempt count,
@@ -323,6 +330,10 @@ Tunnel service URL. For a real interface bind such as `BIND_ADDRESS=192.168.1.50
 `http://192.168.1.50:${HTTP_PORT}`. Leave `BIND_ADDRESS=0.0.0.0` to preserve the old all-interface
 host binding.
 
+When `cloudflared` reaches nginx on loopback, nginx forwards Cloudflare's `CF-Connecting-IP` for
+login audit records, lockouts, and automatic Cloudflare blocks. Direct public clients cannot
+spoof that header through nginx.
+
 Set the tunnel token in `.env`:
 
 ```env
@@ -357,6 +368,7 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
@@ -376,8 +388,12 @@ GAS_SNAPSHOT_RUN_ON_STARTUP=true
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
-public nginx exposes only the OwnTracks ingestion endpoints under `/api/`. `WEB_LOGIN_MAX_ATTEMPTS` and
+public nginx exposes only the OwnTracks ingestion endpoints under `/api/`; production Docker
+requires both values and a non-default `SECRET_KEY`. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
+`TRUSTED_PROXY_CIDRS` controls which direct reverse-proxy clients may supply forwarded client IP
+headers for login audit records, lockouts, and Cloudflare auto-blocks. Leave it blank when the app
+is served directly; use the Docker default when requests arrive through the bundled nginx service.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 `CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with `Account Firewall Access Rules Write`

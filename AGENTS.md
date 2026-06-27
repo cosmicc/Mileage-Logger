@@ -33,6 +33,7 @@ uvicorn mileage_logger.app:app --reload
 ```bash
 pytest           # Run tests
 ruff check .     # Lint
+CLOUDFLARED_TUNNEL_TOKEN=dummy-token docker compose --env-file .env.docker.example config
 ```
 
 ### Docker Deployment
@@ -95,6 +96,10 @@ docker compose up -d --build
 - Saves client IP details, submitted username, matched account for successful logins, failed-login
   password length, user agent, request path, lockout state, and UTC/local timestamps without
   storing the raw password
+- Uses the same effective client key as login lockout and Cloudflare auto-blocking. Forwarded
+  client IP headers are trusted only when the direct request client matches `TRUSTED_PROXY_CIDRS`;
+  otherwise spoofed `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` headers stay in audit
+  metadata but do not control lockout or block targets.
 - Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
   intentionally has no separate footer refresh or download buttons
@@ -112,6 +117,8 @@ docker compose up -d --build
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates landscape PDF with trip table
 - Shows start/end odometers, miles, and location names
+- Escapes trip and waypoint names before passing them to ReportLab `Paragraph` so user-managed
+  names render as text rather than PDF markup.
 - Calculates total miles and total reimbursement amount
 
 **[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
@@ -167,7 +174,8 @@ docker compose up -d --build
   `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
-  `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`, `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`
+  `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
+  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `TRUSTED_PROXY_CIDRS`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -286,13 +294,19 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - PostgreSQL data is stored in the named `postgres_data` Docker volume and persists across normal
   `docker compose up -d --build` rebuilds. Do not use `docker compose down -v`, prune volumes, or
   change the Compose/Portainer stack name unless you have a verified backup and migration plan.
-- Environment variables in `.env` control all configuration
+- Environment variables in `.env` control all configuration. Production Docker must have
+  `SECRET_KEY`, `WEB_LOGIN_USERNAME`, and `WEB_LOGIN_PASSWORD` set; the app fails closed when
+  production login credentials are missing or the session secret is still `change-me`. When web
+  login is enabled in any environment, change `SECRET_KEY` from the default.
 - Migrations run automatically on app startup
 - Daily gas snapshots run as an app-container background scheduler; there is no separate
   `gas-snapshot` Compose service.
 - Diagnostics page available at `http://server/diagnostics`
 - Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
+- Public nginx overwrites `X-Real-IP` and `X-Forwarded-For` with its immediate peer and forwards
+  `CF-Connecting-IP` only from loopback `cloudflared`; the app accepts forwarded client IP headers
+  only from `TRUSTED_PROXY_CIDRS` for login lockouts and Cloudflare auto-blocks.
 - Diagnostics includes authenticated full data backup and restore controls for app database rows
   and saved OwnTracks waypoint export. Automatic hourly backups are stored under
   `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups`; treat backup files as sensitive location

@@ -55,6 +55,8 @@ from mileage_logger.web.routes import (
     templates,
 )
 
+TEST_SECRET_KEY = "test-secret-key-for-web-session-signing"
+
 
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:")
@@ -62,7 +64,10 @@ def _session() -> Session:
     return sessionmaker(bind=engine, expire_on_commit=False)()
 
 
-def _test_client_session() -> tuple[TestClient, sessionmaker[Session]]:
+def _test_client_session(
+    *,
+    client_host: str = "testclient",
+) -> tuple[TestClient, sessionmaker[Session]]:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -79,7 +84,7 @@ def _test_client_session() -> tuple[TestClient, sessionmaker[Session]]:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    return TestClient(app), session_factory
+    return TestClient(app, client=(client_host, 50000)), session_factory
 
 
 def _html_section(html: str, start_marker: str, end_marker: str | None = None) -> str:
@@ -285,6 +290,7 @@ def test_web_login_redirects_browser_pages_when_configured(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
     )
@@ -304,6 +310,7 @@ def test_web_login_leaves_api_routes_open(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
     )
@@ -324,13 +331,15 @@ def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         login_failure_log_path=str(login_failure_log_path),
+        trusted_proxy_cidrs="172.18.0.0/16",
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session()
+    client, _ = _test_client_session(client_host="172.18.0.5")
     try:
         login_response = client.post(
             "/login",
@@ -362,13 +371,15 @@ def test_web_login_rejects_invalid_credentials(monkeypatch, tmp_path) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         login_failure_log_path=str(login_failure_log_path),
+        trusted_proxy_cidrs="172.18.0.0/16",
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session()
+    client, _ = _test_client_session(client_host="172.18.0.5")
     try:
         login_response = client.post(
             "/login",
@@ -394,13 +405,15 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         login_failure_log_path=str(login_failure_log_path),
+        trusted_proxy_cidrs="172.18.0.0/16",
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session()
+    client, _ = _test_client_session(client_host="172.18.0.5")
     try:
         response = client.post(
             "/login",
@@ -437,10 +450,55 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
         app.dependency_overrides.clear()
 
 
+def test_web_login_ignores_spoofed_forwarding_headers_from_untrusted_clients(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session(client_host="203.0.113.88")
+    try:
+        response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "wrong-password",
+                "next_url": "/diagnostics",
+            },
+            headers={
+                "CF-Connecting-IP": "198.51.100.77",
+                "X-Real-IP": "198.51.100.78",
+                "X-Forwarded-For": "198.51.100.79, 172.18.0.5",
+            },
+        )
+
+        log_text = login_failure_log_path.read_text(encoding="utf-8")
+        payload = json.loads(log_text.splitlines()[0])
+
+        assert response.status_code == 401
+        assert payload["client_ip"] == "203.0.113.88"
+        assert payload["direct_client_ip"] == "203.0.113.88"
+        assert payload["cf_connecting_ip"] == "198.51.100.77"
+        assert list(FAILED_LOGIN_ATTEMPTS) == ["203.0.113.88"]
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
 def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
     )
@@ -501,6 +559,7 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
     )
@@ -1103,6 +1162,7 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=2,
@@ -1159,6 +1219,7 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=10,
@@ -1167,6 +1228,7 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
         cloudflare_auto_block_failed_login_attempts=5,
+        trusted_proxy_cidrs="172.18.0.0/16",
     )
     created_blocks: list[str] = []
 
@@ -1181,7 +1243,7 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
         "mileage_logger.web.routes.create_cloudflare_ip_block",
         fake_create_cloudflare_ip_block,
     )
-    client, session_factory = _test_client_session()
+    client, session_factory = _test_client_session(client_host="172.18.0.5")
     try:
         for _ in range(5):
             response = client.post(
@@ -1209,6 +1271,62 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
         app.dependency_overrides.clear()
 
 
+def test_spoofed_cloudflare_header_does_not_control_auto_block(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        web_login_max_attempts=10,
+        login_failure_log_path=str(login_failure_log_path),
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="test-token",
+        cloudflare_zone_id="test-zone",
+        cloudflare_auto_block_failed_login_attempts=2,
+    )
+    created_blocks: list[str] = []
+
+    def fake_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
+        created_blocks.append(ip_address)
+        assert "2 consecutive failed web login attempts" in note
+        return CloudflareAccessRule(rule_id="cf-rule-1", ip_address=ip_address)
+
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.create_cloudflare_ip_block",
+        fake_create_cloudflare_ip_block,
+    )
+    client, session_factory = _test_client_session(client_host="203.0.113.88")
+    try:
+        for spoofed_ip in ("198.51.100.55", "198.51.100.56"):
+            response = client.post(
+                "/login",
+                data={
+                    "username": "admin",
+                    "password": "wrong-password",
+                    "next_url": "/diagnostics",
+                },
+                headers={"CF-Connecting-IP": spoofed_ip},
+            )
+            assert response.status_code == 401
+
+        assert created_blocks == ["203.0.113.88"]
+        with session_factory() as db:
+            block = db.scalar(select(CloudflareIPBlock))
+            assert block is not None
+            assert block.ip_address == "203.0.113.88"
+            assert block.reason == "2 consecutive failed web login attempts"
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
 def test_successful_web_login_resets_consecutive_failures_before_auto_block(
     monkeypatch,
     tmp_path,
@@ -1217,6 +1335,7 @@ def test_successful_web_login_resets_consecutive_failures_before_auto_block(
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=10,
@@ -1225,6 +1344,7 @@ def test_successful_web_login_resets_consecutive_failures_before_auto_block(
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
         cloudflare_auto_block_failed_login_attempts=5,
+        trusted_proxy_cidrs="172.18.0.0/16",
     )
 
     def fail_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
@@ -1236,7 +1356,7 @@ def test_successful_web_login_resets_consecutive_failures_before_auto_block(
         "mileage_logger.web.routes.create_cloudflare_ip_block",
         fail_create_cloudflare_ip_block,
     )
-    client, session_factory = _test_client_session()
+    client, session_factory = _test_client_session(client_host="172.18.0.5")
     try:
         for _ in range(4):
             response = client.post(
@@ -1841,6 +1961,7 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
     login_failure_log_path.write_text(raw_log_line, encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         log_dir=str(tmp_path),
@@ -1922,6 +2043,7 @@ def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_bloc
     login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         log_dir=str(tmp_path),
@@ -2007,6 +2129,7 @@ def test_diagnostics_manual_cloudflare_block_form_validates_and_records_reason(
     login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         log_dir=str(tmp_path),
@@ -2117,6 +2240,7 @@ def test_diagnostics_manual_cloudflare_block_form_validates_and_records_reason(
 def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tmp_path) -> None:
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         log_dir=str(tmp_path),
@@ -2222,6 +2346,7 @@ def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tm
 def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -> None:
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         log_dir=str(tmp_path),
@@ -2346,6 +2471,7 @@ def test_automatic_backup_retention_keeps_hourly_and_recent_daily(tmp_path) -> N
 def test_diagnostics_full_restore_requires_confirmation(monkeypatch, tmp_path) -> None:
     settings = Settings(
         database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         log_dir=str(tmp_path),

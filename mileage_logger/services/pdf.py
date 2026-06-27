@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from html import escape
 from io import BytesIO
 
 from reportlab.lib import colors
@@ -95,6 +96,12 @@ def _format_odometer(value: Decimal | None) -> str:
     return f"{value:.1f}"
 
 
+def _paragraph_text(value: str) -> str:
+    """Escape user-managed location text before ReportLab parses Paragraph markup."""
+
+    return escape(value)
+
+
 def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
     rows: list[TripReportRow] = []
     for trip in trips:
@@ -153,8 +160,8 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         trip_rows.append(
             [
                 row.trip_date.isoformat(),
-                Paragraph(row.from_location, table_cell),
-                Paragraph(row.to_location, table_cell),
+                Paragraph(_paragraph_text(row.from_location), table_cell),
+                Paragraph(_paragraph_text(row.to_location), table_cell),
                 _format_odometer(row.start_odometer),
                 _format_odometer(row.end_odometer),
                 f"{row.trip_miles:.1f}",

@@ -34,3 +34,13 @@ def test_gas_snapshot_runs_inside_app_container_without_sidecar() -> None:
         in app_block
     )
     assert 'GAS_SNAPSHOT_RUN_ON_STARTUP: "${GAS_SNAPSHOT_RUN_ON_STARTUP:-true}"' in app_block
+
+
+def test_app_container_requires_production_web_login_secrets() -> None:
+    compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+    app_block = _service_block(compose_text, "app")
+
+    assert "SECRET_KEY: \"${SECRET_KEY:?" in app_block
+    assert "WEB_LOGIN_USERNAME: \"${WEB_LOGIN_USERNAME:?" in app_block
+    assert "WEB_LOGIN_PASSWORD: \"${WEB_LOGIN_PASSWORD:?" in app_block
+    assert 'TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}"' in app_block

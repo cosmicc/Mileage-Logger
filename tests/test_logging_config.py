@@ -21,6 +21,56 @@ def test_log_level_rejects_error_as_configured_level() -> None:
         Settings(log_level="error")
 
 
+def test_web_login_requires_complete_credentials() -> None:
+    with pytest.raises(ValidationError, match="WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD"):
+        Settings(web_login_username="admin")
+
+    with pytest.raises(ValidationError, match="WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD"):
+        Settings(web_login_password="secret-password")
+
+
+def test_web_login_rejects_default_secret_key() -> None:
+    with pytest.raises(ValidationError, match="SECRET_KEY"):
+        Settings(
+            web_login_username="admin",
+            web_login_password="secret-password",
+        )
+
+
+def test_production_requires_web_login_and_changed_secret_key() -> None:
+    with pytest.raises(ValidationError, match="WEB_LOGIN_USERNAME"):
+        Settings(
+            app_env="production",
+            secret_key="production-test-secret",
+        )
+
+    with pytest.raises(ValidationError, match="SECRET_KEY"):
+        Settings(
+            app_env="production",
+            secret_key="change-me",
+            web_login_username="admin",
+            web_login_password="secret-password",
+        )
+
+    settings = Settings(
+        app_env="production",
+        secret_key="production-test-secret",
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+
+    assert settings.app_env == "production"
+
+
+def test_trusted_proxy_cidrs_are_validated_and_normalized() -> None:
+    settings = Settings(trusted_proxy_cidrs=" 127.0.0.1 , 172.16.0.0/12 ")
+
+    assert settings.trusted_proxy_cidrs == "127.0.0.1,172.16.0.0/12"
+
+    with pytest.raises(ValidationError, match="TRUSTED_PROXY_CIDRS"):
+        Settings(trusted_proxy_cidrs="not-a-cidr")
+
+
 def test_log_line_visibility_uses_threshold_but_keeps_errors() -> None:
     assert _log_line_is_visible("2026-06-13 09:00:00 EDT INFO [app] started", logging.INFO)
     assert not _log_line_is_visible(

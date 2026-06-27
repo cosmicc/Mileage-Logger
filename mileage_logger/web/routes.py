@@ -917,7 +917,7 @@ def _maybe_auto_block_failed_login_ip(
         return
     if not cloudflare_ip_blocking_configured(settings):
         return
-    normalized_ip = normalize_ip_address(login_client_key(request))
+    normalized_ip = normalize_ip_address(login_client_key(request, settings))
     if normalized_ip is None:
         logger.warning("Skipped Cloudflare auto-block for invalid login client IP")
         return
@@ -1141,8 +1141,8 @@ def login_form(
     safe_next = valid_next_path(next_url)
     if not web_login_enabled(settings):
         return RedirectResponse(url=safe_next, status_code=303)
-    if login_is_locked(request):
-        attempt_state = login_failure_state(request)
+    if login_is_locked(request, settings):
+        attempt_state = login_failure_state(request, settings)
         lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
         record_web_login_failure(
             request=request,
@@ -1180,7 +1180,7 @@ def login_form(
             next_url=safe_next,
             settings=settings,
         )
-        clear_login_failures(request)
+        clear_login_failures(request, settings)
         mark_request_authenticated(request)
         logger.info("Web login succeeded")
         return RedirectResponse(url=safe_next, status_code=303)

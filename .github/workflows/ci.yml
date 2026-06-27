@@ -23,7 +23,6 @@ jobs:
         run: bash -n scripts/*.sh
       - name: Check Docker Compose config
         run: |
-          cp .env.docker.example .env
-          docker compose config
+          CLOUDFLARED_TUNNEL_TOKEN=dummy-token docker compose --env-file .env.docker.example config
       - name: Test
         run: pytest

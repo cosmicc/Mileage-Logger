@@ -98,11 +98,13 @@ Important values:
 HTTP_PORT=80
 BIND_ADDRESS=0.0.0.0
 WEB_ALLOWED_CIDRS=
+SECRET_KEY=<generated-session-secret>
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=<generated-web-password>
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
@@ -132,6 +134,11 @@ CLOUDFLARED_LOG_LEVEL=info
 CLOUDFLARED_METRICS=
 CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 ```
+
+Production starts fail closed when `SECRET_KEY` is still `change-me`, when one web login field is
+blank, or when both web login fields are missing. `TRUSTED_PROXY_CIDRS` tells the app which
+reverse-proxy client IP ranges may supply forwarded client IP headers for login lockouts and
+Cloudflare auto-blocks; the Docker default trusts the internal bridge where bundled nginx runs.
 
 The generated `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are what you enter in OwnTracks HTTP
 mode.
@@ -168,6 +175,12 @@ web UI.
 If this stack is behind another reverse proxy, nginx will usually see that proxy's IP address
 instead of the original client IP. In that setup, enforce IP restrictions at the outer proxy or
 include the proxy's address in `WEB_ALLOWED_CIDRS`.
+
+For web-login audit records, temporary lockouts, and automatic Cloudflare blocks, the app only uses
+forwarded client IP headers from direct clients listed in `TRUSTED_PROXY_CIDRS`. The bundled nginx
+configuration overwrites `X-Real-IP` and `X-Forwarded-For` with its immediate peer and forwards
+`CF-Connecting-IP` only when the direct client is loopback `cloudflared`, so browser-supplied
+spoofing headers do not choose the lockout or block target.
 
 ## Start The Stack
 
@@ -362,6 +375,10 @@ http://127.0.0.1:2082
 For a real interface bind such as `BIND_ADDRESS=192.168.1.50`, use
 `http://192.168.1.50:${HTTP_PORT}` in Cloudflare.
 
+When `cloudflared` reaches nginx on loopback, nginx forwards Cloudflare's `CF-Connecting-IP` to
+the app for login audit records, lockouts, and automatic Cloudflare blocks. Direct public clients
+cannot supply that header through nginx.
+
 Then set:
 
 ```env
@@ -399,6 +416,7 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=

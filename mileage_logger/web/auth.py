@@ -1,3 +1,4 @@
+import ipaddress
 import secrets
 import time
 from dataclasses import dataclass
@@ -35,37 +36,97 @@ def web_login_enabled(settings: Settings | None = None) -> bool:
     """Return whether web UI login is enabled by configured username and password."""
 
     active_settings = settings or get_settings()
-    return bool(active_settings.web_login_username and active_settings.web_login_password)
+    return bool(
+        active_settings.web_login_username.strip()
+        and active_settings.web_login_password.strip()
+    )
 
 
-def login_client_key(request: Request) -> str:
+def _client_host(request: Request) -> str:
+    """Return the direct ASGI client host for audit and throttling decisions."""
+
+    if request.client is None:
+        return ""
+    return request.client.host.strip()
+
+
+def _ip_from_text(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """Parse an IP address string, returning None for malformed or host-name values."""
+
+    try:
+        return ipaddress.ip_address(value.strip())
+    except ValueError:
+        return None
+
+
+def _trusted_proxy_networks(
+    settings: Settings,
+) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Return configured reverse-proxy networks validated by Settings."""
+
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for entry in settings.trusted_proxy_cidrs.split(","):
+        if entry.strip():
+            networks.append(ipaddress.ip_network(entry.strip(), strict=False))
+    return tuple(networks)
+
+
+def _request_from_trusted_proxy(request: Request, settings: Settings) -> bool:
+    """Return whether forwarded client headers may be trusted for this request."""
+
+    direct_ip = _ip_from_text(_client_host(request))
+    if direct_ip is None:
+        return False
+    return any(direct_ip in network for network in _trusted_proxy_networks(settings))
+
+
+def _header_ip(value: str) -> str:
+    """Return a normalized header IP address or an empty string for invalid values."""
+
+    parsed = _ip_from_text(value)
+    if parsed is None:
+        return ""
+    return str(parsed)
+
+
+def login_client_key(request: Request, settings: Settings | None = None) -> str:
     """Return the best available client key for throttling web login attempts."""
 
-    cloudflare_ip = request.headers.get("cf-connecting-ip", "").strip()
-    if cloudflare_ip:
-        return cloudflare_ip
-    real_ip = request.headers.get("x-real-ip", "").strip()
-    if real_ip:
-        return real_ip
-    forwarded_for = request.headers.get("x-forwarded-for", "").split(",", maxsplit=1)[0].strip()
-    if forwarded_for:
-        return forwarded_for
-    if request.client is not None:
-        return request.client.host
+    active_settings = settings or get_settings()
+    if _request_from_trusted_proxy(request, active_settings):
+        cloudflare_ip = _header_ip(request.headers.get("cf-connecting-ip", ""))
+        if cloudflare_ip:
+            return cloudflare_ip
+        real_ip = _header_ip(request.headers.get("x-real-ip", ""))
+        if real_ip:
+            return real_ip
+        forwarded_for = request.headers.get("x-forwarded-for", "").split(",", maxsplit=1)[
+            0
+        ]
+        forwarded_ip = _header_ip(forwarded_for)
+        if forwarded_ip:
+            return forwarded_ip
+
+    direct_client = _client_host(request)
+    if direct_client:
+        return direct_client
     return "unknown"
 
 
-def login_is_locked(request: Request) -> bool:
+def login_is_locked(request: Request, settings: Settings | None = None) -> bool:
     """Return whether the current client is temporarily locked out after failed logins."""
 
-    attempt_state = login_failure_state(request)
+    attempt_state = login_failure_state(request, settings)
     return bool(attempt_state and attempt_state.locked_until > time.monotonic())
 
 
-def login_failure_state(request: Request) -> LoginAttemptState | None:
+def login_failure_state(
+    request: Request,
+    settings: Settings | None = None,
+) -> LoginAttemptState | None:
     """Return the tracked failed-login state for the current client, if present."""
 
-    return FAILED_LOGIN_ATTEMPTS.get(login_client_key(request))
+    return FAILED_LOGIN_ATTEMPTS.get(login_client_key(request, settings))
 
 
 def login_lockout_remaining_seconds(attempt_state: LoginAttemptState | None) -> int:
@@ -83,7 +144,7 @@ def record_login_failure(
     """Record a failed login and lock the client after the configured number of failures."""
 
     active_settings = settings or get_settings()
-    client_key = login_client_key(request)
+    client_key = login_client_key(request, active_settings)
     attempt_state = FAILED_LOGIN_ATTEMPTS.setdefault(client_key, LoginAttemptState())
     if attempt_state.locked_until <= time.monotonic():
         attempt_state.failed_count += 1
@@ -92,10 +153,10 @@ def record_login_failure(
     return attempt_state
 
 
-def clear_login_failures(request: Request) -> None:
+def clear_login_failures(request: Request, settings: Settings | None = None) -> None:
     """Clear failed login state after a successful login."""
 
-    FAILED_LOGIN_ATTEMPTS.pop(login_client_key(request), None)
+    FAILED_LOGIN_ATTEMPTS.pop(login_client_key(request, settings), None)
 
 
 def valid_next_path(value: str | None) -> str:
@@ -158,7 +219,8 @@ def clear_request_authentication(request: Request) -> None:
 async def enforce_web_login(request: Request, call_next):
     """Require login for rendered web pages while leaving API and static paths open."""
 
-    if not web_login_enabled():
+    settings = get_settings()
+    if not web_login_enabled(settings):
         return await call_next(request)
 
     path = request.url.path

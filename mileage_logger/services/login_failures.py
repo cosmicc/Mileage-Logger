@@ -110,6 +110,7 @@ def _build_common_login_payload(
     request: Request,
     username: str,
     next_url: str,
+    settings: Settings,
 ) -> dict[str, Any]:
     """Return bounded request metadata shared by successful and failed login audit records."""
 
@@ -118,7 +119,7 @@ def _build_common_login_payload(
     return {
         "occurred_at_utc": _utc_timestamp(occurred_at_utc),
         "occurred_at_local": datetime_to_local(occurred_at_utc).isoformat(timespec="seconds"),
-        "client_ip": _bounded_text(login_client_key(request)),
+        "client_ip": _bounded_text(login_client_key(request, settings)),
         "direct_client_ip": _direct_client_ip(request),
         "cf_connecting_ip": _request_header(request, "cf-connecting-ip"),
         "x_real_ip": _request_header(request, "x-real-ip"),
@@ -153,6 +154,7 @@ def _build_login_failure_payload(
     lockout_applied: bool,
     lockout_remaining_seconds: int,
     next_url: str,
+    settings: Settings,
 ) -> dict[str, Any]:
     return {
         "event": "web_login_failed",
@@ -160,6 +162,7 @@ def _build_login_failure_payload(
             request=request,
             username=username,
             next_url=next_url,
+            settings=settings,
         ),
         "reason": _bounded_text(reason, max_length=64),
         "password_length": password_length,
@@ -203,6 +206,7 @@ def record_web_login_failure(
         lockout_applied=lockout_applied,
         lockout_remaining_seconds=lockout_remaining_seconds,
         next_url=next_url,
+        settings=active_settings,
     )
     audit_logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 
@@ -213,6 +217,7 @@ def _build_login_success_payload(
     username: str,
     account: str,
     next_url: str,
+    settings: Settings,
 ) -> dict[str, Any]:
     """Return a structured successful-login audit payload without storing the password."""
 
@@ -222,6 +227,7 @@ def _build_login_success_payload(
             request=request,
             username=username,
             next_url=next_url,
+            settings=settings,
         ),
         "account": _bounded_text(account, max_length=MAX_USERNAME_LOG_LENGTH),
     }
@@ -250,6 +256,7 @@ def record_web_login_success(
         username=username,
         account=account,
         next_url=next_url,
+        settings=active_settings,
     )
     audit_logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 

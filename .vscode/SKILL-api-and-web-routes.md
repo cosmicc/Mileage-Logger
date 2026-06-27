@@ -323,11 +323,15 @@ Session-based authentication with optional IP allowlist:
 
 ```env
 # Enable login
+SECRET_KEY=generate-a-long-random-value
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=secret
 
 # Optional: Restrict by IP (CIDR notation)
 WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24
+
+# Optional: Trust reverse-proxy client-IP headers from these direct proxy ranges
+TRUSTED_PROXY_CIDRS=172.16.0.0/12
 
 # For local testing (disable HTTPS cookie)
 WEB_SESSION_COOKIE_SECURE=false
@@ -366,8 +370,15 @@ username, password length, client IP/header details, user agent, request path, r
 count, lockout state, and UTC/local timestamps available for Diagnostics. Keep successful-login
 submitted username, matched account, client IP/header details, user agent, request path, and
 UTC/local timestamps available for the successful-login table.
-Behind Cloudflare Tunnel, `CF-Connecting-IP` is the preferred login client IP source. Keep
-`CLOUDFLARE_IP_BLOCK_ALLOWLIST` checks in front of both automatic and manual block actions so
+`WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
+`SECRET_KEY` must be changed from the default `change-me`; production Docker fails closed if the
+login credentials or session secret are missing. Behind a reverse proxy, configure
+`TRUSTED_PROXY_CIDRS` for the direct proxy client IP ranges that may supply `CF-Connecting-IP`,
+`X-Real-IP`, or `X-Forwarded-For`. Requests from untrusted direct clients must ignore those headers
+for lockout and Cloudflare auto-block identity. The bundled nginx config overwrites `X-Real-IP`
+and `X-Forwarded-For` with its immediate peer and forwards `CF-Connecting-IP` only from loopback
+`cloudflared` traffic.
+Keep `CLOUDFLARE_IP_BLOCK_ALLOWLIST` checks in front of both automatic and manual block actions so
 trusted IPs/CIDRs cannot be blocked by this app.
 
 ---

@@ -1,10 +1,15 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
-from mileage_logger.models import Site, Trip
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from mileage_logger.models import Base, MonthlyGasPrice, Site, Trip
 from mileage_logger.services.pdf import (
     calculate_reimbursement,
     calculate_reimbursement_gallons,
+    generate_monthly_pdf,
     trip_report_rows,
 )
 
@@ -125,3 +130,62 @@ def test_trip_report_rows_use_trip_location_name_overrides() -> None:
 
     assert rows[0].from_location == "Edited Start"
     assert rows[0].to_location == "Edited End"
+
+
+def test_generate_monthly_pdf_escapes_location_markup() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    started_at = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    with session_factory() as db:
+        origin = Site(
+            name="Shop <unclosed",
+            latitude=Decimal("42.3314"),
+            longitude=Decimal("-83.0458"),
+            radius_m=150,
+        )
+        client = Site(
+            name='Client <a href="https://example.invalid">link</a> & Sons',
+            latitude=Decimal("42.3440"),
+            longitude=Decimal("-83.0600"),
+            radius_m=150,
+        )
+        db.add_all([origin, client])
+        db.flush()
+        db.add(
+            Trip(
+                trip_date=date(2026, 6, 11),
+                origin_site=origin,
+                destination_site=client,
+                started_at=started_at,
+                ended_at=started_at + timedelta(minutes=20),
+                start_latitude=origin.latitude,
+                start_longitude=origin.longitude,
+                end_latitude=client.latitude,
+                end_longitude=client.longitude,
+                miles=Decimal("12.50"),
+            )
+        )
+        db.add(
+            MonthlyGasPrice(
+                year=2026,
+                month=6,
+                state="MI",
+                average_price_per_gallon=Decimal("3.500"),
+                buffer_per_gallon=Decimal("0.50"),
+                effective_rate=Decimal("4.000"),
+                source="manual",
+                source_detail="test",
+            )
+        )
+        db.commit()
+
+        report = generate_monthly_pdf(db, 2026, 6)
+
+    assert report.filename == "mileage-2026-06.pdf"
+    assert report.content.startswith(b"%PDF")
+    assert report.total_miles == Decimal("12.5")

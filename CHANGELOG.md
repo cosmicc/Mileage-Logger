@@ -22,6 +22,17 @@
 - Changed Cloudflare authentication failures to explain that `CLOUDFLARE_API_TOKEN` must be a
   Cloudflare API token with `Account Firewall Access Rules Write` access, not the tunnel token or a
   Global API Key.
+- Fixed web-login security startup checks so production fails closed without configured login
+  credentials and a changed `SECRET_KEY`, and enabling web login in any environment rejects the
+  default session secret.
+- Fixed login lockout and Cloudflare auto-block identity handling so forwarded client IP headers
+  are trusted only from configured `TRUSTED_PROXY_CIDRS`, with bundled nginx forwarding
+  `CF-Connecting-IP` only from loopback `cloudflared` and overwriting spoofable client IP headers
+  before proxying.
+- Fixed monthly PDF generation so trip and waypoint names are escaped before ReportLab parses
+  table cell text.
+- Changed CI Docker Compose validation to use `.env.docker.example` through `--env-file` with a
+  dummy tunnel token instead of leaving a production `.env` file behind before tests.
 
 ## 1.2.0 - 2026-06-24
 
