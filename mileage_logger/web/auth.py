@@ -73,10 +73,10 @@ def _trusted_proxy_networks(
     return tuple(networks)
 
 
-def _request_from_trusted_proxy(request: Request, settings: Settings) -> bool:
-    """Return whether forwarded client headers may be trusted for this request."""
+def _client_in_trusted_proxy_networks(client_host: str, settings: Settings) -> bool:
+    """Return whether a direct client host is configured as a trusted reverse proxy."""
 
-    direct_ip = _ip_from_text(_client_host(request))
+    direct_ip = _ip_from_text(client_host)
     if direct_ip is None:
         return False
     return any(direct_ip in network for network in _trusted_proxy_networks(settings))
@@ -91,28 +91,45 @@ def _header_ip(value: str) -> str:
     return str(parsed)
 
 
-def login_client_key(request: Request, settings: Settings | None = None) -> str:
-    """Return the best available client key for throttling web login attempts."""
+def login_client_key_from_values(
+    *,
+    direct_client_ip: str,
+    cf_connecting_ip: str = "",
+    x_real_ip: str = "",
+    x_forwarded_for: str = "",
+    settings: Settings,
+) -> str:
+    """Return the effective login client key from stored or live request IP values."""
 
-    active_settings = settings or get_settings()
-    if _request_from_trusted_proxy(request, active_settings):
-        cloudflare_ip = _header_ip(request.headers.get("cf-connecting-ip", ""))
+    if _client_in_trusted_proxy_networks(direct_client_ip, settings):
+        cloudflare_ip = _header_ip(cf_connecting_ip)
         if cloudflare_ip:
             return cloudflare_ip
-        real_ip = _header_ip(request.headers.get("x-real-ip", ""))
+        real_ip = _header_ip(x_real_ip)
         if real_ip:
             return real_ip
-        forwarded_for = request.headers.get("x-forwarded-for", "").split(",", maxsplit=1)[
-            0
-        ]
+        forwarded_for = x_forwarded_for.split(",", maxsplit=1)[0]
         forwarded_ip = _header_ip(forwarded_for)
         if forwarded_ip:
             return forwarded_ip
 
-    direct_client = _client_host(request)
+    direct_client = direct_client_ip.strip()
     if direct_client:
         return direct_client
     return "unknown"
+
+
+def login_client_key(request: Request, settings: Settings | None = None) -> str:
+    """Return the best available client key for throttling web login attempts."""
+
+    active_settings = settings or get_settings()
+    return login_client_key_from_values(
+        direct_client_ip=_client_host(request),
+        cf_connecting_ip=request.headers.get("cf-connecting-ip", ""),
+        x_real_ip=request.headers.get("x-real-ip", ""),
+        x_forwarded_for=request.headers.get("x-forwarded-for", ""),
+        settings=active_settings,
+    )
 
 
 def login_is_locked(request: Request, settings: Settings | None = None) -> bool:

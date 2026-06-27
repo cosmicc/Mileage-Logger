@@ -495,6 +495,83 @@ def test_web_login_ignores_spoofed_forwarding_headers_from_untrusted_clients(
         app.dependency_overrides.clear()
 
 
+def test_failed_login_entries_resolve_blockable_ip_from_trusted_proxy_headers(
+    tmp_path,
+) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    stale_payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-27T12:00:00Z",
+        "occurred_at_local": "2026-06-27T08:00:00-04:00",
+        "client_ip": "172.18.0.5",
+        "direct_client_ip": "172.18.0.5",
+        "cf_connecting_ip": "198.51.100.77",
+        "x_real_ip": "127.0.0.1",
+        "x_forwarded_for": "127.0.0.1",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "reason": "invalid_credentials",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "password_length": 14,
+        "failed_count": 1,
+        "max_attempts": 5,
+        "lockout_applied": False,
+        "lockout_remaining_seconds": 0,
+    }
+    login_failure_log_path.write_text(f"{json.dumps(stale_payload)}\n", encoding="utf-8")
+    settings = Settings(database_url="sqlite://", trusted_proxy_cidrs="172.18.0.0/16")
+
+    entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
+
+    assert len(entries) == 1
+    assert entries[0].client_ip == "198.51.100.77"
+    assert entries[0].direct_client_ip == "172.18.0.5"
+
+
+def test_failed_login_entries_ignore_stored_spoofed_headers_from_untrusted_clients(
+    tmp_path,
+) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-27T12:00:00Z",
+        "occurred_at_local": "2026-06-27T08:00:00-04:00",
+        "client_ip": "203.0.113.88",
+        "direct_client_ip": "203.0.113.88",
+        "cf_connecting_ip": "198.51.100.77",
+        "x_real_ip": "198.51.100.78",
+        "x_forwarded_for": "198.51.100.79",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "reason": "invalid_credentials",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "password_length": 14,
+        "failed_count": 1,
+        "max_attempts": 5,
+        "lockout_applied": False,
+        "lockout_remaining_seconds": 0,
+    }
+    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
+    settings = Settings(database_url="sqlite://", trusted_proxy_cidrs="172.18.0.0/16")
+
+    entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
+
+    assert len(entries) == 1
+    assert entries[0].client_ip == "203.0.113.88"
+
+
 def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
@@ -2085,6 +2162,64 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         assert "198.51.100.101" in second_cloudflare_section
         assert "198.51.100.100" in second_cloudflare_section
         assert "198.51.100.102" not in second_cloudflare_section
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-27T12:00:00Z",
+        "occurred_at_local": "2026-06-27T08:00:00-04:00",
+        "client_ip": "172.18.0.5",
+        "direct_client_ip": "172.18.0.5",
+        "cf_connecting_ip": "198.51.100.77",
+        "x_real_ip": "127.0.0.1",
+        "x_forwarded_for": "127.0.0.1",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "reason": "invalid_credentials",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "password_length": 14,
+        "failed_count": 1,
+        "max_attempts": 5,
+        "lockout_applied": False,
+        "lockout_remaining_seconds": 0,
+    }
+    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
+    settings = Settings(
+        database_url="sqlite://",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(login_failure_log_path),
+        trusted_proxy_cidrs="172.18.0.0/16",
+        cloudflare_ip_blocking_enabled=True,
+        cloudflare_api_token="token",
+        cloudflare_zone_id="zone",
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        login_section = _html_section(
+            response.text,
+            '<section id="login-failures" class="panel">',
+            '<section id="cloudflare-blocked-ips" class="panel">',
+        )
+        assert "198.51.100.77" in login_section
+        assert 'name="ip_address" value="198.51.100.77"' in login_section
+        assert 'aria-label="Block IP at Cloudflare"' in login_section
     finally:
         app.dependency_overrides.clear()
 

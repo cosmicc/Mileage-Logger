@@ -1879,10 +1879,12 @@ def diagnostics(
         login_failure_log_path,
         max_entries=DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES,
         hidden_entry_ids=hidden_login_failure_ids,
+        settings=settings,
     )
     login_success_entries = tail_login_success_entries(
         login_failure_log_path,
         max_entries=DIAGNOSTICS_LOGIN_SUCCESS_MAX_ENTRIES,
+        settings=settings,
     )
     login_success_entries, login_success_entries_page = _paginate_items(
         login_success_entries,

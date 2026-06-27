@@ -182,7 +182,8 @@ Each successful login, failed login attempt, and lockout rejection is appended t
 details, submitted username, password length, user agent, request path, reason, attempt count,
 lockout state, and timestamps. Successful entries include client IP details, submitted username,
 matched account, web client, request path, and timestamps. The raw submitted password is never
-stored.
+stored. Diagnostics uses the same trusted-proxy rules to show and block the effective client IP, so
+the failed-login block button targets the real browser IP rather than an internal proxy address.
 
 Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
 with the normal username/password once, create a passkey from Diagnostics, then use Device Sign-In

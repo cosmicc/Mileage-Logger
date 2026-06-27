@@ -17,6 +17,8 @@
 - The top-bar brand is no longer clickable.
 - Diagnostics now lets you manually send a valid IP address and reason to Cloudflare, then shows
   the reason with an Auto or Manual pill in the removable blocked-IP list.
+- Failed-login rows now use the same resolved client IP as successful-login rows for display and
+  Cloudflare block buttons.
 
 ## 1.2.0 - 2026-06-24
 

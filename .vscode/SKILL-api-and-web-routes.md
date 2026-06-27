@@ -394,6 +394,10 @@ login credentials or session secret are missing. Behind a reverse proxy, configu
 for lockout and Cloudflare auto-block identity. The bundled nginx config overwrites `X-Real-IP`
 and `X-Forwarded-For` with its immediate peer and forwards `CF-Connecting-IP` only from loopback
 `cloudflared` traffic.
+When rendering Diagnostics from the audit log, resolve the visible and blockable login client IP
+from stored request metadata with those same trusted-proxy rules. Do not use a stale
+proxy/container `client_ip` field from older failed-login rows as the Cloudflare block target when
+trusted `CF-Connecting-IP`, `X-Real-IP`, or `X-Forwarded-For` values identify the real client.
 Passkey verification must use the public browser origin. Prefer explicit `PASSKEY_ORIGIN` and
 `PASSKEY_RP_ID` for unusual reverse-proxy setups; otherwise the passkey service may derive them
 from the browser `Origin` header or trusted proxy scheme/host headers. Public passkey use requires
@@ -585,13 +589,15 @@ reorganized deliberately.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each
-row's remove action deleting both the Cloudflare rule and the local row. Automatic blocks should
-also record a reason, and the blocked-IP table should render an Auto or Manual source pill for each
-block. Cloudflare API error `10000` means the configured API credential was rejected; keep the user
-message pointed at `CLOUDFLARE_API_TOKEN`, the `Account Firewall Access Rules Write` permission,
-and the distinction from `CLOUDFLARED_TUNNEL_TOKEN` and Global API Keys. Keep the Diagnostics
-successful-login table, failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries,
-and OwnTracks state-change log paginated at 10 visible rows per page so the cards stay compact.
+row's remove action deleting both the Cloudflare rule and the local row. The failed-login row block
+button must post the resolved effective client IP shown in the failed-login Client IP column.
+Automatic blocks should also record a reason, and the blocked-IP table should render an Auto or
+Manual source pill for each block. Cloudflare API error `10000` means the configured API credential
+was rejected; keep the user message pointed at `CLOUDFLARE_API_TOKEN`, the
+`Account Firewall Access Rules Write` permission, and the distinction from
+`CLOUDFLARED_TUNNEL_TOKEN` and Global API Keys. Keep the Diagnostics successful-login table,
+failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries, and OwnTracks
+state-change log paginated at 10 visible rows per page so the cards stay compact.
 Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
 with the page count rendered as plain text below the buttons.
 

@@ -36,6 +36,9 @@
   are trusted only from configured `TRUSTED_PROXY_CIDRS`, with bundled nginx forwarding
   `CF-Connecting-IP` only from loopback `cloudflared` and overwriting spoofable client IP headers
   before proxying.
+- Fixed Diagnostics failed-login rows and Cloudflare block buttons to resolve the blockable client
+  IP from stored trusted-proxy headers, so older rows with a stale proxy/container `client_ip`
+  still block the same real IP shown by successful login attempts.
 - Changed bundled nginx to forward the public HTTPS scheme from loopback `cloudflared` traffic so
   passkey origin checks can match the browser's Cloudflare Tunnel origin.
 - Fixed monthly PDF generation so trip and waypoint names are escaped before ReportLab parses
