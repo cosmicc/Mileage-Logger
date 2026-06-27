@@ -5,6 +5,8 @@
 - Bumped the Mileage Logger package version to 1.2.1 without publishing a release.
 - Added a lightweight Dashboard loading shell so direct homepage loads show a loading message while
   the calculated Dashboard content is fetched from an authenticated content route.
+- Added a lightweight Trips loading shell so selected-month cards and trip rows are fetched from
+  `/trips/content` after the initial Trips page opens.
 - Changed Trips month navigation to a single month/year picker that defaults to the current local
   month, auto-loads selected months, and displays the selected month as `Showing June 2026
   (06/2026)` style text.
@@ -34,12 +36,15 @@
   credentials and a changed `SECRET_KEY`, and enabling web login in any environment rejects the
   default session secret.
 - Fixed login lockout and Cloudflare auto-block identity handling so forwarded client IP headers
-  are trusted only from configured `TRUSTED_PROXY_CIDRS`, with bundled nginx forwarding
-  `CF-Connecting-IP` only from loopback `cloudflared` and overwriting spoofable client IP headers
-  before proxying.
-- Fixed Diagnostics failed-login rows and Cloudflare block buttons to correct stale
-  proxy/container `client_ip` values from trusted forwarded headers without changing the stored
-  client IP shown for successful-login rows.
+  are trusted only from configured `TRUSTED_PROXY_CIDRS`, with bundled nginx selecting one
+  Cloudflare-derived client IP and overwriting spoofable forwarded client IP headers before
+  proxying.
+- Fixed Diagnostics login rows and Cloudflare block buttons to correct stale proxy/container
+  `client_ip` values from trusted forwarded headers for both successful and failed web-login
+  attempts.
+- Fixed bundled nginx and Diagnostics login audit handling so successful and failed web-login rows
+  use the Cloudflare-derived client IP when Cloudflare Tunnel supplies `CF-Connecting-IP`, instead
+  of losing that value when the tunnel origin is not loopback.
 - Changed bundled nginx to forward the public HTTPS scheme from loopback `cloudflared` traffic so
   passkey origin checks can match the browser's Cloudflare Tunnel origin.
 - Fixed monthly PDF generation so trip and waypoint names are escaped before ReportLab parses

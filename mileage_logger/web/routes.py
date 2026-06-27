@@ -571,6 +571,66 @@ def _dashboard_reimbursement_summary(
     }
 
 
+def _resolve_selected_trips_month(
+    *,
+    year: int | None,
+    month: int | None,
+    selected_month: str | None,
+) -> tuple[int, int]:
+    """Return the selected Trips page year and month from query parameters."""
+
+    if selected_month:
+        resolved_year, resolved_month = _parse_month_input(selected_month)
+    elif year is None or month is None:
+        resolved_year, resolved_month = _current_year_month()
+    else:
+        resolved_year, resolved_month = year, month
+    _validate_month(resolved_month)
+    return resolved_year, resolved_month
+
+
+def _trips_template_context(db: Session, *, year: int, month: int) -> dict[str, object]:
+    """Build the selected-month Trips template context."""
+
+    start = date(year, month, 1)
+    end = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
+    stmt = (
+        select(Trip)
+        .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
+        .where(Trip.trip_date >= start)
+        .where(Trip.trip_date < end)
+        .order_by(Trip.trip_date.desc(), Trip.started_at.desc(), Trip.id.desc())
+    )
+    all_trips = list(db.scalars(stmt))
+    trips_summary = _trips_month_summary(
+        db,
+        year=year,
+        month=month,
+        trip_count=len(all_trips),
+    )
+    waypoints = _waypoints_for_trip_forms(db)
+    suppressed_trips = list(
+        db.scalars(
+            select(DeletedTrip)
+            .where(DeletedTrip.trip_date >= start)
+            .where(DeletedTrip.trip_date < end)
+            .order_by(DeletedTrip.trip_date.asc(), DeletedTrip.started_at.asc())
+        )
+    )
+    return {
+        "trips": all_trips,
+        "year": year,
+        "month": month,
+        "selected_month_value": f"{year}-{month:02d}",
+        "selected_month_display": f"{month_name[month]} {year} ({month:02d}/{year})",
+        "today": local_today(),
+        "trips_summary": trips_summary,
+        "waypoints": waypoints,
+        "waypoint_names": [waypoint.name for waypoint in waypoints],
+        "suppressed_trips": suppressed_trips,
+    }
+
+
 def _dashboard_location_state(movement_state) -> dict[str, str]:
     """Return compact current-location state text for the Dashboard card."""
 
@@ -1511,53 +1571,36 @@ def trips(
     year: int | None = None,
     month: int | None = None,
     selected_month: str | None = Query(default=None),
-    db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    if selected_month:
-        year, month = _parse_month_input(selected_month)
-    elif year is None or month is None:
-        year, month = _current_year_month()
-    _validate_month(month)
-    start = date(year, month, 1)
-    end = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
-    stmt = (
-        select(Trip)
-        .options(joinedload(Trip.origin_site), joinedload(Trip.destination_site))
-        .where(Trip.trip_date >= start)
-        .where(Trip.trip_date < end)
-        .order_by(Trip.trip_date.desc(), Trip.started_at.desc(), Trip.id.desc())
-    )
-    all_trips = list(db.scalars(stmt))
-    trips_summary = _trips_month_summary(
-        db,
+    year, month = _resolve_selected_trips_month(
         year=year,
         month=month,
-        trip_count=len(all_trips),
-    )
-    waypoints = _waypoints_for_trip_forms(db)
-    suppressed_trips = list(
-        db.scalars(
-            select(DeletedTrip)
-            .where(DeletedTrip.trip_date >= start)
-            .where(DeletedTrip.trip_date < end)
-            .order_by(DeletedTrip.trip_date.asc(), DeletedTrip.started_at.asc())
-        )
+        selected_month=selected_month,
     )
     return templates.TemplateResponse(
         request,
         "trips.html",
-        {
-            "trips": all_trips,
-            "year": year,
-            "month": month,
-            "selected_month_value": f"{year}-{month:02d}",
-            "selected_month_display": f"{month_name[month]} {year} ({month:02d}/{year})",
-            "today": local_today(),
-            "trips_summary": trips_summary,
-            "waypoints": waypoints,
-            "waypoint_names": [waypoint.name for waypoint in waypoints],
-            "suppressed_trips": suppressed_trips,
-        },
+        {"trips_content_url": f"/trips/content?year={year}&month={month}"},
+    )
+
+
+@router.get("/trips/content", response_class=HTMLResponse)
+def trips_content(
+    request: Request,
+    year: int | None = None,
+    month: int | None = None,
+    selected_month: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    year, month = _resolve_selected_trips_month(
+        year=year,
+        month=month,
+        selected_month=selected_month,
+    )
+    return templates.TemplateResponse(
+        request,
+        "trips_content.html",
+        _trips_template_context(db, year=year, month=month),
     )
 
 
@@ -1884,6 +1927,7 @@ def diagnostics(
     login_success_entries = tail_login_success_entries(
         login_failure_log_path,
         max_entries=DIAGNOSTICS_LOGIN_SUCCESS_MAX_ENTRIES,
+        settings=settings,
     )
     login_success_entries, login_success_entries_page = _paginate_items(
         login_success_entries,

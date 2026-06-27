@@ -207,6 +207,10 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - The Dashboard root route renders a lightweight loading shell. Keep expensive Dashboard queries in
   `/dashboard/content` and render `dashboard_content.html` there so direct homepage loads can show
   the loading state before calculated cards arrive.
+- The Trips root route renders a lightweight loading shell. Keep selected-month Trips queries,
+  summary cards, forms, trip rows, and deleted-trip rows in `/trips/content` and render
+  `trips_content.html` there so direct Trips loads can show a loading state before month data
+  arrives.
 - `layout.html` keeps the authenticated navigation in the shared top bar. Desktop nav links use
   boxed button styling like Logout. On mobile, CSS hides the brand/icon and keeps nav links in one
   full-width top-bar row instead of using a fixed bottom nav. Keep the mobile viewport
@@ -215,9 +219,9 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.
-- `trips.html` shows compact selected-month cards directly below the month selector rule and above
-  Add Trip. Keep these scoped to the selected month: trips plus non-trips, trips only, OwnTracks
-  events by captured time, trip count, reimbursement, and monthly average gas price.
+- `trips_content.html` shows compact selected-month cards directly below the month selector rule
+  and above Add Trip. Keep these scoped to the selected month: trips plus non-trips, trips only,
+  OwnTracks events by captured time, trip count, reimbursement, and monthly average gas price.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
@@ -391,13 +395,15 @@ The app has one configured web user, so passkeys are stored for `WEB_LOGIN_USERN
 login credentials or session secret are missing. Behind a reverse proxy, configure
 `TRUSTED_PROXY_CIDRS` for the direct proxy client IP ranges that may supply `CF-Connecting-IP`,
 `X-Real-IP`, or `X-Forwarded-For`. Requests from untrusted direct clients must ignore those headers
-for lockout and Cloudflare auto-block identity. The bundled nginx config overwrites `X-Real-IP`
-and `X-Forwarded-For` with its immediate peer and forwards `CF-Connecting-IP` only from loopback
-`cloudflared` traffic.
-When rendering Diagnostics from the audit log, preserve the stored `client_ip` for successful-login
-rows. For failed-login rows only, resolve the visible and blockable IP from stored request metadata
-when the direct client is trusted; prefer a trusted `X-Forwarded-For` real client before falling
-back to `X-Real-IP`, `CF-Connecting-IP`, or the stored failed-login `client_ip`.
+for lockout and Cloudflare auto-block identity. The bundled nginx config selects one client IP
+from `CF-Connecting-IP` when Cloudflare supplies it, otherwise falls back to the immediate peer,
+then overwrites `X-Real-IP`, `X-Forwarded-For`, and `CF-Connecting-IP` with that selected value.
+Keep the nginx origin behind Cloudflare Tunnel, loopback, a firewall, or another trusted edge so
+direct clients cannot forge Cloudflare headers.
+When rendering Diagnostics from the audit log, resolve the visible IP for successful-login and
+failed-login rows from stored request metadata when the direct client is trusted, then fall back to
+the stored `client_ip`. Failed-login row block buttons must use the same visible, blockable client
+IP.
 Passkey verification must use the public browser origin. Prefer explicit `PASSKEY_ORIGIN` and
 `PASSKEY_RP_ID` for unusual reverse-proxy setups; otherwise the passkey service may derive them
 from the browser `Origin` header or trusted proxy scheme/host headers. Public passkey use requires

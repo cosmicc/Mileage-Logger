@@ -185,9 +185,10 @@ include the proxy's address in `WEB_ALLOWED_CIDRS`.
 
 For web-login audit records, temporary lockouts, and automatic Cloudflare blocks, the app only uses
 forwarded client IP headers from direct clients listed in `TRUSTED_PROXY_CIDRS`. The bundled nginx
-configuration overwrites `X-Real-IP` and `X-Forwarded-For` with its immediate peer and forwards
-`CF-Connecting-IP` only when the direct client is loopback `cloudflared`, so browser-supplied
-spoofing headers do not choose the lockout or block target.
+configuration selects one client IP from `CF-Connecting-IP` when Cloudflare supplies it, otherwise
+falls back to the immediate peer, then overwrites `X-Real-IP`, `X-Forwarded-For`, and
+`CF-Connecting-IP` with that value. Keep nginx reachable only through Cloudflare Tunnel, loopback,
+a firewall, or another trusted edge when relying on Cloudflare client IP headers.
 
 ## Start The Stack
 
@@ -382,9 +383,11 @@ http://127.0.0.1:2082
 For a real interface bind such as `BIND_ADDRESS=192.168.1.50`, use
 `http://192.168.1.50:${HTTP_PORT}` in Cloudflare.
 
-When `cloudflared` reaches nginx on loopback, nginx forwards Cloudflare's `CF-Connecting-IP` to
-the app for login audit records, lockouts, and automatic Cloudflare blocks. Direct public clients
-cannot supply that header through nginx.
+Nginx uses Cloudflare's `CF-Connecting-IP` when present and falls back to the immediate peer, then
+passes that selected client IP to the app for login audit records, lockouts, and automatic
+Cloudflare blocks. If direct public clients can bypass Cloudflare and hit nginx, they can supply a
+forged `CF-Connecting-IP`; use a tunnel-only loopback bind, firewall, or trusted outer proxy for
+internet-facing deployments.
 
 Then set:
 
@@ -453,8 +456,8 @@ logins, failed login attempts, and lockout rejections are written as structured 
 to `/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
 `HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
 The submitted password value is never stored; failed-login entries record only its length.
-Diagnostics preserves successful-login `client_ip` values and resolves failed-login rows from
-trusted forwarded metadata, so the failed-login block button targets the real browser IP.
+Diagnostics resolves successful-login and failed-login rows from trusted forwarded metadata, so the
+failed-login block button targets the real browser IP.
 Diagnostics has a Configure Passkey card for the single configured web-login user. After creating a
 passkey, the login page shows Device Sign-In. Failed passkey assertions are logged and counted
 through the same lockout and Cloudflare auto-block path as failed password logins.

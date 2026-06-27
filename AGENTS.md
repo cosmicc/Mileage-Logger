@@ -103,10 +103,9 @@ docker compose up -d --build
 - Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
   intentionally has no separate footer refresh or download buttons
-- Diagnostics preserves the stored `client_ip` for successful-login rows. Failed-login rows resolve
-  the visible and blockable IP from stored request metadata when the direct client is trusted;
-  preserve the rule that a trusted `X-Forwarded-For` real client is preferred before falling back
-  to `X-Real-IP`, `CF-Connecting-IP`, or the stored failed-login `client_ip`.
+- Diagnostics resolves the visible IP for successful-login and failed-login rows from stored
+  request metadata when the direct client is trusted, then falls back to the stored `client_ip`.
+  Failed-login row block buttons must use the same visible, blockable client IP.
 
 **[passkeys.py](mileage_logger/services/passkeys.py)** — WebAuthn passkey login
 - Generates and verifies WebAuthn registration and authentication ceremonies with `py_webauthn`
@@ -223,6 +222,9 @@ docker compose up -d --build
 - The Trips page shows compact selected-month summary cards between the month selector line and
   Add Trip. Keep the cards scoped to the selected month: trips plus non-trips, trips only,
   OwnTracks events, trip count, reimbursement, and monthly average gas.
+- The Trips root route renders a lightweight loading shell first. The selected-month cards,
+  Add Trip form, trip rows, and deleted-trip rows render through `/trips/content`, which is fetched
+  by the shell so direct Trips loads show a loading message before month calculations finish.
 - Manual trip creation defaults the date field to the app's `LOCAL_TIMEZONE` current date and uses
   origin/destination waypoint dropdowns populated from saved waypoints. Manual inserts calculate
   and save start/end odometers immediately from the current rolling OwnTracks odometer checkpoint,
@@ -325,9 +327,12 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Diagnostics page available at `http://server/diagnostics`
 - Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
-- Public nginx overwrites `X-Real-IP` and `X-Forwarded-For` with its immediate peer and forwards
-  `CF-Connecting-IP` only from loopback `cloudflared`; the app accepts forwarded client IP headers
-  only from `TRUSTED_PROXY_CIDRS` for login lockouts and Cloudflare auto-blocks.
+- Public nginx selects one client IP from `CF-Connecting-IP` when Cloudflare supplies it, otherwise
+  falls back to the immediate peer, then overwrites `X-Real-IP`, `X-Forwarded-For`, and
+  `CF-Connecting-IP` with that selected value. The app accepts forwarded client IP headers only
+  from `TRUSTED_PROXY_CIDRS` for login lockouts and Cloudflare auto-blocks; keep the nginx origin
+  behind Cloudflare Tunnel, loopback, a firewall, or another trusted edge so direct clients cannot
+  forge Cloudflare headers.
 - Passkey login derives its WebAuthn origin from `PASSKEY_ORIGIN`, the browser `Origin` header, or
   trusted reverse-proxy scheme/host headers. For public Cloudflare Tunnel deployments, verify the
   browser origin is the public HTTPS URL or set `PASSKEY_ORIGIN` and `PASSKEY_RP_ID` explicitly.

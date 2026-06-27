@@ -48,13 +48,14 @@ def test_nginx_keeps_web_routes_available_behind_web_access_rules() -> None:
     assert "proxy_pass http://mileage_logger_app;" in web_block
 
 
-def test_nginx_does_not_forward_spoofable_client_ip_headers() -> None:
+def test_nginx_replaces_forwarded_client_ip_headers_with_selected_client_ip() -> None:
+    """Nginx should replace forwarded chains with one Cloudflare-derived client IP."""
+
     config = NGINX_CONF.read_text(encoding="utf-8")
 
-    assert "map $remote_addr $trusted_cf_connecting_ip" in config
-    assert 'default "";' in config
-    assert "127.0.0.1 $http_cf_connecting_ip;" in config
-    assert "::1 $http_cf_connecting_ip;" in config
+    assert "map $http_cf_connecting_ip $mileage_logger_client_ip" in config
+    assert "default $http_cf_connecting_ip;" in config
+    assert '"" $remote_addr;' in config
     assert "map $remote_addr $trusted_forwarded_proto" in config
     assert "127.0.0.1 $cloudflare_forwarded_proto;" in config
     assert "::1 $cloudflare_forwarded_proto;" in config
@@ -68,9 +69,9 @@ def test_nginx_does_not_forward_spoofable_client_ip_headers() -> None:
         "/",
     ):
         block = _location_block(config, location)
-        assert "proxy_set_header X-Real-IP $remote_addr;" in block
-        assert "proxy_set_header X-Forwarded-For $remote_addr;" in block
+        assert "proxy_set_header X-Real-IP $mileage_logger_client_ip;" in block
+        assert "proxy_set_header X-Forwarded-For $mileage_logger_client_ip;" in block
         assert "proxy_set_header X-Forwarded-Proto $trusted_forwarded_proto;" in block
-        assert "proxy_set_header CF-Connecting-IP $trusted_cf_connecting_ip;" in block
+        assert "proxy_set_header CF-Connecting-IP $mileage_logger_client_ip;" in block
 
     assert "$proxy_add_x_forwarded_for" not in config

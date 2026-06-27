@@ -176,14 +176,16 @@ not show the app name before authentication and temporarily locks out repeated f
 `SECRET_KEY` must be changed from `change-me`; production Docker starts fail closed if the login
 credentials or session secret are missing. `TRUSTED_PROXY_CIDRS` is optional for direct local
 development, but Docker sets it to the bridge proxy range so login lockouts and Cloudflare
-auto-blocks can use nginx-set client IP headers without trusting spoofed browser headers.
+auto-blocks can use nginx-set client IP headers. Keep the nginx origin reachable only through
+Cloudflare Tunnel, loopback, a firewall, or another trusted edge when relying on Cloudflare client
+IP headers.
 Each successful login, failed login attempt, and lockout rejection is appended to
 `LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
 details, submitted username, password length, user agent, request path, reason, attempt count,
 lockout state, and timestamps. Successful entries include client IP details, submitted username,
 matched account, web client, request path, and timestamps. The raw submitted password is never
-stored. Diagnostics preserves successful-login `client_ip` values and resolves failed-login rows
-from trusted forwarded metadata, so the failed-login block button targets the real browser IP.
+stored. Diagnostics resolves successful-login and failed-login rows from trusted forwarded
+metadata, so the failed-login block button targets the real browser IP.
 
 Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
 with the normal username/password once, create a passkey from Diagnostics, then use Device Sign-In
@@ -342,9 +344,11 @@ Tunnel service URL. For a real interface bind such as `BIND_ADDRESS=192.168.1.50
 `http://192.168.1.50:${HTTP_PORT}`. Leave `BIND_ADDRESS=0.0.0.0` to preserve the old all-interface
 host binding.
 
-When `cloudflared` reaches nginx on loopback, nginx forwards Cloudflare's `CF-Connecting-IP` for
-login audit records, lockouts, and automatic Cloudflare blocks. Direct public clients cannot
-spoof that header through nginx.
+Nginx uses Cloudflare's `CF-Connecting-IP` when present and falls back to the immediate peer, then
+passes that selected client IP to the app for login audit records, lockouts, and automatic
+Cloudflare blocks. If direct public clients can bypass Cloudflare and hit nginx, they can supply a
+forged `CF-Connecting-IP`; use a tunnel-only loopback bind, firewall, or trusted outer proxy for
+internet-facing deployments.
 
 Set the tunnel token in `.env`:
 

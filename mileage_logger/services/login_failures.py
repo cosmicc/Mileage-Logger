@@ -355,12 +355,17 @@ def _entry_from_payload(
     )
 
 
-def _success_entry_from_payload(payload: dict[str, Any], *, entry_id: str) -> LoginSuccessEntry:
+def _success_entry_from_payload(
+    payload: dict[str, Any],
+    *,
+    entry_id: str,
+    settings: Settings | None = None,
+) -> LoginSuccessEntry:
     return LoginSuccessEntry(
         entry_id=entry_id,
         occurred_at_local=_bounded_text(payload.get("occurred_at_local", "")),
         occurred_at_utc=_bounded_text(payload.get("occurred_at_utc", "")),
-        client_ip=_bounded_text(payload.get("client_ip", "unknown")),
+        client_ip=_client_ip_from_payload(payload, settings),
         username=redact_sensitive_text(
             _bounded_text(payload.get("username", ""), max_length=MAX_USERNAME_LOG_LENGTH)
         ),
@@ -420,6 +425,7 @@ def tail_login_failure_entries(
 def tail_login_success_entries(
     path: Path,
     max_entries: int = 50,
+    settings: Settings | None = None,
 ) -> list[LoginSuccessEntry]:
     """Read recent structured successful-login audit records newest-first."""
 
@@ -442,5 +448,5 @@ def tail_login_success_entries(
             continue
         if not isinstance(payload, dict) or payload.get("event") != "web_login_succeeded":
             continue
-        entries.append(_success_entry_from_payload(payload, entry_id=entry_id))
+        entries.append(_success_entry_from_payload(payload, entry_id=entry_id, settings=settings))
     return entries

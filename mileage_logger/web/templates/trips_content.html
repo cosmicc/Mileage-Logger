@@ -1,0 +1,200 @@
+<section class="page-header">
+  <div>
+    <h1>Trips</h1>
+    <p>Showing {{ selected_month_display }}</p>
+  </div>
+  <div class="header-actions">
+    <form action="/trips" method="get" class="form-row month-selector" data-trip-month-form>
+      <label>
+        Month
+        <input
+          class="month-input"
+          type="month"
+          name="selected_month"
+          min="2000-01"
+          max="2100-12"
+          value="{{ selected_month_value }}"
+          aria-label="Trip month and year"
+          required
+        >
+      </label>
+    </form>
+    <form action="/reports/{{ year }}/{{ month }}" method="post">
+      <button type="submit">Download PDF Report</button>
+    </form>
+  </div>
+</section>
+
+<section class="trips-summary-grid" aria-label="Selected month summary">
+  <div class="trip-summary-card trip-summary-card-primary">
+    <span>Month Trips + Non-Trips</span>
+    <strong>{{ "%.1f"|format(trips_summary.month_total) }}</strong>
+    <small>mi selected month</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Month Trips Only</span>
+    <strong>{{ "%.1f"|format(trips_summary.month_trips) }}</strong>
+    <small>mi reviewed trips</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>OwnTracks Events</span>
+    <strong>{{ trips_summary.owntracks_event_count }}</strong>
+    <small>captured this month</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Trips</span>
+    <strong>{{ trips_summary.trip_count }}</strong>
+    <small>shown below</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Month Reimbursement</span>
+    <strong>{% if trips_summary.reimbursement.total is not none %}${{ "%.2f"|format(trips_summary.reimbursement.total) }}{% else %}N/A{% endif %}</strong>
+    <small>{{ trips_summary.reimbursement.reimbursement_gallons_display }} reimbursement gallons</small>
+  </div>
+  <div class="trip-summary-card">
+    <span>Monthly Avg Gas</span>
+    <strong>{% if trips_summary.monthly_gas %}${{ "%.3f"|format(trips_summary.monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
+    <small>{% if trips_summary.monthly_gas %}{{ trips_summary.monthly_gas.state }} regular{% else %}{{ trips_summary.monthly_gas_message }}{% endif %}</small>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Add Trip</h2>
+  <form action="/trips" method="post" class="form-row manual-trip-form">
+    <label>
+      Date
+      <input type="date" name="trip_date" value="{{ today.isoformat() }}" required>
+    </label>
+    <label>
+      From
+      <select class="waypoint-select" name="origin_site_id" required>
+        <option value="" disabled selected>Select waypoint</option>
+        {% for waypoint in waypoints %}
+        <option value="{{ waypoint.id }}">{{ waypoint.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      To
+      <select class="waypoint-select" name="destination_site_id" required>
+        <option value="" disabled selected>Select waypoint</option>
+        {% for waypoint in waypoints %}
+        <option value="{{ waypoint.id }}">{{ waypoint.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Miles
+      <input class="miles-input" type="number" name="miles" min="0" step="0.1" required>
+    </label>
+    <button type="submit" {% if not waypoints %}disabled{% endif %}>Add Trip</button>
+  </form>
+  {% if not waypoints %}
+  <p class="empty-state">Add waypoints before creating manual trips.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Monthly Trips</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>From</th>
+        <th>To</th>
+        <th>Start Odo</th>
+        <th>End Odo</th>
+        <th>Miles</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for trip in trips %}
+      {% set form_id = "trip-form-" ~ trip.id %}
+      <tr>
+        <td>
+          <form id="{{ form_id }}" action="/trips/{{ trip.id }}" method="post"></form>
+          <span class="trip-date">{{ trip.trip_date }}</span>
+        </td>
+        <td class="trip-name">
+          {% set origin_display_name = trip.origin_display_name %}
+          <select form="{{ form_id }}" class="waypoint-select" name="origin_site_id" required>
+            <option value="" disabled {% if trip.origin_site_id is none and origin_display_name not in waypoint_names %}selected{% endif %}>Select waypoint</option>
+            {% for waypoint in waypoints %}
+            <option value="{{ waypoint.id }}" {% if waypoint.id == trip.origin_site_id or (trip.origin_site_id is none and waypoint.name == origin_display_name) %}selected{% endif %}>{{ waypoint.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td class="trip-name">
+          {% set destination_display_name = trip.destination_display_name %}
+          <select form="{{ form_id }}" class="waypoint-select" name="destination_site_id" required>
+            <option value="" disabled {% if trip.destination_site_id is none and destination_display_name not in waypoint_names %}selected{% endif %}>Select waypoint</option>
+            {% for waypoint in waypoints %}
+            <option value="{{ waypoint.id }}" {% if waypoint.id == trip.destination_site_id or (trip.destination_site_id is none and waypoint.name == destination_display_name) %}selected{% endif %}>{{ waypoint.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td class="odometer-cell">
+          <span>{% if trip.start_odometer_miles is not none %}{{ trip.start_odometer_miles|odometer }}{% else %}-{% endif %}</span>
+          <small>{% if trip.start_odometer_miles is not none %}{{ (trip.start_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
+        </td>
+        <td class="odometer-cell">
+          <span>{% if trip.end_odometer_miles is not none %}{{ trip.end_odometer_miles|odometer }}{% else %}-{% endif %}</span>
+          <small>{% if trip.end_odometer_miles is not none %}{{ (trip.end_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
+        </td>
+        <td><input form="{{ form_id }}" class="miles-input" type="number" name="miles" min="0" step="0.1" required value="{{ "%.1f"|format(trip.miles) }}"></td>
+        <td>
+          <div class="trip-actions">
+            <button class="small-button" form="{{ form_id }}" type="submit">Save</button>
+            <form action="/trips/{{ trip.id }}/delete" method="post">
+              <button class="small-button danger" type="submit">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No trips for this month.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <h2>Deleted Trip Records</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>From</th>
+        <th>To</th>
+        <th>Start</th>
+        <th>End</th>
+        <th>Miles</th>
+        <th>Deleted</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for suppressed_trip in suppressed_trips %}
+      <tr>
+        <td>{{ suppressed_trip.trip_date }}</td>
+        <td>{{ suppressed_trip.origin_name or "-" }}</td>
+        <td>{{ suppressed_trip.destination_name or "-" }}</td>
+        <td>{{ suppressed_trip.started_at|local_datetime }}</td>
+        <td>{{ suppressed_trip.ended_at|local_datetime }}</td>
+        <td>{% if suppressed_trip.miles is not none %}{{ "%.1f"|format(suppressed_trip.miles) }}{% else %}-{% endif %}</td>
+        <td>{{ suppressed_trip.deleted_at|local_datetime }}</td>
+        <td>
+          <form action="/trips/suppression/{{ suppressed_trip.id }}/delete" method="post">
+            <input type="hidden" name="redirect_year" value="{{ year }}">
+            <input type="hidden" name="redirect_month" value="{{ month }}">
+            <button class="small-button danger" type="submit">Remove Record</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8">No deleted trip records for this month.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

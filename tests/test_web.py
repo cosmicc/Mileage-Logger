@@ -351,7 +351,7 @@ def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None
             },
             follow_redirects=False,
         )
-        page_response = client.get("/trips?year=2026&month=6")
+        page_response = client.get("/trips/content?year=2026&month=6")
 
         assert login_response.status_code == 303
         assert login_response.headers["location"] == "/trips?year=2026&month=6"
@@ -534,17 +534,19 @@ def test_failed_login_entries_resolve_blockable_ip_from_trusted_proxy_headers(
     assert entries[0].direct_client_ip == "172.18.0.5"
 
 
-def test_successful_login_entries_preserve_stored_client_ip(tmp_path) -> None:
+def test_successful_login_entries_resolve_trusted_proxy_client_ip_for_diagnostics(
+    tmp_path,
+) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
     payload = {
         "event": "web_login_succeeded",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
         "occurred_at_local": "2026-06-27T08:00:00-04:00",
-        "client_ip": "198.51.100.77",
+        "client_ip": "172.18.0.5",
         "direct_client_ip": "172.18.0.5",
-        "cf_connecting_ip": "203.0.113.44",
-        "x_real_ip": "127.0.0.1",
-        "x_forwarded_for": "203.0.113.45, 172.18.0.5",
+        "cf_connecting_ip": "198.51.100.77",
+        "x_real_ip": "198.51.100.77",
+        "x_forwarded_for": "198.51.100.77",
         "forwarded_proto": "https",
         "host": "mileage.example.test",
         "user_agent": "ExampleBrowser/1.0",
@@ -561,7 +563,15 @@ def test_successful_login_entries_preserve_stored_client_ip(tmp_path) -> None:
     entries = tail_login_success_entries(login_failure_log_path)
 
     assert len(entries) == 1
-    assert entries[0].client_ip == "198.51.100.77"
+    assert entries[0].client_ip == "172.18.0.5"
+
+    diagnostics_entries = tail_login_success_entries(
+        login_failure_log_path,
+        settings=Settings(database_url="sqlite://", trusted_proxy_cidrs="172.18.0.0/16"),
+    )
+
+    assert len(diagnostics_entries) == 1
+    assert diagnostics_entries[0].client_ip == "198.51.100.77"
 
 
 def test_failed_login_entries_ignore_stored_spoofed_headers_from_untrusted_clients(
@@ -821,6 +831,19 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert "justify-content: stretch;" in response.text
         assert "position: fixed;\n    right: 0;\n    bottom: 0;" not in response.text
         assert "calc(20px + env(safe-area-inset-bottom))" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_trips_page_renders_loading_shell() -> None:
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/trips?year=2026&month=6")
+
+        assert response.status_code == 200
+        assert "Loading selected-month cards and trip records." in response.text
+        assert 'data-trips-content-url="/trips/content?year=2026&amp;month=6"' in response.text
+        assert "Monthly Trips" not in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -3189,13 +3212,15 @@ def test_trips_page_delete_button_removes_trip_and_records_exact_deletion() -> N
             )
             db.commit()
 
-        page_response = client.get("/trips?year=2026&month=6")
-        delete_response = client.post("/trips/1/delete")
+        page_response = client.get("/trips/content?year=2026&month=6")
+        delete_response = client.post("/trips/1/delete", follow_redirects=False)
+        content_response = client.get("/trips/content?year=2026&month=6")
 
         assert page_response.status_code == 200
         assert "Delete" in page_response.text
-        assert delete_response.status_code == 200
-        assert "No trips for this month." in delete_response.text
+        assert delete_response.status_code == 303
+        assert delete_response.headers["location"] == "/trips?year=2026&month=6"
+        assert "No trips for this month." in content_response.text
         with session_factory() as db:
             assert db.get(Trip, 1) is None
             deleted_trip = db.scalar(select(DeletedTrip))
@@ -3243,19 +3268,22 @@ def test_trips_page_removes_deleted_trip_record() -> None:
             )
             db.commit()
 
-        page_response = client.get("/trips?year=2026&month=6")
+        page_response = client.get("/trips/content?year=2026&month=6")
         delete_response = client.post(
             "/trips/suppression/1/delete",
             data={"redirect_year": "2026", "redirect_month": "6"},
+            follow_redirects=False,
         )
+        content_response = client.get("/trips/content?year=2026&month=6")
 
         assert page_response.status_code == 200
         assert "Deleted Trip Records" in page_response.text
         assert "Remove Record" in page_response.text
         assert "Home" in page_response.text
         assert "Client" in page_response.text
-        assert delete_response.status_code == 200
-        assert "No deleted trip records for this month." in delete_response.text
+        assert delete_response.status_code == 303
+        assert delete_response.headers["location"] == "/trips?year=2026&month=6"
+        assert "No deleted trip records for this month." in content_response.text
         with session_factory() as db:
             assert db.get(DeletedTrip, 1) is None
     finally:
@@ -3274,7 +3302,7 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
             home_id = home.id
             client_site_id = client_site.id
 
-        page_response = client.get("/trips?year=2026&month=6")
+        page_response = client.get("/trips/content?year=2026&month=6")
         create_response = client.post(
             "/trips",
             data={
@@ -3283,7 +3311,9 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
                 "destination_site_id": str(client_site_id),
                 "miles": "12.34",
             },
+            follow_redirects=False,
         )
+        content_response = client.get("/trips/content?year=2026&month=6")
 
         assert page_response.status_code == 200
         assert "Showing June 2026 (06/2026)" in page_response.text
@@ -3296,10 +3326,11 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         assert 'name="trip_date" value="2026-06-22"' in page_response.text
         assert 'name="origin_site_id"' in page_response.text
         assert 'name="destination_site_id"' in page_response.text
-        assert create_response.status_code == 200
-        assert "2026-06-15" in create_response.text
-        assert "Home" in create_response.text
-        assert "Client" in create_response.text
+        assert create_response.status_code == 303
+        assert create_response.headers["location"] == "/trips?year=2026&month=6"
+        assert "2026-06-15" in content_response.text
+        assert "Home" in content_response.text
+        assert "Client" in content_response.text
         with session_factory() as db:
             trip = db.scalar(select(Trip))
             assert trip is not None
@@ -3382,7 +3413,7 @@ def test_trips_page_shows_selected_month_summary_cards() -> None:
             )
             db.commit()
 
-        response = client.get("/trips?year=2026&month=6")
+        response = client.get("/trips/content?year=2026&month=6")
 
         assert response.status_code == 200
         summary_section = _html_section(
@@ -3444,7 +3475,7 @@ def test_trips_page_lists_newest_trips_first() -> None:
             )
             db.commit()
 
-        response = client.get("/trips?year=2026&month=6")
+        response = client.get("/trips/content?year=2026&month=6")
 
         assert response.status_code == 200
         assert response.text.index("trip-form-2") < response.text.index("trip-form-1")
@@ -3497,13 +3528,16 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
                 "start_odometer_miles": "2000.1234",
                 "end_odometer_miles": "2015.9876",
             },
+            follow_redirects=False,
         )
+        content_response = client.get("/trips/content?year=2026&month=6")
 
-        assert response.status_code == 200
-        assert "2026-06-10" in response.text
-        assert "2026-06-16" not in response.text
-        assert "New Home" in response.text
-        assert "New Client" in response.text
+        assert response.status_code == 303
+        assert response.headers["location"] == "/trips?year=2026&month=6"
+        assert "2026-06-10" in content_response.text
+        assert "2026-06-16" not in content_response.text
+        assert "New Home" in content_response.text
+        assert "New Client" in content_response.text
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
@@ -3555,7 +3589,7 @@ def test_trips_page_odometer_values_are_read_only() -> None:
             home_id = home.id
             client_site_id = client_site.id
 
-        page_response = client.get("/trips?year=2026&month=6")
+        page_response = client.get("/trips/content?year=2026&month=6")
         response = client.post(
             "/trips/1",
             data={
@@ -3566,6 +3600,7 @@ def test_trips_page_odometer_values_are_read_only() -> None:
                 "start_odometer_miles": "3000.111",
                 "end_odometer_miles": "",
             },
+            follow_redirects=False,
         )
 
         assert page_response.status_code == 200
@@ -3582,7 +3617,8 @@ def test_trips_page_odometer_values_are_read_only() -> None:
         )
         assert 'name="start_odometer_miles"' not in page_response.text
         assert 'name="end_odometer_miles"' not in page_response.text
-        assert response.status_code == 200
+        assert response.status_code == 303
+        assert response.headers["location"] == "/trips?year=2026&month=6"
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
@@ -3626,7 +3662,7 @@ def test_trips_page_waypoint_dropdowns_preselect_matching_trip_names() -> None:
             home_id = home.id
             client_site_id = client_site.id
 
-        response = client.get("/trips?year=2026&month=6")
+        response = client.get("/trips/content?year=2026&month=6")
 
         assert response.status_code == 200
         assert f'<option value="{home_id}" selected>Home</option>' in response.text
@@ -3694,9 +3730,11 @@ def test_trips_page_distance_edit_resequences_month_odometers() -> None:
                 "destination_site_id": str(client_a_id),
                 "miles": "6.25",
             },
+            follow_redirects=False,
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 303
+        assert response.headers["location"] == "/trips?year=2026&month=6"
         with session_factory() as db:
             trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
             assert trips[0].start_odometer_miles == Decimal("1000.0")
