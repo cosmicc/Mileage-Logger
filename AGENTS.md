@@ -103,10 +103,10 @@ docker compose up -d --build
 - Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
   intentionally has no separate footer refresh or download buttons
-- Diagnostics resolves the visible and blockable IP for login audit rows from stored request
-  metadata using the same trusted-proxy rules as live login lockouts. Preserve this fallback so
-  older failed-login rows with a stale proxy/container `client_ip` still block the real client IP
-  from trusted `CF-Connecting-IP`, `X-Real-IP`, or `X-Forwarded-For` values.
+- Diagnostics preserves the stored `client_ip` for successful-login rows. Failed-login rows resolve
+  the visible and blockable IP from stored request metadata when the direct client is trusted;
+  preserve the rule that a trusted `X-Forwarded-For` real client is preferred before falling back
+  to `X-Real-IP`, `CF-Connecting-IP`, or the stored failed-login `client_ip`.
 
 **[passkeys.py](mileage_logger/services/passkeys.py)** — WebAuthn passkey login
 - Generates and verifies WebAuthn registration and authentication ceremonies with `py_webauthn`
@@ -264,8 +264,7 @@ docker compose up -d --build
    consecutive count. Diagnostics paginates successful-login rows, failed-login rows, and
    app-managed Cloudflare blocks in compact 10-row pages; on mobile, pagination keeps First,
    Previous, Next, and Last in one full-width row with the page count as text below. Failed-login
-   row block buttons must use the resolved effective client IP, not a stale proxy/container
-   `client_ip` field from older audit log lines.
+   row block buttons must use the failed-login table's corrected effective client IP.
 6. Diagnostics includes a Configure Passkey card for the single configured web user. Passkey
    creation requires an authenticated web session, lists configured passkeys, and removes only the
    selected local credential row. Passkey login failures must stay on the same failed-login audit,

@@ -7,7 +7,8 @@
   (06/2026)`.
 - Trips now shows selected-month summary cards above Add Trip for mileage, OwnTracks events, trip
   count, reimbursement, and monthly gas price.
-- The login page now supports Device Sign-In after a passkey is created.
+- The login page now supports Device Sign-In after a passkey is created, with the Device Sign-In
+  button below the normal Continue button.
 - Diagnostics now has a Configure Passkey card to create passkeys, see configured passkeys, and
   remove passkeys for the single web-login user.
 - Diagnostics now lists successful logins above failed logins, with both lists paginated.
@@ -17,8 +18,8 @@
 - The top-bar brand is no longer clickable.
 - Diagnostics now lets you manually send a valid IP address and reason to Cloudflare, then shows
   the reason with an Auto or Manual pill in the removable blocked-IP list.
-- Failed-login rows now use the same resolved client IP as successful-login rows for display and
-  Cloudflare block buttons.
+- Failed-login rows now correct stale proxy/internal client IP values for display and Cloudflare
+  block buttons without changing successful-login client IP display.
 
 ## 1.2.0 - 2026-06-24
 

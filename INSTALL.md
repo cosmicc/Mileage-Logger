@@ -453,8 +453,8 @@ logins, failed login attempts, and lockout rejections are written as structured 
 to `/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
 `HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
 The submitted password value is never stored; failed-login entries record only its length.
-Diagnostics uses the same trusted-proxy rules to show and block the effective client IP, so the
-failed-login block button targets the real browser IP rather than an internal proxy address.
+Diagnostics preserves successful-login `client_ip` values and resolves failed-login rows from
+trusted forwarded metadata, so the failed-login block button targets the real browser IP.
 Diagnostics has a Configure Passkey card for the single configured web-login user. After creating a
 passkey, the login page shows Device Sign-In. Failed passkey assertions are logged and counted
 through the same lockout and Cloudflare auto-block path as failed password logins.

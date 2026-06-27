@@ -516,14 +516,13 @@ p {
 
 .passkey-login-button {
   width: 100%;
-  margin-bottom: 14px;
 }
 
 .login-divider {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 2px 0 16px;
+  margin: 16px 0 14px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 850;

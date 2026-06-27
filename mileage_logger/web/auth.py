@@ -82,6 +82,12 @@ def _client_in_trusted_proxy_networks(client_host: str, settings: Settings) -> b
     return any(direct_ip in network for network in _trusted_proxy_networks(settings))
 
 
+def login_direct_client_is_trusted_proxy(client_host: str, settings: Settings) -> bool:
+    """Return whether a stored or live direct client may supply forwarded login headers."""
+
+    return _client_in_trusted_proxy_networks(client_host, settings)
+
+
 def _header_ip(value: str) -> str:
     """Return a normalized header IP address or an empty string for invalid values."""
 

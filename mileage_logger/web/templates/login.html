@@ -22,16 +22,6 @@
   <body class="login-page">
     <main class="login-shell">
       <section class="login-panel" aria-label="Sign in">
-        {% if passkey_login_available %}
-        <button
-          type="button"
-          id="passkey-login-button"
-          class="passkey-login-button"
-          data-next-url="{{ next_url }}"
-        >Device Sign-In</button>
-        <p id="passkey-login-error" class="form-error" hidden></p>
-        <div class="login-divider"><span>or</span></div>
-        {% endif %}
         <form action="/login" method="post" class="login-form">
           <input type="hidden" name="next_url" value="{{ next_url }}">
           <label>
@@ -47,6 +37,16 @@
           {% endif %}
           <button type="submit">Continue</button>
         </form>
+        {% if passkey_login_available %}
+        <div class="login-divider"><span>or</span></div>
+        <button
+          type="button"
+          id="passkey-login-button"
+          class="passkey-login-button"
+          data-next-url="{{ next_url }}"
+        >Device Sign-In</button>
+        <p id="passkey-login-error" class="form-error" hidden></p>
+        {% endif %}
       </section>
     </main>
     <script>

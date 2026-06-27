@@ -503,11 +503,11 @@ def test_failed_login_entries_resolve_blockable_ip_from_trusted_proxy_headers(
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
         "occurred_at_local": "2026-06-27T08:00:00-04:00",
-        "client_ip": "172.18.0.5",
+        "client_ip": "198.51.100.77",
         "direct_client_ip": "172.18.0.5",
         "cf_connecting_ip": "198.51.100.77",
         "x_real_ip": "127.0.0.1",
-        "x_forwarded_for": "127.0.0.1",
+        "x_forwarded_for": "203.0.113.44, 172.18.0.5",
         "forwarded_proto": "https",
         "host": "mileage.example.test",
         "user_agent": "ExampleBrowser/1.0",
@@ -530,8 +530,38 @@ def test_failed_login_entries_resolve_blockable_ip_from_trusted_proxy_headers(
     entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
 
     assert len(entries) == 1
-    assert entries[0].client_ip == "198.51.100.77"
+    assert entries[0].client_ip == "203.0.113.44"
     assert entries[0].direct_client_ip == "172.18.0.5"
+
+
+def test_successful_login_entries_preserve_stored_client_ip(tmp_path) -> None:
+    login_failure_log_path = tmp_path / "login-failures.log"
+    payload = {
+        "event": "web_login_succeeded",
+        "occurred_at_utc": "2026-06-27T12:00:00Z",
+        "occurred_at_local": "2026-06-27T08:00:00-04:00",
+        "client_ip": "198.51.100.77",
+        "direct_client_ip": "172.18.0.5",
+        "cf_connecting_ip": "203.0.113.44",
+        "x_real_ip": "127.0.0.1",
+        "x_forwarded_for": "203.0.113.45, 172.18.0.5",
+        "forwarded_proto": "https",
+        "host": "mileage.example.test",
+        "user_agent": "ExampleBrowser/1.0",
+        "method": "POST",
+        "path": "/login",
+        "next_url": "/diagnostics",
+        "username": "admin",
+        "username_length": 5,
+        "username_truncated": False,
+        "account": "admin",
+    }
+    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
+
+    entries = tail_login_success_entries(login_failure_log_path)
+
+    assert len(entries) == 1
+    assert entries[0].client_ip == "198.51.100.77"
 
 
 def test_failed_login_entries_ignore_stored_spoofed_headers_from_untrusted_clients(
@@ -624,7 +654,7 @@ def test_login_page_shows_device_sign_in_when_passkey_exists(monkeypatch) -> Non
         assert response.status_code == 200
         assert "Device Sign-In" in response.text
         assert "/passkeys/login/options" in response.text
-        assert response.text.index("Device Sign-In") < response.text.index("Username")
+        assert response.text.index("Continue") < response.text.index("Device Sign-In")
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -2175,11 +2205,11 @@ def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
         "occurred_at_local": "2026-06-27T08:00:00-04:00",
-        "client_ip": "172.18.0.5",
+        "client_ip": "198.51.100.77",
         "direct_client_ip": "172.18.0.5",
         "cf_connecting_ip": "198.51.100.77",
         "x_real_ip": "127.0.0.1",
-        "x_forwarded_for": "127.0.0.1",
+        "x_forwarded_for": "203.0.113.44, 172.18.0.5",
         "forwarded_proto": "https",
         "host": "mileage.example.test",
         "user_agent": "ExampleBrowser/1.0",
@@ -2217,8 +2247,8 @@ def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
             '<section id="login-failures" class="panel">',
             '<section id="cloudflare-blocked-ips" class="panel">',
         )
-        assert "198.51.100.77" in login_section
-        assert 'name="ip_address" value="198.51.100.77"' in login_section
+        assert "203.0.113.44" in login_section
+        assert 'name="ip_address" value="203.0.113.44"' in login_section
         assert 'aria-label="Block IP at Cloudflare"' in login_section
     finally:
         app.dependency_overrides.clear()
