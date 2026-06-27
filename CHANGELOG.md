@@ -10,6 +10,11 @@
   (06/2026)` style text.
 - Added compact selected-month summary cards to Trips above Add Trip for trip plus non-trip miles,
   trip-only miles, OwnTracks events, trip count, reimbursement, and monthly average gas.
+- Added WebAuthn passkey login with a Device Sign-In button on the login page and a Configure
+  Passkey card on Diagnostics for creating, listing, and removing the single configured user's
+  passkeys.
+- Added the `passkey_credentials` database table plus optional `PASSKEY_RP_NAME`,
+  `PASSKEY_RP_ID`, and `PASSKEY_ORIGIN` settings for public-origin WebAuthn validation.
 - Added successful web-login audit records and a paginated Successful Login Attempts table above
   the Failed Login Attempts table on Diagnostics.
 - Changed automatic backups created by the app startup pass to use a startup-marked filename and
@@ -31,6 +36,8 @@
   are trusted only from configured `TRUSTED_PROXY_CIDRS`, with bundled nginx forwarding
   `CF-Connecting-IP` only from loopback `cloudflared` and overwriting spoofable client IP headers
   before proxying.
+- Changed bundled nginx to forward the public HTTPS scheme from loopback `cloudflared` traffic so
+  passkey origin checks can match the browser's Cloudflare Tunnel origin.
 - Fixed monthly PDF generation so trip and waypoint names are escaped before ReportLab parses
   table cell text.
 - Changed CI Docker Compose validation to use `.env.docker.example` through `--env-file` with a

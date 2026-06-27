@@ -104,6 +104,9 @@ WEB_LOGIN_PASSWORD=<generated-web-password>
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+PASSKEY_RP_NAME=Mileage Logger
+PASSKEY_RP_ID=
+PASSKEY_ORIGIN=
 TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
@@ -139,6 +142,10 @@ Production starts fail closed when `SECRET_KEY` is still `change-me`, when one w
 blank, or when both web login fields are missing. `TRUSTED_PROXY_CIDRS` tells the app which
 reverse-proxy client IP ranges may supply forwarded client IP headers for login lockouts and
 Cloudflare auto-blocks; the Docker default trusts the internal bridge where bundled nginx runs.
+Passkeys are optional. Create them from Diagnostics after username/password login. In normal
+Cloudflare Tunnel Docker use, nginx forwards the public HTTPS origin for WebAuthn. If your proxy
+does not, set `PASSKEY_ORIGIN=https://your-host.example.com` and
+`PASSKEY_RP_ID=your-host.example.com`.
 
 The generated `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are what you enter in OwnTracks HTTP
 mode.
@@ -416,6 +423,9 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+PASSKEY_RP_NAME=Mileage Logger
+PASSKEY_RP_ID=
+PASSKEY_ORIGIN=
 TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
@@ -443,6 +453,9 @@ logins, failed login attempts, and lockout rejections are written as structured 
 to `/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
 `HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
 The submitted password value is never stored; failed-login entries record only its length.
+Diagnostics has a Configure Passkey card for the single configured web-login user. After creating a
+passkey, the login page shows Device Sign-In. Failed passkey assertions are logged and counted
+through the same lockout and Cloudflare auto-block path as failed password logins.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 `CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with `Account Firewall Access Rules Write`

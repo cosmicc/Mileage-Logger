@@ -22,6 +22,16 @@
   <body class="login-page">
     <main class="login-shell">
       <section class="login-panel" aria-label="Sign in">
+        {% if passkey_login_available %}
+        <button
+          type="button"
+          id="passkey-login-button"
+          class="passkey-login-button"
+          data-next-url="{{ next_url }}"
+        >Device Sign-In</button>
+        <p id="passkey-login-error" class="form-error" hidden></p>
+        <div class="login-divider"><span>or</span></div>
+        {% endif %}
         <form action="/login" method="post" class="login-form">
           <input type="hidden" name="next_url" value="{{ next_url }}">
           <label>
@@ -46,5 +56,106 @@
         });
       }
     </script>
+    {% if passkey_login_available %}
+    <script>
+      (() => {
+        const button = document.getElementById("passkey-login-button");
+        const errorMessage = document.getElementById("passkey-login-error");
+        const nextUrl = button.dataset.nextUrl || "/";
+
+        const showError = (message) => {
+          errorMessage.textContent = message;
+          errorMessage.hidden = false;
+        };
+
+        const base64UrlToBuffer = (value) => {
+          const padding = "=".repeat((4 - (value.length % 4)) % 4);
+          const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+          const raw = atob(base64);
+          const buffer = new ArrayBuffer(raw.length);
+          const view = new Uint8Array(buffer);
+          for (let index = 0; index < raw.length; index += 1) {
+            view[index] = raw.charCodeAt(index);
+          }
+          return buffer;
+        };
+
+        const bufferToBase64Url = (buffer) => {
+          const bytes = new Uint8Array(buffer);
+          let raw = "";
+          for (const byte of bytes) {
+            raw += String.fromCharCode(byte);
+          }
+          return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+        };
+
+        const prepareAuthenticationOptions = (options) => {
+          const publicKey = options.publicKey || options;
+          publicKey.challenge = base64UrlToBuffer(publicKey.challenge);
+          publicKey.allowCredentials = (publicKey.allowCredentials || []).map((credential) => ({
+            ...credential,
+            id: base64UrlToBuffer(credential.id),
+          }));
+          return publicKey;
+        };
+
+        const credentialToJson = (credential) => {
+          const json = {
+            id: credential.id,
+            rawId: bufferToBase64Url(credential.rawId),
+            type: credential.type,
+            response: {
+              authenticatorData: bufferToBase64Url(credential.response.authenticatorData),
+              clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
+              signature: bufferToBase64Url(credential.response.signature),
+            },
+            clientExtensionResults: credential.getClientExtensionResults(),
+          };
+          if (credential.response.userHandle) {
+            json.response.userHandle = bufferToBase64Url(credential.response.userHandle);
+          }
+          return json;
+        };
+
+        const signInWithPasskey = async () => {
+          errorMessage.hidden = true;
+          button.disabled = true;
+          try {
+            const optionsResponse = await fetch("/passkeys/login/options", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ next_url: nextUrl }),
+            });
+            if (!optionsResponse.ok) {
+              throw new Error("Device sign-in is unavailable.");
+            }
+            const publicKey = prepareAuthenticationOptions(await optionsResponse.json());
+            const credential = await navigator.credentials.get({ publicKey });
+            const verifyResponse = await fetch("/passkeys/login/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...credentialToJson(credential), next_url: nextUrl }),
+            });
+            const result = await verifyResponse.json().catch(() => ({}));
+            if (!verifyResponse.ok) {
+              throw new Error(result.error || "Device sign-in failed.");
+            }
+            window.location.assign(result.redirect_url || "/");
+          } catch (error) {
+            showError(error.message || "Device sign-in failed.");
+          } finally {
+            button.disabled = false;
+          }
+        };
+
+        if (!window.PublicKeyCredential || !navigator.credentials) {
+          button.disabled = true;
+          showError("Device sign-in is unavailable in this browser.");
+          return;
+        }
+        button.addEventListener("click", signInWithPasskey);
+      })();
+    </script>
+    {% endif %}
   </body>
 </html>

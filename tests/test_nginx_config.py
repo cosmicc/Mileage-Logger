@@ -55,6 +55,9 @@ def test_nginx_does_not_forward_spoofable_client_ip_headers() -> None:
     assert 'default "";' in config
     assert "127.0.0.1 $http_cf_connecting_ip;" in config
     assert "::1 $http_cf_connecting_ip;" in config
+    assert "map $remote_addr $trusted_forwarded_proto" in config
+    assert "127.0.0.1 $cloudflare_forwarded_proto;" in config
+    assert "::1 $cloudflare_forwarded_proto;" in config
 
     for location in (
         "= /api/owntracks",
@@ -67,6 +70,7 @@ def test_nginx_does_not_forward_spoofable_client_ip_headers() -> None:
         block = _location_block(config, location)
         assert "proxy_set_header X-Real-IP $remote_addr;" in block
         assert "proxy_set_header X-Forwarded-For $remote_addr;" in block
+        assert "proxy_set_header X-Forwarded-Proto $trusted_forwarded_proto;" in block
         assert "proxy_set_header CF-Connecting-IP $trusted_cf_connecting_ip;" in block
 
     assert "$proxy_add_x_forwarded_for" not in config

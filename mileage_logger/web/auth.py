@@ -16,6 +16,8 @@ WEB_AUTH_OPEN_PATHS = {
     "/logout",
     "/favicon.ico",
     "/manifest.webmanifest",
+    "/passkeys/login/options",
+    "/passkeys/login/verify",
     "/service-worker.js",
     "/site.webmanifest",
 }

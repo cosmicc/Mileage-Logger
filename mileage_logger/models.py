@@ -301,3 +301,26 @@ class HiddenLoginFailure(Base):
     client_ip: Mapped[str] = mapped_column(String(45), default="")
     occurred_at_utc: Mapped[str] = mapped_column(String(40), default="")
     hidden_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PasskeyCredential(Base):
+    """WebAuthn passkey credential for the single configured web-login user."""
+
+    __tablename__ = "passkey_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    credential_id: Mapped[str] = mapped_column(String(2048), unique=True, index=True)
+    user_handle: Mapped[str] = mapped_column(String(128), index=True)
+    username: Mapped[str] = mapped_column(String(256))
+    public_key: Mapped[str] = mapped_column(Text)
+    sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    transports: Mapped[list[str]] = mapped_column(JSON, default=list)
+    aaguid: Mapped[str] = mapped_column(String(80), default="")
+    credential_type: Mapped[str] = mapped_column(String(40), default="public-key")
+    device_type: Mapped[str] = mapped_column(String(40), default="")
+    backed_up: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )

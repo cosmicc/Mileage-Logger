@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import make_url
@@ -30,6 +30,7 @@ from mileage_logger.models import (
     HiddenLoginFailure,
     MonthlyGasPrice,
     OwnTracksLocation,
+    PasskeyCredential,
     Site,
     Trip,
     TripProcessingCheckpoint,
@@ -76,6 +77,15 @@ from mileage_logger.services.mileage import (
     owntracks_segment_miles,
     resequence_month_trip_odometers,
     site_indexes,
+)
+from mileage_logger.services.passkeys import (
+    PasskeyCeremonyError,
+    begin_passkey_authentication,
+    begin_passkey_registration,
+    finish_passkey_authentication,
+    finish_passkey_registration,
+    list_passkeys,
+    passkey_login_available,
 )
 from mileage_logger.services.pdf import (
     calculate_reimbursement,
@@ -904,6 +914,60 @@ def _require_diagnostics_security_auth(request: Request) -> None:
     )
 
 
+async def _json_object_payload(request: Request) -> dict:
+    """Return a JSON object payload or reject malformed ceremony requests."""
+
+    try:
+        payload = await request.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Request body must be JSON.") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object.")
+    return payload
+
+
+def _passkey_error_response(message: str, status_code: int) -> JSONResponse:
+    """Return a compact JSON error for browser passkey JavaScript."""
+
+    return JSONResponse({"error": message}, status_code=status_code)
+
+
+def _record_failed_passkey_login(
+    db: Session,
+    request: Request,
+    *,
+    reason: str,
+    safe_next: str,
+    settings,
+    locked_out: bool = False,
+) -> None:
+    """Record a failed passkey login through the standard audit and lockout path."""
+
+    if locked_out:
+        attempt_state = login_failure_state(request, settings)
+    else:
+        attempt_state = record_login_failure(request, settings)
+    lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
+    record_web_login_failure(
+        request=request,
+        username=settings.web_login_username,
+        password="",
+        reason=reason,
+        failed_count=attempt_state.failed_count if attempt_state else 0,
+        max_attempts=settings.web_login_max_attempts,
+        lockout_applied=locked_out or lockout_remaining_seconds > 0,
+        lockout_remaining_seconds=lockout_remaining_seconds,
+        next_url=safe_next,
+        settings=settings,
+    )
+    _maybe_auto_block_failed_login_ip(
+        db,
+        request,
+        attempt_state.failed_count if attempt_state else 0,
+        settings,
+    )
+
+
 def _cloudflare_block_for_ip(db: Session, ip_address: str) -> CloudflareIPBlock | None:
     """Return the app-managed Cloudflare block row for an IP, if present."""
 
@@ -1180,6 +1244,7 @@ def _masked_database_url(url: str) -> str:
 def login_page(
     request: Request,
     next: str = Query(default="/"),
+    db: Session = Depends(get_db),
 ) -> Response:
     settings = get_settings()
     safe_next = valid_next_path(next)
@@ -1191,8 +1256,93 @@ def login_page(
         {
             "next_url": safe_next,
             "login_error": "",
+            "passkey_login_available": passkey_login_available(db),
         },
     )
+
+
+@router.post("/passkeys/login/options")
+async def passkey_login_options(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Return WebAuthn authentication options for the login page."""
+
+    settings = get_settings()
+    payload = await _json_object_payload(request)
+    safe_next = valid_next_path(str(payload.get("next_url") or "/"))
+    if not web_login_enabled(settings):
+        return _passkey_error_response("Web login is not configured.", 404)
+    if login_is_locked(request, settings):
+        _record_failed_passkey_login(
+            db,
+            request,
+            reason="locked_out",
+            safe_next=safe_next,
+            settings=settings,
+            locked_out=True,
+        )
+        return _passkey_error_response("Login is temporarily unavailable.", 429)
+    try:
+        options_json = begin_passkey_authentication(
+            db,
+            request,
+            settings,
+            next_url=safe_next,
+        )
+    except PasskeyCeremonyError:
+        return _passkey_error_response("Passkey login is not configured.", 404)
+    return Response(content=options_json, media_type="application/json")
+
+
+@router.post("/passkeys/login/verify")
+async def passkey_login_verify(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Verify a browser passkey assertion and mark the web session authenticated."""
+
+    settings = get_settings()
+    payload = await _json_object_payload(request)
+    safe_next = valid_next_path(str(payload.get("next_url") or "/"))
+    if not web_login_enabled(settings):
+        return _passkey_error_response("Web login is not configured.", 404)
+    if login_is_locked(request, settings):
+        _record_failed_passkey_login(
+            db,
+            request,
+            reason="locked_out",
+            safe_next=safe_next,
+            settings=settings,
+            locked_out=True,
+        )
+        return _passkey_error_response("Login is temporarily unavailable.", 429)
+    try:
+        passkey = finish_passkey_authentication(db, request, payload)
+    except PasskeyCeremonyError:
+        _record_failed_passkey_login(
+            db,
+            request,
+            reason="invalid_passkey",
+            safe_next=safe_next,
+            settings=settings,
+        )
+        db.commit()
+        logger.warning("Web passkey login failed")
+        return _passkey_error_response("Device sign-in failed.", 401)
+
+    record_web_login_success(
+        request=request,
+        username=settings.web_login_username,
+        account=settings.web_login_username,
+        next_url=safe_next,
+        settings=settings,
+    )
+    clear_login_failures(request, settings)
+    mark_request_authenticated(request)
+    db.commit()
+    logger.info("Web passkey login succeeded passkey_id=%s", passkey.id)
+    return JSONResponse({"redirect_url": safe_next})
 
 
 @router.post("/login")
@@ -1235,6 +1385,7 @@ def login_form(
             {
                 "next_url": safe_next,
                 "login_error": "Login is temporarily unavailable.",
+                "passkey_login_available": passkey_login_available(db),
             },
             status_code=429,
         )
@@ -1273,6 +1424,7 @@ def login_form(
         {
             "next_url": safe_next,
             "login_error": "Invalid username or password.",
+            "passkey_login_available": passkey_login_available(db),
         },
         status_code=401,
     )
@@ -1806,6 +1958,9 @@ def diagnostics(
             "cloudflare_ip_blocks": cloudflare_ip_blocks,
             "cloudflare_ip_blocks_page": cloudflare_ip_blocks_page,
             "cloudflare_ip_blocking_configured": cloudflare_ip_blocking_configured(settings),
+            "passkeys": list_passkeys(db),
+            "passkey_origin": settings.passkey_origin,
+            "passkey_rp_id": settings.passkey_rp_id,
             "manual_odometer_result": _api_test_result(
                 odometer_test,
                 odometer_message,
@@ -1829,6 +1984,64 @@ def diagnostics(
             "backup_upload_max_mb": settings.max_backup_restore_bytes // (1024 * 1024),
         },
     )
+
+
+@router.post("/diagnostics/passkeys/register/options")
+def diagnostics_passkey_registration_options(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    """Return WebAuthn registration options for the authenticated Diagnostics page."""
+
+    _require_diagnostics_security_auth(request)
+    settings = get_settings()
+    try:
+        options_json = begin_passkey_registration(db, request, settings)
+    except PasskeyCeremonyError as exc:
+        return _passkey_error_response(str(exc), 400)
+    return Response(content=options_json, media_type="application/json")
+
+
+@router.post("/diagnostics/passkeys/register/verify")
+async def diagnostics_passkey_registration_verify(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> JSONResponse:
+    """Verify a WebAuthn registration response and store the new passkey."""
+
+    _require_diagnostics_security_auth(request)
+    settings = get_settings()
+    payload = await _json_object_payload(request)
+    try:
+        passkey = finish_passkey_registration(db, request, payload, settings)
+    except PasskeyCeremonyError as exc:
+        db.rollback()
+        return _passkey_error_response(str(exc), 400)
+    db.commit()
+    logger.warning("Registered web passkey passkey_id=%s username=%s", passkey.id, passkey.username)
+    return JSONResponse({"status": "created", "passkey_id": passkey.id})
+
+
+@router.post("/diagnostics/passkeys/{passkey_id}/delete")
+def diagnostics_delete_passkey(
+    request: Request,
+    passkey_id: int,
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Remove one configured passkey from Diagnostics."""
+
+    _require_diagnostics_security_auth(request)
+    passkey = db.get(PasskeyCredential, passkey_id)
+    if passkey is None:
+        raise HTTPException(status_code=404, detail="Passkey not found.")
+    logger.warning(
+        "Deleted web passkey passkey_id=%s username=%s",
+        passkey.id,
+        passkey.username,
+    )
+    db.delete(passkey)
+    db.commit()
+    return RedirectResponse(url="/diagnostics#passkeys", status_code=303)
 
 
 @router.post("/diagnostics/login-failures/hide")

@@ -24,6 +24,7 @@ from mileage_logger.models import (
     HiddenLoginFailure,
     MonthlyGasPrice,
     OwnTracksLocation,
+    PasskeyCredential,
     Site,
     Trip,
     TripProcessingCheckpoint,
@@ -512,6 +513,168 @@ def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
         assert "Mileage Logger" not in response.text
         assert ">ML<" not in response.text
         assert "<title>Sign In</title>" in response.text
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_login_page_shows_device_sign_in_when_passkey_exists(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add(
+                PasskeyCredential(
+                    credential_id="YWJj",
+                    user_handle="user-handle",
+                    username="admin",
+                    public_key="public-key",
+                    transports=[],
+                )
+            )
+            db.commit()
+
+        response = client.get("/login")
+
+        assert response.status_code == 200
+        assert "Device Sign-In" in response.text
+        assert "/passkeys/login/options" in response.text
+        assert response.text.index("Device Sign-In") < response.text.index("Username")
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_passkey_login_options_stay_open_and_use_browser_origin(monkeypatch) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add(
+                PasskeyCredential(
+                    credential_id="YWJj",
+                    user_handle="user-handle",
+                    username="admin",
+                    public_key="public-key",
+                    transports=[],
+                )
+            )
+            db.commit()
+
+        response = client.post(
+            "/passkeys/login/options",
+            json={"next_url": "/diagnostics"},
+            headers={"Origin": "https://mileage.example"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["rpId"] == "mileage.example"
+        assert payload["allowCredentials"][0]["id"] == "YWJj"
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_passkey_login_verify_authenticates_session(monkeypatch, tmp_path) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            passkey = PasskeyCredential(
+                credential_id="YWJj",
+                user_handle="user-handle",
+                username="admin",
+                public_key="public-key",
+                transports=[],
+            )
+            db.add(passkey)
+            db.commit()
+            passkey_id = passkey.id
+
+        def verify_passkey(db: Session, _request, _payload):
+            return db.get(PasskeyCredential, passkey_id)
+
+        monkeypatch.setattr(
+            "mileage_logger.web.routes.finish_passkey_authentication",
+            verify_passkey,
+        )
+        verify_response = client.post(
+            "/passkeys/login/verify",
+            json={"id": "credential", "next_url": "/diagnostics"},
+        )
+        diagnostics_response = client.get("/diagnostics")
+
+        assert verify_response.status_code == 200
+        assert verify_response.json() == {"redirect_url": "/diagnostics"}
+        assert diagnostics_response.status_code == 200
+        success_entries = tail_login_success_entries(login_failure_log_path)
+        assert len(success_entries) == 1
+        assert success_entries[0].username == "admin"
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_failed_passkey_login_records_audit_entry(monkeypatch, tmp_path) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        def reject_passkey(_db, _request, _payload):
+            from mileage_logger.services.passkeys import PasskeyCeremonyError
+
+            raise PasskeyCeremonyError("invalid")
+
+        monkeypatch.setattr(
+            "mileage_logger.web.routes.finish_passkey_authentication",
+            reject_passkey,
+        )
+        response = client.post(
+            "/passkeys/login/verify",
+            json={"id": "credential", "next_url": "/diagnostics"},
+        )
+
+        assert response.status_code == 401
+        payload = json.loads(login_failure_log_path.read_text(encoding="utf-8").splitlines()[0])
+        assert payload["event"] == "web_login_failed"
+        assert payload["reason"] == "invalid_passkey"
+        assert payload["password_length"] == 0
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -1923,6 +2086,80 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         assert "198.51.100.100" in second_cloudflare_section
         assert "198.51.100.102" not in second_cloudflare_section
     finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_passkey_card_lists_registers_and_removes_passkeys(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        log_dir=str(tmp_path),
+        login_failure_log_path=str(tmp_path / "login-failures.log"),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            passkey = PasskeyCredential(
+                credential_id="YWJj",
+                user_handle="user-handle",
+                username="admin",
+                public_key="public-key",
+                device_type="multi_device",
+                backed_up=True,
+                transports=[],
+                created_at=datetime(2026, 6, 25, 12, 0, tzinfo=UTC),
+            )
+            db.add(passkey)
+            db.commit()
+            passkey_id = passkey.id
+
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/diagnostics",
+            },
+            follow_redirects=False,
+        )
+        diagnostics_response = client.get("/diagnostics")
+        options_response = client.post(
+            "/diagnostics/passkeys/register/options",
+            headers={"Origin": "https://mileage.example"},
+        )
+        delete_response = client.post(
+            f"/diagnostics/passkeys/{passkey_id}/delete",
+            follow_redirects=False,
+        )
+
+        assert login_response.status_code == 303
+        assert diagnostics_response.status_code == 200
+        passkey_section = _html_section(
+            diagnostics_response.text,
+            '<div id="passkeys" class="panel">',
+            '<section id="owntracks-state-log" class="panel">',
+        )
+        assert "Configure Passkey" in passkey_section
+        assert "Device sign-in for admin." in passkey_section
+        assert "Multi Device" in passkey_section
+        assert "Synced" in passkey_section
+        assert f"/diagnostics/passkeys/{passkey_id}/delete" in passkey_section
+        assert options_response.status_code == 200
+        assert options_response.json()["rp"]["id"] == "mileage.example"
+        assert delete_response.status_code == 303
+        assert delete_response.headers["location"] == "/diagnostics#passkeys"
+        with session_factory() as db:
+            assert db.get(PasskeyCredential, passkey_id) is None
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
@@ -3429,6 +3666,9 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                 total_pages=1,
             ),
             "cloudflare_ip_blocking_configured": False,
+            "passkeys": [],
+            "passkey_origin": "",
+            "passkey_rp_id": "",
             "cloudflare_block_result": None,
             "manual_odometer_result": None,
             "eia_test_result": None,
@@ -3451,11 +3691,14 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
 
     api_tests_start = rendered.index('<section id="api-tests" class="diagnostics-grid">')
     owntracks_card_start = rendered.index('<div id="owntracks-current-state" class="panel">')
+    passkey_card_start = rendered.index('<div id="passkeys" class="panel">')
     state_log_start = rendered.index('<section id="owntracks-state-log" class="panel">')
     api_tests_section = rendered[api_tests_start:state_log_start]
     assert api_tests_start < manual_card_start < manual_card_end < owntracks_card_start
-    assert api_tests_section.count('class="panel"') == 3
+    assert owntracks_card_start < passkey_card_start < state_log_start
+    assert api_tests_section.count('class="panel"') == 4
     assert "OwnTracks State" in api_tests_section
+    assert "Configure Passkey" in api_tests_section
     assert "Used space as a share of each drive" in rendered
     assert "drive-space-track" in rendered
     assert 'style="width: 62.0%"' in rendered

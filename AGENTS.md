@@ -104,6 +104,14 @@ docker compose up -d --build
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
   intentionally has no separate footer refresh or download buttons
 
+**[passkeys.py](mileage_logger/services/passkeys.py)** — WebAuthn passkey login
+- Generates and verifies WebAuthn registration and authentication ceremonies with `py_webauthn`
+- Stores passkeys in `passkey_credentials` for the single configured `WEB_LOGIN_USERNAME`
+- Keeps registration behind an authenticated Diagnostics session; unauthenticated routes are
+  limited to login challenge generation and assertion verification
+- Failed passkey assertions use the same audit log, temporary lockout, and Cloudflare auto-block
+  path as failed password logins
+
 **[cloudflare_blocks.py](mileage_logger/services/cloudflare_blocks.py)** — Cloudflare IP blocking
 - Creates and deletes app-managed Cloudflare zone IP Access Rules for failed-login and manually
   entered IP addresses
@@ -175,7 +183,8 @@ docker compose up -d --build
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
-  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `TRUSTED_PROXY_CIDRS`
+  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `TRUSTED_PROXY_CIDRS`, `PASSKEY_RP_NAME`,
+  `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -251,18 +260,22 @@ docker compose up -d --build
    consecutive count. Diagnostics paginates successful-login rows, failed-login rows, and
    app-managed Cloudflare blocks in compact 10-row pages; on mobile, pagination keeps First,
    Previous, Next, and Last in one full-width row with the page count as text below.
-6. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
+6. Diagnostics includes a Configure Passkey card for the single configured web user. Passkey
+   creation requires an authenticated web session, lists configured passkeys, and removes only the
+   selected local credential row. Passkey login failures must stay on the same failed-login audit,
+   lockout, and Cloudflare auto-block path as password login failures.
+7. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
    backup/restore card is at the bottom of the page under App Log, and the manual full-backup
    download control sits with the lower upload-restore controls. Restore replaces all app table
    data from a validated `.json.gz` backup and is enabled only when web login is configured.
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
    backup can be downloaded individually, startup-created files are labeled, and the selected file
    can be restored after typed `RESTORE` confirmation.
-7. Diagnostics groups Manual Odometer, EIA API, and OwnTracks State cards in one equal-width row
-   before the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and
-   recent OwnTracks database entries are paginated in compact 10-row pages with the same mobile
-   full-width pagination row used by the login and Cloudflare block lists.
-8. Diagnostics shows the app version in the Application card, shows hard drive space for key
+8. Diagnostics groups Manual Odometer, EIA API, OwnTracks State, and Configure Passkey cards before
+   the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and recent
+   OwnTracks database entries are paginated in compact 10-row pages with the same mobile full-width
+   pagination row used by the login and Cloudflare block lists.
+9. Diagnostics shows the app version in the Application card, shows hard drive space for key
    runtime paths, combines paths into one row when exact used bytes and total bytes match, and
    includes current database size plus total app record count at the bottom of the card.
 9. Trip calculation details logged to `mileage_logger.trip_calculation` logger
@@ -310,6 +323,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Public nginx overwrites `X-Real-IP` and `X-Forwarded-For` with its immediate peer and forwards
   `CF-Connecting-IP` only from loopback `cloudflared`; the app accepts forwarded client IP headers
   only from `TRUSTED_PROXY_CIDRS` for login lockouts and Cloudflare auto-blocks.
+- Passkey login derives its WebAuthn origin from `PASSKEY_ORIGIN`, the browser `Origin` header, or
+  trusted reverse-proxy scheme/host headers. For public Cloudflare Tunnel deployments, verify the
+  browser origin is the public HTTPS URL or set `PASSKEY_ORIGIN` and `PASSKEY_RP_ID` explicitly.
 - Diagnostics includes authenticated full data backup and restore controls for app database rows
   and saved OwnTracks waypoint export. Automatic hourly backups are stored under
   `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups`; treat backup files as sensitive location

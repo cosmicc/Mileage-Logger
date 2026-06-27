@@ -514,6 +514,30 @@ p {
   gap: 16px;
 }
 
+.passkey-login-button {
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.login-divider::before,
+.login-divider::after {
+  height: 1px;
+  flex: 1 1 auto;
+  background: var(--line);
+  content: "";
+}
+
 .login-form input {
   width: 100%;
 }
@@ -934,6 +958,11 @@ td input[type="text"] {
 .cloudflare-reason-input {
   width: min(420px, 36vw);
   min-width: 260px;
+}
+
+.passkey-table {
+  margin-top: 12px;
+  font-size: 12px;
 }
 
 .panel-toolbar {

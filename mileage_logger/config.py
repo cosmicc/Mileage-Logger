@@ -2,6 +2,7 @@ import ipaddress
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,6 +34,9 @@ class Settings(BaseSettings):
     web_session_cookie_secure: bool = False
     web_login_max_attempts: int = Field(default=5, ge=1)
     web_login_lockout_seconds: int = Field(default=300, ge=1)
+    passkey_rp_name: str = "Mileage Logger"
+    passkey_rp_id: str = ""
+    passkey_origin: str = ""
     trusted_proxy_cidrs: str = ""
     cloudflare_ip_blocking_enabled: bool = False
     cloudflare_api_token: str = ""
@@ -99,6 +103,36 @@ class Settings(BaseSettings):
                     "TRUSTED_PROXY_CIDRS must contain valid IP addresses or CIDR ranges"
                 ) from exc
         return ",".join(entries)
+
+    @field_validator("passkey_rp_id", mode="before")
+    @classmethod
+    def validate_passkey_rp_id(cls, value: object) -> str:
+        """Validate an optional WebAuthn relying-party ID."""
+
+        rp_id = str(value or "").strip().lower()
+        if not rp_id:
+            return ""
+        if "://" in rp_id or "/" in rp_id or ":" in rp_id:
+            raise ValueError("PASSKEY_RP_ID must be a host name without scheme, port, or path")
+        return rp_id
+
+    @field_validator("passkey_origin", mode="before")
+    @classmethod
+    def validate_passkey_origin(cls, value: object) -> str:
+        """Validate an optional WebAuthn origin override."""
+
+        origin = str(value or "").strip().rstrip("/")
+        if not origin:
+            return ""
+        parsed = urlsplit(origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("PASSKEY_ORIGIN must be an http:// or https:// origin")
+        if parsed.path or parsed.query or parsed.fragment:
+            raise ValueError("PASSKEY_ORIGIN must not include a path, query, or fragment")
+        local_hosts = {"localhost", "127.0.0.1", "::1"}
+        if parsed.scheme == "http" and (parsed.hostname or "").lower() not in local_hosts:
+            raise ValueError("PASSKEY_ORIGIN must use https outside localhost testing")
+        return origin
 
     @model_validator(mode="after")
     def validate_web_security_settings(self) -> Self:

@@ -44,3 +44,6 @@ def test_app_container_requires_production_web_login_secrets() -> None:
     assert "WEB_LOGIN_USERNAME: \"${WEB_LOGIN_USERNAME:?" in app_block
     assert "WEB_LOGIN_PASSWORD: \"${WEB_LOGIN_PASSWORD:?" in app_block
     assert 'TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}"' in app_block
+    assert 'PASSKEY_RP_NAME: "${PASSKEY_RP_NAME:-Mileage Logger}"' in app_block
+    assert 'PASSKEY_RP_ID: "${PASSKEY_RP_ID:-}"' in app_block
+    assert 'PASSKEY_ORIGIN: "${PASSKEY_ORIGIN:-}"' in app_block

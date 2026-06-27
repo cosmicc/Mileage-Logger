@@ -336,6 +336,11 @@ WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24
 # Optional: Trust reverse-proxy client-IP headers from these direct proxy ranges
 TRUSTED_PROXY_CIDRS=172.16.0.0/12
 
+# Optional: override WebAuthn relying-party settings for passkeys
+PASSKEY_RP_NAME=Mileage Logger
+PASSKEY_RP_ID=mileage.example.com
+PASSKEY_ORIGIN=https://mileage.example.com
+
 # For local testing (disable HTTPS cookie)
 WEB_SESSION_COOKIE_SECURE=false
 ```
@@ -367,12 +372,20 @@ def protected_page(request: Request) -> TemplateResponse:
    Access Rule after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failures for the
    same client IP. Diagnostics also supports manually entered valid IP addresses with a required
    block reason.
+9. Passkey login uses `/passkeys/login/options` and `/passkeys/login/verify` as unauthenticated
+   ceremony endpoints for the login page. Registration and deletion stay behind authenticated
+   Diagnostics routes under `/diagnostics/passkeys/...`.
 
 The login audit log must never store the submitted password value. Keep failed-login submitted
 username, password length, client IP/header details, user agent, request path, reason, attempt
 count, lockout state, and UTC/local timestamps available for Diagnostics. Keep successful-login
 submitted username, matched account, client IP/header details, user agent, request path, and
 UTC/local timestamps available for the successful-login table.
+Failed passkey assertions must use the same failed-login audit, lockout, and Cloudflare auto-block
+path as invalid passwords; use password length `0` and a passkey-specific reason such as
+`invalid_passkey`. Do not expose passkey registration without an authenticated Diagnostics session.
+The app has one configured web user, so passkeys are stored for `WEB_LOGIN_USERNAME` in
+`passkey_credentials` rather than adding separate user-management flows.
 `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
 `SECRET_KEY` must be changed from the default `change-me`; production Docker fails closed if the
 login credentials or session secret are missing. Behind a reverse proxy, configure
@@ -381,6 +394,10 @@ login credentials or session secret are missing. Behind a reverse proxy, configu
 for lockout and Cloudflare auto-block identity. The bundled nginx config overwrites `X-Real-IP`
 and `X-Forwarded-For` with its immediate peer and forwards `CF-Connecting-IP` only from loopback
 `cloudflared` traffic.
+Passkey verification must use the public browser origin. Prefer explicit `PASSKEY_ORIGIN` and
+`PASSKEY_RP_ID` for unusual reverse-proxy setups; otherwise the passkey service may derive them
+from the browser `Origin` header or trusted proxy scheme/host headers. Public passkey use requires
+HTTPS except for localhost testing.
 Keep `CLOUDFLARE_IP_BLOCK_ALLOWLIST` checks in front of both automatic and manual block actions so
 trusted IPs/CIDRs cannot be blocked by this app.
 
@@ -561,6 +578,10 @@ and the compatibility `/diagnostics/logs/login-failures` raw audit download endp
 failed-login rows may be hidden from the Diagnostics table through `hidden_login_failures`, but the
 raw JSON-lines audit log must remain intact. Keep the Diagnostics card actions scoped to the
 individual failed-login rows rather than adding separate footer refresh or download buttons.
+The Configure Passkey Diagnostics card creates one new WebAuthn credential at a time, lists stored
+credentials, and removes only the selected `passkey_credentials` row. Keep it in the compact
+Diagnostics controls area with Manual Odometer, EIA API, and OwnTracks State unless the page is
+reorganized deliberately.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each

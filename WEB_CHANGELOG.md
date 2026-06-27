@@ -7,6 +7,9 @@
   (06/2026)`.
 - Trips now shows selected-month summary cards above Add Trip for mileage, OwnTracks events, trip
   count, reimbursement, and monthly gas price.
+- The login page now supports Device Sign-In after a passkey is created.
+- Diagnostics now has a Configure Passkey card to create passkeys, see configured passkeys, and
+  remove passkeys for the single web-login user.
 - Diagnostics now lists successful logins above failed logins, with both lists paginated.
 - Automatic backups created at app startup are labeled in Diagnostics.
 - Waypoints and Diagnostics pagination are more compact on mobile, with the nav buttons filling one

@@ -161,6 +161,9 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+PASSKEY_RP_NAME=Mileage Logger
+PASSKEY_RP_ID=
+PASSKEY_ORIGIN=
 TRUSTED_PROXY_CIDRS=172.16.0.0/12
 ```
 
@@ -180,6 +183,13 @@ details, submitted username, password length, user agent, request path, reason, 
 lockout state, and timestamps. Successful entries include client IP details, submitted username,
 matched account, web client, request path, and timestamps. The raw submitted password is never
 stored.
+
+Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
+with the normal username/password once, create a passkey from Diagnostics, then use Device Sign-In
+on the login page. Passkeys require a secure browser origin; when the app is published through
+Cloudflare Tunnel, the default Docker nginx config forwards the public HTTPS origin. If your proxy
+setup is unusual, set `PASSKEY_ORIGIN=https://your-host.example.com` and
+`PASSKEY_RP_ID=your-host.example.com` explicitly.
 
 See [INSTALL.md](INSTALL.md) for the full Docker and Portainer installation guide.
 
@@ -369,6 +379,9 @@ WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
 WEB_LOGIN_MAX_ATTEMPTS=5
 WEB_LOGIN_LOCKOUT_SECONDS=300
+PASSKEY_RP_NAME=Mileage Logger
+PASSKEY_RP_ID=
+PASSKEY_ORIGIN=
 TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
@@ -395,6 +408,10 @@ requires both values and a non-default `SECRET_KEY`. `WEB_LOGIN_MAX_ATTEMPTS` an
 `TRUSTED_PROXY_CIDRS` controls which direct reverse-proxy clients may supply forwarded client IP
 headers for login audit records, lockouts, and Cloudflare auto-blocks. Leave it blank when the app
 is served directly; use the Docker default when requests arrive through the bundled nginx service.
+Passkeys are optional and are configured from Diagnostics after username/password login.
+`PASSKEY_RP_NAME` controls the device prompt name. `PASSKEY_RP_ID` and `PASSKEY_ORIGIN` can be left
+blank for normal same-host use, or set to the public HTTPS host and origin when a custom reverse
+proxy does not forward the browser origin correctly.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 `CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with `Account Firewall Access Rules Write`

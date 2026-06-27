@@ -253,6 +253,67 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       {% endif %}
     </dl>
   </div>
+
+  <div id="passkeys" class="panel">
+    <div class="panel-toolbar">
+      <div>
+        <h2>Configure Passkey</h2>
+        <p class="panel-meta">Device sign-in for {{ settings.web_login_username or "the web user" }}.</p>
+      </div>
+      <button
+        id="passkey-register-button"
+        type="button"
+        class="small-button"
+        {% if not web_login_enabled(settings) %}disabled{% endif %}
+      >Create</button>
+    </div>
+    <p id="passkey-register-status" class="api-test-result" hidden></p>
+    {% if not web_login_enabled(settings) %}
+    <p class="panel-meta">Set WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD before creating passkeys.</p>
+    {% endif %}
+    <dl class="diagnostic-list compact-list">
+      <dt>RP ID</dt>
+      <dd>{{ passkey_rp_id or "Auto from browser origin" }}</dd>
+      <dt>Origin</dt>
+      <dd>{{ passkey_origin or "Auto from browser origin" }}</dd>
+    </dl>
+    <table class="passkey-table">
+      <thead>
+        <tr>
+          <th>Created</th>
+          <th>Last Used</th>
+          <th>Device</th>
+          <th>Remove</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for passkey in passkeys %}
+        <tr>
+          <td>{{ passkey.created_at|local_datetime }}</td>
+          <td>{% if passkey.last_used_at %}{{ passkey.last_used_at|local_datetime }}{% else %}Never{% endif %}</td>
+          <td>
+            {{ passkey.device_type.replace("_", " ").title() if passkey.device_type else "Passkey" }}
+            {% if passkey.backed_up %}
+            <span class="pill good">Synced</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="/diagnostics/passkeys/{{ passkey.id }}/delete">
+              <button
+                class="icon-button danger"
+                type="submit"
+                title="Remove passkey"
+                aria-label="Remove passkey"
+              >X</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4">No passkeys configured.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section id="owntracks-state-log" class="panel">
@@ -770,4 +831,111 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <dd>{{ backup_upload_max_mb }} MB</dd>
   </dl>
 </section>
+<script>
+  (() => {
+    const button = document.getElementById("passkey-register-button");
+    const status = document.getElementById("passkey-register-status");
+    if (!button || !status) {
+      return;
+    }
+
+    const showStatus = (message, failed = false) => {
+      status.textContent = message;
+      status.className = `api-test-result ${failed ? "fail" : "pass"}`;
+      status.hidden = false;
+    };
+
+    const base64UrlToBuffer = (value) => {
+      const padding = "=".repeat((4 - (value.length % 4)) % 4);
+      const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+      const raw = atob(base64);
+      const buffer = new ArrayBuffer(raw.length);
+      const view = new Uint8Array(buffer);
+      for (let index = 0; index < raw.length; index += 1) {
+        view[index] = raw.charCodeAt(index);
+      }
+      return buffer;
+    };
+
+    const bufferToBase64Url = (buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let raw = "";
+      for (const byte of bytes) {
+        raw += String.fromCharCode(byte);
+      }
+      return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+    };
+
+    const prepareRegistrationOptions = (options) => {
+      const publicKey = options.publicKey || options;
+      publicKey.challenge = base64UrlToBuffer(publicKey.challenge);
+      publicKey.user.id = base64UrlToBuffer(publicKey.user.id);
+      publicKey.excludeCredentials = (publicKey.excludeCredentials || []).map((credential) => ({
+        ...credential,
+        id: base64UrlToBuffer(credential.id),
+      }));
+      return publicKey;
+    };
+
+    const credentialToJson = (credential) => {
+      const json = {
+        id: credential.id,
+        rawId: bufferToBase64Url(credential.rawId),
+        type: credential.type,
+        response: {
+          attestationObject: bufferToBase64Url(credential.response.attestationObject),
+          clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
+        },
+        clientExtensionResults: credential.getClientExtensionResults(),
+      };
+      if (credential.authenticatorAttachment) {
+        json.authenticatorAttachment = credential.authenticatorAttachment;
+      }
+      if (typeof credential.response.getTransports === "function") {
+        json.response.transports = credential.response.getTransports();
+      }
+      return json;
+    };
+
+    const registerPasskey = async () => {
+      status.hidden = true;
+      button.disabled = true;
+      try {
+        const optionsResponse = await fetch("/diagnostics/passkeys/register/options", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const options = await optionsResponse.json();
+        if (!optionsResponse.ok) {
+          throw new Error(options.error || "Passkey creation failed.");
+        }
+        const credential = await navigator.credentials.create({
+          publicKey: prepareRegistrationOptions(options),
+        });
+        const verifyResponse = await fetch("/diagnostics/passkeys/register/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentialToJson(credential)),
+        });
+        const result = await verifyResponse.json().catch(() => ({}));
+        if (!verifyResponse.ok) {
+          throw new Error(result.error || "Passkey creation failed.");
+        }
+        window.location.assign("/diagnostics#passkeys");
+      } catch (error) {
+        showStatus(error.message || "Passkey creation failed.", true);
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    if (!window.PublicKeyCredential || !navigator.credentials) {
+      button.disabled = true;
+      showStatus("Passkeys are unavailable in this browser.", true);
+      return;
+    }
+    button.addEventListener("click", registerPasskey);
+  })();
+</script>
 {% endblock %}
