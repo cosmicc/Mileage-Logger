@@ -33,7 +33,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   </div>
 </section>
 
-<section class="diagnostics-grid">
+<section id="api-tests" class="diagnostics-grid">
   <div class="panel">
     <h2>Application</h2>
     <dl class="diagnostic-list">
@@ -71,54 +71,6 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   </div>
 
   <div class="panel">
-    <h2>Hard Drive Space</h2>
-    <p class="panel-meta">Used space as a share of each drive's total capacity.</p>
-    {% if disk_usages %}
-    <div class="drive-space-bars">
-      {% for disk in disk_usages %}
-      <div class="drive-space-meter">
-        <div class="drive-space-meter-label">
-          <span>{{ disk.primary_path }}</span>
-          <span>{{ disk.used_percent_display }} used</span>
-        </div>
-        <div
-          class="drive-space-track"
-          aria-label="{{ disk.primary_path }} drive usage"
-          role="img"
-        >
-          <span class="drive-space-fill" style="width: {{ disk.used_percent_style }}"></span>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-    <dl class="diagnostic-list">
-      {% for disk in disk_usages %}
-      <dt>{{ disk.primary_path }}</dt>
-      <dd>
-        {{ disk.free_display }} free of {{ disk.total_display }}
-        <span class="diagnostic-value">{{ disk.used_display }} used ({{ disk.used_percent_display }})</span>
-        {% if disk.paths|length > 1 %}
-        <span class="diagnostic-value">Same drive: {{ disk.paths|join(", ") }}</span>
-        {% endif %}
-      </dd>
-      {% else %}
-      <dt>Storage</dt>
-      <dd>Unavailable</dd>
-      {% endfor %}
-    </dl>
-    <div class="database-summary">
-      <h3>Database Data</h3>
-      <dl class="diagnostic-list">
-        <dt>Database Size</dt>
-        <dd>{{ database_summary.size_display }}</dd>
-        <dt>Total Records</dt>
-        <dd>{{ database_summary.total_records_display }}</dd>
-      </dl>
-    </div>
-  </div>
-
-  <div class="panel">
     <h2>Latest Records</h2>
     <dl class="diagnostic-list">
       <dt>Location</dt>
@@ -140,9 +92,39 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       </dd>
     </dl>
   </div>
-</section>
+  <div id="owntracks-current-state" class="panel">
+    <div class="panel-toolbar">
+      <div>
+        <h2>OwnTracks State</h2>
+        <p class="panel-meta">Current waypoint or travel state from recent OwnTracks events.</p>
+      </div>
+    </div>
+    <dl class="diagnostic-list">
+      <dt>Status</dt>
+      <dd>
+        <span class="pill {{ 'good' if movement_state.state == 'waypoint' else 'warning' if movement_state.state == 'travel' else 'muted' }}">
+          {{ movement_state.label }}
+        </span>
+      </dd>
+      {% if movement_state.site_name %}
+      <dt>Waypoint</dt>
+      <dd>{{ movement_state.site_name }}</dd>
+      {% endif %}
+      {% if movement_state.arrived_at %}
+      <dt>Arrived</dt>
+      <dd>{{ movement_state.arrived_at|local_datetime }}</dd>
+      {% endif %}
+      {% if movement_state.detected_at %}
+      <dt>Detected</dt>
+      <dd>{{ movement_state.detected_at|local_datetime }}</dd>
+      {% endif %}
+      {% if movement_state.distance_miles is not none %}
+      <dt>Distance</dt>
+      <dd>{{ "%.1f"|format(movement_state.distance_miles) }} miles</dd>
+      {% endif %}
+    </dl>
+  </div>
 
-<section id="api-tests" class="diagnostics-grid">
   <div class="panel">
     <div class="panel-toolbar">
       <div>
@@ -221,39 +203,6 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     </dl>
   </div>
 
-  <div id="owntracks-current-state" class="panel">
-    <div class="panel-toolbar">
-      <div>
-        <h2>OwnTracks State</h2>
-        <p class="panel-meta">Current waypoint or travel state from recent OwnTracks events.</p>
-      </div>
-    </div>
-    <dl class="diagnostic-list">
-      <dt>Status</dt>
-      <dd>
-        <span class="pill {{ 'good' if movement_state.state == 'waypoint' else 'warning' if movement_state.state == 'travel' else 'muted' }}">
-          {{ movement_state.label }}
-        </span>
-      </dd>
-      {% if movement_state.site_name %}
-      <dt>Waypoint</dt>
-      <dd>{{ movement_state.site_name }}</dd>
-      {% endif %}
-      {% if movement_state.arrived_at %}
-      <dt>Arrived</dt>
-      <dd>{{ movement_state.arrived_at|local_datetime }}</dd>
-      {% endif %}
-      {% if movement_state.detected_at %}
-      <dt>Detected</dt>
-      <dd>{{ movement_state.detected_at|local_datetime }}</dd>
-      {% endif %}
-      {% if movement_state.distance_miles is not none %}
-      <dt>Distance</dt>
-      <dd>{{ "%.1f"|format(movement_state.distance_miles) }} miles</dd>
-      {% endif %}
-    </dl>
-  </div>
-
   <div id="passkeys" class="panel">
     <div class="panel-toolbar">
       <div>
@@ -313,6 +262,54 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <div class="panel">
+    <h2>Hard Drive Space</h2>
+    <p class="panel-meta">Used space as a share of each drive's total capacity.</p>
+    {% if disk_usages %}
+    <div class="drive-space-bars">
+      {% for disk in disk_usages %}
+      <div class="drive-space-meter">
+        <div class="drive-space-meter-label">
+          <span>{{ disk.primary_path }}</span>
+          <span>{{ disk.used_percent_display }} used</span>
+        </div>
+        <div
+          class="drive-space-track"
+          aria-label="{{ disk.primary_path }} drive usage"
+          role="img"
+        >
+          <span class="drive-space-fill" style="width: {{ disk.used_percent_style }}"></span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <dl class="diagnostic-list">
+      {% for disk in disk_usages %}
+      <dt>{{ disk.primary_path }}</dt>
+      <dd>
+        {{ disk.free_display }} free of {{ disk.total_display }}
+        <span class="diagnostic-value">{{ disk.used_display }} used ({{ disk.used_percent_display }})</span>
+        {% if disk.paths|length > 1 %}
+        <span class="diagnostic-value">Same drive: {{ disk.paths|join(", ") }}</span>
+        {% endif %}
+      </dd>
+      {% else %}
+      <dt>Storage</dt>
+      <dd>Unavailable</dd>
+      {% endfor %}
+    </dl>
+    <div class="database-summary">
+      <h3>Database Data</h3>
+      <dl class="diagnostic-list">
+        <dt>Database Size</dt>
+        <dd>{{ database_summary.size_display }}</dd>
+        <dt>Total Records</dt>
+        <dd>{{ database_summary.total_records_display }}</dd>
+      </dl>
+    </div>
   </div>
 </section>
 

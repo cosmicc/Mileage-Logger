@@ -1,5 +1,9 @@
 # Web Changelog
 
+## 1.2.2 - Unreleased
+
+- Diagnostics now groups the top eight cards into one three-column desktop grid in a clearer order.
+
 ## 1.2.1 - 2026-06-27
 
 - Dashboard now shows a loading message while the calculated home-page cards and recent trips load.

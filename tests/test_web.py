@@ -3893,24 +3893,44 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "Rolling" in manual_card
 
     api_tests_start = rendered.index('<section id="api-tests" class="diagnostics-grid">')
+    app_card_start = rendered.index("<h2>Application</h2>")
+    data_card_start = rendered.index("<h2>Data</h2>")
+    latest_records_start = rendered.index("<h2>Latest Records</h2>")
     owntracks_card_start = rendered.index('<div id="owntracks-current-state" class="panel">')
+    eia_card_start = rendered.index("<h2>EIA API</h2>")
     passkey_card_start = rendered.index('<div id="passkeys" class="panel">')
+    hard_drive_start = rendered.index("<h2>Hard Drive Space</h2>")
     state_log_start = rendered.index('<section id="owntracks-state-log" class="panel">')
     api_tests_section = rendered[api_tests_start:state_log_start]
-    assert api_tests_start < manual_card_start < manual_card_end < owntracks_card_start
-    assert owntracks_card_start < passkey_card_start < state_log_start
-    assert api_tests_section.count('class="panel"') == 4
+    assert (
+        api_tests_start
+        < app_card_start
+        < data_card_start
+        < latest_records_start
+        < owntracks_card_start
+        < manual_card_start
+        < eia_card_start
+        < passkey_card_start
+        < hard_drive_start
+        < state_log_start
+    )
+    assert manual_card_end == eia_card_start
+    assert api_tests_section.count('class="panel"') == 8
+    assert "Application" in api_tests_section
+    assert "Data" in api_tests_section
+    assert "Latest Records" in api_tests_section
     assert "OwnTracks State" in api_tests_section
+    assert "Manual Odometer" in api_tests_section
+    assert "EIA API" in api_tests_section
     assert "Configure Passkey" in api_tests_section
+    assert "Hard Drive Space" in api_tests_section
     assert "Used space as a share of each drive" in rendered
     assert "drive-space-track" in rendered
     assert 'style="width: 62.0%"' in rendered
-    hard_drive_start = rendered.index("<h2>Hard Drive Space</h2>")
-    latest_records_start = rendered.index("<h2>Latest Records</h2>")
     disk_details_start = rendered.index('<dl class="diagnostic-list">', hard_drive_start)
     database_summary_start = rendered.index('<div class="database-summary">')
-    assert hard_drive_start < disk_details_start < database_summary_start < latest_records_start
-    database_summary = rendered[database_summary_start:latest_records_start]
+    assert hard_drive_start < disk_details_start < database_summary_start < state_log_start
+    database_summary = rendered[database_summary_start:state_log_start]
     assert "Database Data" in database_summary
     assert "Database Size" in database_summary
     assert "128.0 KB" in database_summary

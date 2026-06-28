@@ -278,10 +278,11 @@ docker compose up -d --build
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
    backup can be downloaded individually, startup-created files are labeled, and the selected file
    can be restored after typed `RESTORE` confirmation.
-8. Diagnostics groups Manual Odometer, EIA API, OwnTracks State, and Configure Passkey cards before
-   the detailed OwnTracks state-change log. The detailed OwnTracks state-change log and recent
-   OwnTracks database entries are paginated in compact 10-row pages with the same mobile full-width
-   pagination row used by the login and Cloudflare block lists.
+8. Diagnostics groups the top cards together in this order: Application, Data, Latest Records,
+   OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. Keep the
+   group at three cards per row on desktop and one card per row on mobile. The detailed OwnTracks
+   state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
+   with the same mobile full-width pagination row used by the login and Cloudflare block lists.
 9. Diagnostics shows the app version in the Application card, shows hard drive space for key
    runtime paths, combines paths into one row when exact used bytes and total bytes match, and
    includes current database size plus total app record count at the bottom of the card.

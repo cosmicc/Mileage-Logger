@@ -67,10 +67,10 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
 - In-app diagnostics page for app logs, trip calculation logs, successful and failed web-login
-  audit records, and OwnTracks state in the configured local timezone. The Diagnostics Application
-  card shows the app version, the Manual Odometer, EIA API, and OwnTracks State cards share one
-  equal-width status row, hard drive rows combine matching used and total space readings, detailed
-  lists use compact 10-row pages, and Full Data Backup stays at the bottom under the App Log.
+  audit records, and OwnTracks state in the configured local timezone. The top Diagnostics cards
+  are grouped into a three-column desktop grid, hard drive rows combine matching used and total
+  space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the bottom
+  under the App Log.
 - Installed mobile web-app layout keeps navigation in one full-width top-bar row and leaves the
   bottom safe area clear for phone system navigation without opting into edge-to-edge phone
   drawing.
@@ -320,14 +320,15 @@ The Dashboard current-month reimbursement card uses the same trip-mile total, re
 gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
 displayed gallons limited to one decimal place.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
-the existing checkpoint can be checked before entering a correction. That card sits in the same
-Diagnostics row as the EIA API test card and the current OwnTracks State card. Diagnostics also
-shows hard drive space for key runtime paths with used-space bars, combining paths into one row
-when their exact used space and total capacity match, and includes current database size plus total
-app record count at the bottom of the card. Recent OwnTracks entries, OwnTracks state changes,
-successful-login attempts, failed-login attempts, and app-managed Cloudflare blocked IPs are
-displayed 10 rows at a time with mobile pagination buttons in one full-width row and the page count
-shown as text below.
+the existing checkpoint can be checked before entering a correction. The top Diagnostics cards are
+grouped together in this order: Application, Data, Latest Records, OwnTracks State, Manual
+Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three cards per
+row. Diagnostics also shows hard drive space for key runtime paths with used-space bars, combining
+paths into one row when their exact used space and total capacity match, and includes current
+database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
+OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
+Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
+full-width row and the page count shown as text below.
 
 ## Cloudflare Tunnel
 

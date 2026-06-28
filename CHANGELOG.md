@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 - Unreleased
+
+- Changed the top Diagnostics cards to render as one grouped three-column desktop grid ordered by
+  overview, current state, actions, and storage: Application, Data, Latest Records, OwnTracks State,
+  Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space.
+
 ## 1.2.1 - 2026-06-27
 
 - Bumped the Mileage Logger package version to 1.2.1.

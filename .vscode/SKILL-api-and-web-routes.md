@@ -589,9 +589,10 @@ failed-login rows may be hidden from the Diagnostics table through `hidden_login
 raw JSON-lines audit log must remain intact. Keep the Diagnostics card actions scoped to the
 individual failed-login rows rather than adding separate footer refresh or download buttons.
 The Configure Passkey Diagnostics card creates one new WebAuthn credential at a time, lists stored
-credentials, and removes only the selected `passkey_credentials` row. Keep it in the compact
-Diagnostics controls area with Manual Odometer, EIA API, and OwnTracks State unless the page is
-reorganized deliberately.
+credentials, and removes only the selected `passkey_credentials` row. Keep the top Diagnostics
+cards grouped together in this order unless the page is reorganized deliberately: Application,
+Data, Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive
+Space.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each
