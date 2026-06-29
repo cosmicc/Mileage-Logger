@@ -385,8 +385,9 @@ def protected_page(request: Request) -> TemplateResponse:
 The login audit log must never store the submitted password value. Keep failed-login submitted
 username, password length, client IP/header details, user agent, request path, reason, attempt
 count, lockout state, and UTC/local timestamps available for Diagnostics. Keep successful-login
-submitted username, matched account, client IP/header details, user agent, request path, and
-UTC/local timestamps available for the successful-login table.
+submitted username, authentication method, client IP/header details, user agent, request path, and
+UTC/local timestamps available for the successful-login table. Successful-login rows should show a
+Password or Passkey method pill instead of an account column.
 Failed passkey assertions must use the same failed-login audit, lockout, and Cloudflare auto-block
 path as invalid passwords; use password length `0` and a passkey-specific reason such as
 `invalid_passkey`. Do not expose passkey registration without an authenticated Diagnostics session.

@@ -422,7 +422,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         <th>Date/time</th>
         <th>Client IP</th>
         <th>Username</th>
-        <th>Account</th>
+        <th>Method</th>
         <th>Web client</th>
         <th>Details</th>
       </tr>
@@ -433,7 +433,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         <td>{{ entry.occurred_at_local or entry.occurred_at_utc }}</td>
         <td>{{ entry.client_ip or "-" }}</td>
         <td>{{ entry.username or "-" }}{% if entry.username_truncated %}...{% endif %}</td>
-        <td>{{ entry.account or "-" }}</td>
+        <td><span class="pill {{ entry.authentication_method_pill_class }}">{{ entry.authentication_method_label }}</span></td>
         <td>{{ entry.user_agent or "-" }}</td>
         <td>
           <details class="payload-details">

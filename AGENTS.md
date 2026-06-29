@@ -93,9 +93,9 @@ docker compose up -d --build
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
 - Writes structured JSON-lines records for successful and failed web UI login attempts
-- Saves client IP details, submitted username, matched account for successful logins, failed-login
-  password length, user agent, request path, lockout state, and UTC/local timestamps without
-  storing the raw password
+- Saves client IP details, submitted username, authentication method for successful logins,
+  failed-login password length, user agent, request path, lockout state, and UTC/local timestamps
+  without storing the raw password
 - Uses the same effective client key as login lockout and Cloudflare auto-blocking. Forwarded
   client IP headers are trusted only when the direct request client matches `TRUSTED_PROXY_CIDRS`;
   otherwise spoofed `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` headers stay in audit
@@ -266,9 +266,10 @@ docker compose up -d --build
    remove button that deletes the Cloudflare rule and local row. Automatic blocking occurs after
    the configured consecutive failed-login threshold and successful login resets that IP's
    consecutive count. Diagnostics paginates successful-login rows, failed-login rows, and
-   app-managed Cloudflare blocks in compact 10-row pages; on mobile, pagination keeps First,
-   Previous, Next, and Last in one full-width row with the page count as text below. Failed-login
-   row block buttons must use the failed-login table's corrected effective client IP.
+   app-managed Cloudflare blocks in compact 10-row pages; successful-login rows show a Password or
+   Passkey method pill instead of an account column. On mobile, pagination keeps First, Previous,
+   Next, and Last in one full-width row with the page count as text below. Failed-login row block
+   buttons must use the failed-login table's corrected effective client IP.
 6. Diagnostics includes a Configure Passkey card for the single configured web user. Passkey
    creation requires an authenticated web session, lists configured passkeys, and removes only the
    selected local credential row. Passkey login failures must stay on the same failed-login audit,

@@ -361,6 +361,8 @@ def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None
         assert len(success_entries) == 1
         assert success_entries[0].username == "admin"
         assert success_entries[0].account == "admin"
+        assert success_entries[0].authentication_method == "password"
+        assert success_entries[0].authentication_method_label == "Password"
         assert "secret-password" not in login_failure_log_path.read_text(encoding="utf-8")
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
@@ -564,6 +566,7 @@ def test_successful_login_entries_resolve_trusted_proxy_client_ip_for_diagnostic
 
     assert len(entries) == 1
     assert entries[0].client_ip == "172.18.0.5"
+    assert entries[0].authentication_method == "password"
 
     diagnostics_entries = tail_login_success_entries(
         login_failure_log_path,
@@ -754,6 +757,14 @@ def test_passkey_login_verify_authenticates_session(monkeypatch, tmp_path) -> No
         success_entries = tail_login_success_entries(login_failure_log_path)
         assert len(success_entries) == 1
         assert success_entries[0].username == "admin"
+        assert success_entries[0].authentication_method == "passkey"
+        success_section = _html_section(
+            diagnostics_response.text,
+            '<section id="login-successes" class="panel">',
+            '<section id="login-failures" class="panel">',
+        )
+        assert "Passkey" in success_section
+        assert "Password" not in success_section
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -2023,7 +2034,9 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
         assert "Successful Login Attempts" in success_section
         assert "203.0.113.9" in success_section
         assert "SuccessBrowser/1.0" in success_section
-        assert "<th>Account</th>" in success_section
+        assert "<th>Account</th>" not in success_section
+        assert "<th>Method</th>" in success_section
+        assert "Password" in success_section
         assert "admin" in success_section
         assert "Failed Login Attempts" in response.text
         assert "203.0.113.10" in response.text

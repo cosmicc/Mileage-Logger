@@ -1395,6 +1395,7 @@ async def passkey_login_verify(
         request=request,
         username=settings.web_login_username,
         account=settings.web_login_username,
+        authentication_method="passkey",
         next_url=safe_next,
         settings=settings,
     )
@@ -1454,6 +1455,7 @@ def login_form(
             request=request,
             username=username,
             account=settings.web_login_username,
+            authentication_method="password",
             next_url=safe_next,
             settings=settings,
         )

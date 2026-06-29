@@ -71,6 +71,7 @@ class LoginSuccessEntry:
     username_length: int
     username_truncated: bool
     account: str
+    authentication_method: str
     user_agent: str
     method: str
     path: str
@@ -82,6 +83,18 @@ class LoginSuccessEntry:
     x_forwarded_for: str
     forwarded_proto: str
     raw_payload: dict[str, Any]
+
+    @property
+    def authentication_method_label(self) -> str:
+        if self.authentication_method == "passkey":
+            return "Passkey"
+        return "Password"
+
+    @property
+    def authentication_method_pill_class(self) -> str:
+        if self.authentication_method == "passkey":
+            return "good"
+        return "muted"
 
 
 def _bounded_text(value: object, *, max_length: int = MAX_TEXT_FIELD_LENGTH) -> str:
@@ -142,6 +155,21 @@ def _payload_int(payload: dict[str, Any], key: str) -> int:
         return int(payload.get(key) or 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _login_success_authentication_method(payload: dict[str, Any]) -> str:
+    """Return the successful-login method, inferring old log entries from their request path."""
+
+    method = str(payload.get("authentication_method") or "").strip().casefold()
+    if method in {"passkey", "webauthn", "device"}:
+        return "passkey"
+    if method in {"password", "credentials"}:
+        return "password"
+
+    path = str(payload.get("path") or "").strip().casefold()
+    if path.startswith("/passkeys/"):
+        return "passkey"
+    return "password"
 
 
 def _payload_ip(value: object) -> str:
@@ -268,6 +296,7 @@ def _build_login_success_payload(
     request: Request,
     username: str,
     account: str,
+    authentication_method: str,
     next_url: str,
     settings: Settings,
 ) -> dict[str, Any]:
@@ -282,6 +311,7 @@ def _build_login_success_payload(
             settings=settings,
         ),
         "account": _bounded_text(account, max_length=MAX_USERNAME_LOG_LENGTH),
+        "authentication_method": _bounded_text(authentication_method, max_length=32),
     }
 
 
@@ -290,6 +320,7 @@ def record_web_login_success(
     request: Request,
     username: str,
     account: str,
+    authentication_method: str = "password",
     next_url: str,
     settings: Settings | None = None,
 ) -> None:
@@ -307,6 +338,7 @@ def record_web_login_success(
         request=request,
         username=username,
         account=account,
+        authentication_method=authentication_method,
         next_url=next_url,
         settings=active_settings,
     )
@@ -374,6 +406,7 @@ def _success_entry_from_payload(
         account=redact_sensitive_text(
             _bounded_text(payload.get("account", ""), max_length=MAX_USERNAME_LOG_LENGTH)
         ),
+        authentication_method=_login_success_authentication_method(payload),
         user_agent=redact_sensitive_text(_bounded_text(payload.get("user_agent", ""))),
         method=_bounded_text(payload.get("method", "")),
         path=_bounded_text(payload.get("path", "")),

@@ -183,8 +183,8 @@ Each successful login, failed login attempt, and lockout rejection is appended t
 `LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
 details, submitted username, password length, user agent, request path, reason, attempt count,
 lockout state, and timestamps. Successful entries include client IP details, submitted username,
-matched account, web client, request path, and timestamps. The raw submitted password is never
-stored. Diagnostics resolves successful-login and failed-login rows from trusted forwarded
+authentication method, web client, request path, and timestamps. The raw submitted password is
+never stored. Diagnostics resolves successful-login and failed-login rows from trusted forwarded
 metadata, so the failed-login block button targets the real browser IP.
 
 Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
@@ -328,7 +328,8 @@ paths into one row when their exact used space and total capacity match, and inc
 database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
-full-width row and the page count shown as text below. The OwnTracks state-change list omits the
+full-width row and the page count shown as text below. Successful-login attempts show Password or
+Passkey method pills instead of an account column. The OwnTracks state-change list omits the
 per-segment distance column and shows captured time, duration, state, waypoint, source, received
 delay, and rolling odometer when available.
 
