@@ -170,6 +170,7 @@ templates.env.filters["odometer"] = _format_odometer
 templates.env.filters["odometer_source"] = _format_odometer_source
 templates.env.filters["owntracks_entry_event_label"] = owntracks_entry_event_label
 templates.env.filters["owntracks_entry_received_delay"] = owntracks_entry_received_delay_display
+templates.env.globals["request_is_authenticated"] = request_is_authenticated
 templates.env.globals["web_login_enabled"] = web_login_enabled
 WAYPOINT_PAGE_SIZE = 20
 DISTANCE_PRECISION = Decimal("0.1")

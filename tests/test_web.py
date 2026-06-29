@@ -808,15 +808,36 @@ def test_failed_passkey_login_records_audit_entry(monkeypatch, tmp_path) -> None
         app.dependency_overrides.clear()
 
 
-def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
+def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
     monkeypatch.setattr(
         "mileage_logger.web.routes._monthly_gas_context",
         lambda _db, _year, _month: (None, ""),
     )
     client, _ = _test_client_session()
     try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/",
+            },
+            follow_redirects=False,
+        )
         response = client.get("/")
 
+        assert login_response.status_code == 303
         assert response.status_code == 200
         assert "Loading mileage totals, reimbursement details, and recent trips." in response.text
         assert 'data-dashboard-content-url="/dashboard/content"' in response.text
@@ -835,6 +856,30 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert "/static/icons/mileage-logger-icon.svg" in response.text
         assert '<div class="brand" aria-label="Mileage Logger">' in response.text
         assert '<a class="brand" href="/">' not in response.text
+        assert '<nav aria-label="Primary navigation">' in response.text
+        assert (
+            '<a class="nav-link nav-link-home" href="/" aria-label="Home" title="Home">'
+            in response.text
+        )
+        assert (
+            '<a class="nav-link nav-link-trips" href="/trips" aria-label="Trips" title="Trips">'
+            in response.text
+        )
+        assert '<span class="nav-label">Diagnostics</span>' in response.text
+        assert (
+            '<button type="submit" class="nav-logout" aria-label="Logout" title="Logout">'
+            in response.text
+        )
+        assert '<span class="nav-label">Logout</span>' in response.text
+        assert response.text.count('class="nav-icon"') == 5
+        assert "--nav-mobile-bg: rgba(59, 130, 246, 0.2);" in response.text
+        assert "--nav-mobile-bg: rgba(239, 111, 108, 0.2);" in response.text
+        assert "background: var(--nav-mobile-bg);" in response.text
+        assert "border: 1px solid var(--nav-mobile-border);" in response.text
+        assert "justify-content: space-between;" in response.text
+        assert "flex: 0 1 clamp(46px, 14vw, 58px);" in response.text
+        assert "font-size: 0;" in response.text
+        assert "clip-path: inset(50%);" in response.text
         assert 'class="app-close-button"' not in response.text
         assert "window.close()" not in response.text
         assert "border: 1px solid var(--line);" in response.text
@@ -843,6 +888,36 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
         assert "position: fixed;\n    right: 0;\n    bottom: 0;" not in response.text
         assert "calc(20px + env(safe-area-inset-bottom))" in response.text
     finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_login_page_has_no_top_navigation_for_unauthenticated_session(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.get("/login")
+
+        assert response.status_code == 200
+        assert '<header class="topbar">' not in response.text
+        assert '<nav aria-label="Primary navigation">' not in response.text
+        assert '<a class="nav-link nav-link-home"' not in response.text
+        assert '<button type="submit" class="nav-logout"' not in response.text
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
