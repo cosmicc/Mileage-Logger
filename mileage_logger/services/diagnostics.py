@@ -119,6 +119,30 @@ def recent_owntracks_entries(db: Session, limit: int = 20) -> list[OwnTracksLoca
     return paginated_owntracks_entries(db, page=1, page_size=limit).entries
 
 
+def owntracks_entry_event_label(location: OwnTracksLocation) -> str:
+    """Return a readable Diagnostics event label for one stored OwnTracks row."""
+
+    payload_type = _payload_type(location)
+    if payload_type == "transition":
+        transition_event = _transition_event(location)
+        if transition_event == "enter":
+            return "Waypoint enter"
+        if transition_event == "leave":
+            return "Waypoint leave"
+        return "Waypoint event"
+    if payload_type == "location":
+        return "Location event"
+    if payload_type == "waypoint":
+        return "Waypoint event"
+    return "OwnTracks event"
+
+
+def owntracks_entry_received_delay_display(location: OwnTracksLocation) -> str:
+    """Return the capture-to-receive delay for one stored OwnTracks row."""
+
+    return _format_elapsed_seconds(_elapsed_seconds(location.captured_at, location.received_at))
+
+
 def _payload_type(location: OwnTracksLocation) -> str:
     """Return the normalized OwnTracks payload type for a stored location row."""
 

@@ -3068,7 +3068,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
                 )
                 location = _location(
                     captured_at + timedelta(minutes=index),
-                    captured_at + timedelta(minutes=index),
+                    captured_at + timedelta(minutes=index + 2),
                     {
                         "_type": "transition",
                         "event": "enter",
@@ -3076,6 +3076,8 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
                         "seq": index,
                     },
                 )
+                location.user = "user"
+                location.device = f"device-{index:02d}"
                 location.topic = f"owntracks/user/device-{index:02d}"
                 db.add(site)
                 db.add(location)
@@ -3117,11 +3119,18 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         assert "Showing 1-10 of 12 entries." in entries_section
         assert 'class="pagination-button-row"' in entries_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in entries_section
+        assert "<th>Received Delay</th>" in entries_section
+        assert "<th>Event</th>" in entries_section
+        assert "<th>Battery</th>" not in entries_section
+        assert "<th>Topic</th>" not in entries_section
+        assert "2 min" in entries_section
+        assert "Waypoint enter" in entries_section
         assert entries_section.count("<tr>") == 11
-        assert "owntracks/user/device-11" in entries_section
-        assert "owntracks/user/device-02" in entries_section
-        assert "owntracks/user/device-01" not in entries_section
-        assert "owntracks/user/device-00" not in entries_section
+        assert "user / device-11" in entries_section
+        assert "user / device-02" in entries_section
+        assert "user / device-01" not in entries_section
+        assert "user / device-00" not in entries_section
+        assert "owntracks/user/device-11" not in entries_section
 
         second_entries_page = client.get("/diagnostics?owntracks_page=2")
         second_entries_section = _html_section(
@@ -3130,9 +3139,49 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
             '<section id="login-successes" class="panel">',
         )
         assert "Showing 11-12 of 12 entries." in second_entries_section
-        assert "owntracks/user/device-01" in second_entries_section
-        assert "owntracks/user/device-00" in second_entries_section
-        assert "owntracks/user/device-02" not in second_entries_section
+        assert "user / device-01" in second_entries_section
+        assert "user / device-00" in second_entries_section
+        assert "user / device-02" not in second_entries_section
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_recent_owntracks_entries_show_delay_and_event_labels() -> None:
+    client, session_factory = _test_client_session()
+    captured_at = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
+    try:
+        with session_factory() as db:
+            location = _location(
+                captured_at,
+                captured_at + timedelta(seconds=95),
+                {"_type": "location"},
+            )
+            location.user = "user"
+            location.device = "phone"
+            location.topic = "owntracks/user/phone"
+            waypoint_leave = _location(
+                captured_at + timedelta(minutes=10),
+                captured_at + timedelta(minutes=11),
+                {"_type": "transition", "event": "leave", "desc": "Office"},
+            )
+            db.add_all([location, waypoint_leave])
+            db.commit()
+
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        entries_section = _html_section(
+            response.text,
+            '<section id="owntracks-entries" class="panel">',
+            '<section id="login-successes" class="panel">',
+        )
+        assert "Received Delay" in entries_section
+        assert "Location event" in entries_section
+        assert "Waypoint leave" in entries_section
+        assert "1 min" in entries_section
+        assert "owntracks/user/phone" not in entries_section
+        assert "Battery" not in entries_section
+        assert "Topic" not in entries_section
     finally:
         app.dependency_overrides.clear()
 

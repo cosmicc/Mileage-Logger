@@ -11,6 +11,10 @@
 - Changed the top Diagnostics cards to render as one grouped three-column desktop grid ordered by
   overview, current state, actions, and storage: Application, Data, Latest Records, OwnTracks State,
   Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space.
+- Removed the separate `WEB_CHANGELOG.md` file because Mileage Logger is a single-user app and
+  release notes now live only in `CHANGELOG.md`.
+- Changed the Diagnostics Recent OwnTracks Entries table to show received delay and readable event
+  labels, and removed the Battery and raw Topic columns.
 
 ## 1.2.1 - 2026-06-27
 

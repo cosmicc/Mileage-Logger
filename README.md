@@ -328,10 +328,11 @@ paths into one row when their exact used space and total capacity match, and inc
 database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
-full-width row and the page count shown as text below. Successful-login attempts show Password or
-Passkey method pills instead of an account column. The OwnTracks state-change list omits the
-per-segment distance column and shows captured time, duration, state, waypoint, source, received
-delay, and rolling odometer when available.
+full-width row and the page count shown as text below. Recent OwnTracks entries show received delay
+and a readable event label instead of raw receive timestamps, battery level, or MQTT topic details.
+Successful-login attempts show Password or Passkey method pills instead of an account column. The
+OwnTracks state-change list omits the per-segment distance column and shows captured time,
+duration, state, waypoint, source, received delay, and rolling odometer when available.
 
 ## Cloudflare Tunnel
 

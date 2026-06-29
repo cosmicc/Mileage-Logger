@@ -53,6 +53,8 @@ from mileage_logger.services.cloudflare_blocks import (
     normalize_ip_address,
 )
 from mileage_logger.services.diagnostics import (
+    owntracks_entry_event_label,
+    owntracks_entry_received_delay_display,
     owntracks_movement_diagnostics,
     paginated_owntracks_entries,
 )
@@ -166,6 +168,8 @@ def _format_odometer_source(value) -> str:
 templates.env.filters["local_datetime"] = _format_local_datetime
 templates.env.filters["odometer"] = _format_odometer
 templates.env.filters["odometer_source"] = _format_odometer_source
+templates.env.filters["owntracks_entry_event_label"] = owntracks_entry_event_label
+templates.env.filters["owntracks_entry_received_delay"] = owntracks_entry_received_delay_display
 templates.env.globals["web_login_enabled"] = web_login_enabled
 WAYPOINT_PAGE_SIZE = 20
 DISTANCE_PRECISION = Decimal("0.1")

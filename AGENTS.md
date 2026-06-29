@@ -286,6 +286,8 @@ docker compose up -d --build
    group at three cards per row on desktop and one card per row on mobile. The detailed OwnTracks
    state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
    with the same mobile full-width pagination row used by the login and Cloudflare block lists.
+   The recent OwnTracks entries table shows capture-to-receive delay and readable event labels
+   instead of raw receive timestamps, battery level, or MQTT topic details.
    The OwnTracks state-change log intentionally omits per-section distance and shows captured time,
    elapsed duration since the prior state change, state, waypoint, source, received delay, and the
    event row's rolling odometer when available.
@@ -384,5 +386,4 @@ These specialized guides help AI agents with common development tasks:
 - [README.md](README.md) — Project overview, setup, OwnTracks configuration, workflow
 - [INSTALL.md](INSTALL.md) — Docker, Ubuntu, Portainer installation guide
 - [CHANGELOG.md](CHANGELOG.md) — Release history and breaking changes
-- [WEB_CHANGELOG.md](WEB_CHANGELOG.md) — User-facing web-app release notes
 - [pyproject.toml](pyproject.toml) — Dependencies and build configuration

@@ -372,12 +372,11 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <tr>
         <th>ID</th>
         <th>Captured</th>
-        <th>Received</th>
+        <th>Received Delay</th>
         <th>User / Device</th>
         <th>Coordinates</th>
         <th>Accuracy</th>
-        <th>Battery</th>
-        <th>Topic</th>
+        <th>Event</th>
         <th>Payload</th>
       </tr>
     </thead>
@@ -386,12 +385,11 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <tr>
         <td>{{ location.id }}</td>
         <td>{{ location.captured_at|local_datetime }}</td>
-        <td>{{ location.received_at|local_datetime }}</td>
+        <td>{{ location|owntracks_entry_received_delay }}</td>
         <td>{{ location.user or "-" }} / {{ location.device or "-" }}</td>
         <td>{{ location.latitude }}, {{ location.longitude }}</td>
         <td>{{ location.accuracy_m if location.accuracy_m is not none else "-" }}</td>
-        <td>{{ location.battery_percent if location.battery_percent is not none else "-" }}</td>
-        <td>{{ location.topic or "-" }}</td>
+        <td>{{ location|owntracks_entry_event_label }}</td>
         <td>
           <details class="payload-details">
             <summary>View</summary>
@@ -400,7 +398,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="9">No OwnTracks database entries found.</td></tr>
+      <tr><td colspan="8">No OwnTracks database entries found.</td></tr>
       {% endfor %}
     </tbody>
   </table>
