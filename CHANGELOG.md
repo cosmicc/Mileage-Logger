@@ -1,7 +1,8 @@
 # Changelog
 
-## 1.2.2 - Unreleased
+## 1.2.2 - 2026-06-29
 
+- Bumped the Mileage Logger package version to 1.2.2.
 - Changed the Dashboard home card order so Location State is the first card shown.
 - Removed the Distance column from the Diagnostics OwnTracks State Changes table.
 - Added Duration, Source, Received Delay, and Rolling Odometer columns to the Diagnostics
