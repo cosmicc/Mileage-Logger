@@ -327,23 +327,31 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <thead>
       <tr>
         <th>Captured</th>
+        <th>Duration</th>
         <th>State</th>
         <th>Waypoint</th>
+        <th>Source</th>
+        <th>Received Delay</th>
+        <th>Rolling Odometer</th>
       </tr>
     </thead>
     <tbody>
       {% for state_change in movement_state_changes %}
       <tr>
         <td>{{ state_change.captured_at|local_datetime }}</td>
+        <td>{{ state_change.duration_display }}</td>
         <td>
           <span class="pill {{ 'good' if state_change.state == 'arrived' else 'warning' if state_change.state == 'travel' else 'muted' }}">
             {{ state_change.label }}
           </span>
         </td>
         <td>{{ state_change.site_name or "-" }}</td>
+        <td>{{ state_change.source }}</td>
+        <td>{{ state_change.received_delay_display }}</td>
+        <td>{% if state_change.odometer_miles is not none %}{{ state_change.odometer_miles|odometer }} miles{% else %}-{% endif %}</td>
       </tr>
       {% else %}
-      <tr><td colspan="3">No OwnTracks state changes found.</td></tr>
+      <tr><td colspan="7">No OwnTracks state changes found.</td></tr>
       {% endfor %}
     </tbody>
   </table>

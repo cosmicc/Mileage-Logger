@@ -51,7 +51,19 @@ class OwnTracksStateChange:
     state: str
     label: str
     site_name: str | None = None
+    duration_seconds: int | None = None
+    source: str = "Location inference"
+    received_delay_seconds: int | None = None
+    odometer_miles: Decimal | None = None
     distance_miles: Decimal | None = None
+
+    @property
+    def duration_display(self) -> str:
+        return _format_elapsed_seconds(self.duration_seconds)
+
+    @property
+    def received_delay_display(self) -> str:
+        return _format_elapsed_seconds(self.received_delay_seconds)
 
 
 @dataclass(frozen=True)
@@ -169,6 +181,70 @@ def _distance_from_previous_miles(
     )
 
 
+def _elapsed_seconds(start: datetime | None, end: datetime | None) -> int | None:
+    """Return a non-negative elapsed second count between two timestamps."""
+
+    if start is None or end is None:
+        return None
+    seconds = int((datetime_to_utc(end) - datetime_to_utc(start)).total_seconds())
+    return max(seconds, 0)
+
+
+def _format_elapsed_seconds(seconds: int | None) -> str:
+    """Format an elapsed duration for compact Diagnostics table display."""
+
+    if seconds is None:
+        return "-"
+    if seconds < 60:
+        return f"{seconds} sec"
+
+    minutes, _seconds = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes} min"
+
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        if minutes:
+            return f"{hours} hr {minutes} min"
+        return f"{hours} hr"
+
+    days, hours = divmod(hours, 24)
+    if hours:
+        return f"{days} day {hours} hr" if days == 1 else f"{days} days {hours} hr"
+    return f"{days} day" if days == 1 else f"{days} days"
+
+
+def _append_state_change(
+    state_changes: list[OwnTracksStateChange],
+    location: OwnTracksLocation,
+    *,
+    state: str,
+    label: str,
+    source: str,
+    site_name: str | None = None,
+    distance_miles: Decimal | None = None,
+) -> None:
+    """Append one Diagnostics state change with shared event metadata."""
+
+    previous_change = state_changes[-1] if state_changes else None
+    state_changes.append(
+        OwnTracksStateChange(
+            captured_at=location.captured_at,
+            state=state,
+            label=label,
+            site_name=site_name,
+            duration_seconds=_elapsed_seconds(
+                previous_change.captured_at if previous_change is not None else None,
+                location.captured_at,
+            ),
+            source=source,
+            received_delay_seconds=_elapsed_seconds(location.captured_at, location.received_at),
+            odometer_miles=location.odometer_miles,
+            distance_miles=distance_miles,
+        )
+    )
+
+
 def _latest_arrival_at_for_site(
     db: Session,
     site: Site,
@@ -243,50 +319,50 @@ def owntracks_movement_diagnostics(
             current_site = event_site
             arrived_at = location.captured_at
             travel_active = False
-            state_changes.append(
-                OwnTracksStateChange(
-                    captured_at=location.captured_at,
-                    state="arrived",
-                    label="Arrived at waypoint",
-                    site_name=event_site.name,
-                )
+            _append_state_change(
+                state_changes,
+                location,
+                state="arrived",
+                label="Arrived at waypoint",
+                site_name=event_site.name,
+                source="OwnTracks transition",
             )
         elif event == "leave" and event_site is not None:
             if current_site is not None and current_site.id == event_site.id:
                 current_site = None
                 arrived_at = None
             travel_active = False
-            state_changes.append(
-                OwnTracksStateChange(
-                    captured_at=location.captured_at,
-                    state="left",
-                    label="Left waypoint",
-                    site_name=event_site.name,
-                )
+            _append_state_change(
+                state_changes,
+                location,
+                state="left",
+                label="Left waypoint",
+                site_name=event_site.name,
+                source="OwnTracks transition",
             )
         elif location_site is not None:
             if current_site is None or current_site.id != location_site.id:
                 current_site = location_site
                 arrived_at = location.captured_at
                 if previous_location is not None:
-                    state_changes.append(
-                        OwnTracksStateChange(
-                            captured_at=location.captured_at,
-                            state="arrived",
-                            label="Arrived at waypoint",
-                            site_name=location_site.name,
-                        )
+                    _append_state_change(
+                        state_changes,
+                        location,
+                        state="arrived",
+                        label="Arrived at waypoint",
+                        site_name=location_site.name,
+                        source="Location inference",
                     )
             travel_active = False
         else:
             if current_site is not None:
-                state_changes.append(
-                    OwnTracksStateChange(
-                        captured_at=location.captured_at,
-                        state="left",
-                        label="Left waypoint",
-                        site_name=current_site.name,
-                    )
+                _append_state_change(
+                    state_changes,
+                    location,
+                    state="left",
+                    label="Left waypoint",
+                    site_name=current_site.name,
+                    source="Location inference",
                 )
                 current_site = None
                 arrived_at = None
@@ -300,13 +376,13 @@ def owntracks_movement_diagnostics(
                 and not travel_active
             ):
                 travel_active = True
-                state_changes.append(
-                    OwnTracksStateChange(
-                        captured_at=location.captured_at,
-                        state="travel",
-                        label="Travel detected",
-                        distance_miles=distance_miles,
-                    )
+                _append_state_change(
+                    state_changes,
+                    location,
+                    state="travel",
+                    label="Travel detected",
+                    source="Movement threshold",
+                    distance_miles=distance_miles,
                 )
 
         previous_location = location

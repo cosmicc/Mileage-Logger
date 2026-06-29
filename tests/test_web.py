@@ -3151,18 +3151,21 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
                         start_at,
                         start_at,
                         {"_type": "transition", "event": "enter", "desc": "Home"},
+                        odometer_miles=Decimal("1000.0"),
                     ),
                     _location(
                         start_at + timedelta(minutes=10),
-                        start_at + timedelta(minutes=10),
+                        start_at + timedelta(minutes=12),
                         {"_type": "transition", "event": "leave", "desc": "Home"},
+                        odometer_miles=Decimal("1000.2"),
                     ),
                     _location(
                         start_at + timedelta(minutes=11),
-                        start_at + timedelta(minutes=11),
+                        start_at + timedelta(minutes=14),
                         {"_type": "location"},
                         latitude="42.3440000",
                         longitude="-83.0600000",
+                        odometer_miles=Decimal("1001.3"),
                     ),
                 ]
             )
@@ -3179,8 +3182,20 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
         assert "Travel detected" in state_section
         assert "Left waypoint" in state_section
         assert "Home" in state_section
+        assert "<th>Duration</th>" in state_section
+        assert "<th>Source</th>" in state_section
+        assert "<th>Received Delay</th>" in state_section
+        assert "<th>Rolling Odometer</th>" in state_section
         assert "<th>Distance</th>" not in state_section
         assert "1.1 miles" not in state_section
+        assert "10 min" in state_section
+        assert "1 min" in state_section
+        assert "OwnTracks transition" in state_section
+        assert "Movement threshold" in state_section
+        assert "2 min" in state_section
+        assert "3 min" in state_section
+        assert "1000.2 miles" in state_section
+        assert "1001.3 miles" in state_section
     finally:
         app.dependency_overrides.clear()
 

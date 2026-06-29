@@ -609,8 +609,9 @@ failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries, and O
 state-change log paginated at 10 visible rows per page so the cards stay compact.
 Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
 with the page count rendered as plain text below the buttons.
-The OwnTracks state-change table should show captured time, state, and waypoint only; keep
-per-segment distance out of that list.
+The OwnTracks state-change table should keep per-segment distance out of the list and show captured
+time, elapsed duration since the prior state change, state, waypoint, source, received delay, and
+the event row's rolling odometer when available.
 
 ### Diagnostics Full Backup And Restore
 

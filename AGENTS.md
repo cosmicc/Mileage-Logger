@@ -286,7 +286,8 @@ docker compose up -d --build
    state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
    with the same mobile full-width pagination row used by the login and Cloudflare block lists.
    The OwnTracks state-change log intentionally omits per-section distance and shows captured time,
-   state, and waypoint only.
+   elapsed duration since the prior state change, state, waypoint, source, received delay, and the
+   event row's rolling odometer when available.
 9. Diagnostics shows the app version in the Application card, shows hard drive space for key
    runtime paths, combines paths into one row when exact used bytes and total bytes match, and
    includes current database size plus total app record count at the bottom of the card.
