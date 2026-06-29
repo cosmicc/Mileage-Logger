@@ -108,6 +108,9 @@ nav a {
   --nav-mobile-border: var(--line);
   --nav-mobile-color: var(--muted);
   --nav-mobile-shadow: rgba(0, 0, 0, 0.22);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   min-height: 34px;
   padding: 7px 12px;
   border: 1px solid var(--nav-mobile-border);
@@ -149,7 +152,7 @@ nav a {
 }
 
 .nav-icon {
-  display: none;
+  display: block;
   width: 22px;
   height: 22px;
   flex: 0 0 auto;
@@ -184,6 +187,9 @@ nav a:hover {
   --nav-mobile-border: rgba(239, 111, 108, 0.54);
   --nav-mobile-color: #fecaca;
   --nav-mobile-shadow: rgba(239, 111, 108, 0.16);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   min-height: 34px;
   padding: 7px 12px;
   border-color: var(--nav-mobile-border);
@@ -1385,10 +1391,6 @@ td input[type="text"] {
     background: var(--nav-mobile-bg);
     color: var(--nav-mobile-color);
     filter: brightness(1.08);
-  }
-
-  .nav-icon {
-    display: block;
   }
 
   .nav-label {

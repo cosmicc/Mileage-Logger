@@ -15,8 +15,9 @@
   release notes now live only in `CHANGELOG.md`.
 - Changed the Diagnostics Recent OwnTracks Entries table to show received delay and readable event
   labels, and removed the Battery and raw Topic columns.
-- Changed authenticated navigation so desktop and mobile use matching color-coded buttons, with the
-  mobile top navigation using compact icons while unauthenticated login views keep no top nav.
+- Changed authenticated navigation so desktop and mobile use matching color-coded buttons, with
+  desktop showing icons beside labels, mobile using compact icons, and unauthenticated login views
+  keeping no top nav.
 
 ## 1.2.1 - 2026-06-27
 

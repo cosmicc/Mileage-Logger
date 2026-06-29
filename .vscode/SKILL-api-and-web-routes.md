@@ -214,11 +214,12 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
   `trips_content.html` there so direct Trips loads can show a loading state before month data
   arrives.
 - `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use the
-  same color-coded button identity as the mobile controls. On mobile, CSS hides the brand/icon and
-  keeps nav links in one full-width icon-only colored top-bar row instead of using a fixed bottom
-  nav. Keep the login page free of shared top navigation, keep the mobile viewport
-  non-edge-to-edge, and preserve the manifest browser fallback so phone system navigation remains
-  visible. The brand icon/text is display-only and not a home link.
+  same color-coded button identity as the mobile controls, with icons shown to the left of text
+  labels. On mobile, CSS hides the brand/icon and keeps nav links in one full-width icon-only
+  colored top-bar row instead of using a fixed bottom nav. Keep the login page free of shared top
+  navigation, keep the mobile viewport non-edge-to-edge, and preserve the manifest browser fallback
+  so phone system navigation remains visible. The brand icon/text is display-only and not a home
+  link.
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.

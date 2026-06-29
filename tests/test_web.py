@@ -874,6 +874,8 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
         assert response.text.count('class="nav-icon"') == 5
         assert "--nav-mobile-bg: rgba(59, 130, 246, 0.2);" in response.text
         assert "--nav-mobile-bg: rgba(239, 111, 108, 0.2);" in response.text
+        assert ".nav-icon {\n  display: block;" in response.text
+        assert "gap: 7px;" in response.text
         assert "background: var(--nav-mobile-bg);" in response.text
         assert "border: 1px solid var(--nav-mobile-border);" in response.text
         assert "justify-content: space-between;" in response.text

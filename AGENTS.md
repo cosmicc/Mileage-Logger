@@ -239,12 +239,12 @@ docker compose up -d --build
   Display the card's reimbursement gallons at one decimal place.
 - The Dashboard home content shows the Location State card as the first visible card before other
   stat cards and distance summary cards.
-- The shared top bar uses color-coded boxed navigation links on authenticated desktop pages. On
-  mobile, hide the brand/icon, keep the navigation buttons as icon-only colored controls in one
-  full-width top-bar row, avoid fixed bottom navigation, and use a normal non-edge-to-edge viewport
-  plus standalone/browser manifest fallback so phone system navigation remains visible. The login
-  page has no shared top navigation. The brand icon/text is display-only and must not be a
-  clickable home link.
+- The shared top bar uses color-coded boxed navigation links with icons and labels on authenticated
+  desktop pages. On mobile, hide the brand/icon, keep the navigation buttons as icon-only colored
+  controls in one full-width top-bar row, avoid fixed bottom navigation, and use a normal
+  non-edge-to-edge viewport plus standalone/browser manifest fallback so phone system navigation
+  remains visible. The login page has no shared top navigation. The brand icon/text is display-only
+  and must not be a clickable home link.
 - The Dashboard root route renders a lightweight loading shell first. The expensive Dashboard
   summary queries render through `/dashboard/content`, which is fetched by the shell so direct
   homepage loads show a loading message before calculations finish.
