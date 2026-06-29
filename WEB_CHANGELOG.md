@@ -2,6 +2,8 @@
 
 ## 1.2.2 - Unreleased
 
+- The home page now shows Location State as the first card.
+- Diagnostics no longer shows a Distance column in the OwnTracks State Changes table.
 - Diagnostics now groups the top eight cards into one three-column desktop grid in a clearer order.
 
 ## 1.2.1 - 2026-06-27

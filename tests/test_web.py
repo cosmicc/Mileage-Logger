@@ -1109,6 +1109,9 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
         assert "4.0 reimbursement gallons" in stats_section
         assert "4.096 reimbursement gallons" not in stats_section
         assert "mi PDF total" not in stats_section
+        assert stats_section.index("<span>Location State</span>") < stats_section.index(
+            "<span>OwnTracks Events</span>"
+        )
         assert stats_section.index("<span>OwnTracks Events</span>") < stats_section.index(
             "<span>Trips</span>"
         )
@@ -1446,6 +1449,9 @@ def test_dashboard_replaces_vehicle_mpg_with_location_state(monkeypatch) -> None
         assert "Location State" in response.text
         assert "Inside waypoint" in response.text
         assert "Home" in response.text
+        assert response.text.index("<span>Location State</span>") < response.text.index(
+            '<section class="distance-grid"'
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -3165,10 +3171,16 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
         response = client.get("/diagnostics")
 
         assert response.status_code == 200
-        assert "Travel detected" in response.text
-        assert "Left waypoint" in response.text
-        assert "Home" in response.text
-        assert "1.1 miles" in response.text
+        state_section = _html_section(
+            response.text,
+            '<section id="owntracks-state-log" class="panel">',
+            '<section id="owntracks-entries" class="panel">',
+        )
+        assert "Travel detected" in state_section
+        assert "Left waypoint" in state_section
+        assert "Home" in state_section
+        assert "<th>Distance</th>" not in state_section
+        assert "1.1 miles" not in state_section
     finally:
         app.dependency_overrides.clear()
 

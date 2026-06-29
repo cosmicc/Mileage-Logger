@@ -237,6 +237,8 @@ docker compose up -d --build
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
   Display the card's reimbursement gallons at one decimal place.
+- The Dashboard home content shows the Location State card as the first visible card before other
+  stat cards and distance summary cards.
 - The shared top bar uses boxed navigation links on desktop. On mobile, hide the brand/icon, keep
   the navigation buttons in one full-width top-bar row, avoid fixed bottom navigation, and use
   a normal non-edge-to-edge viewport plus standalone/browser manifest fallback so phone system
@@ -283,6 +285,8 @@ docker compose up -d --build
    group at three cards per row on desktop and one card per row on mobile. The detailed OwnTracks
    state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
    with the same mobile full-width pagination row used by the login and Cloudflare block lists.
+   The OwnTracks state-change log intentionally omits per-section distance and shows captured time,
+   state, and waypoint only.
 9. Diagnostics shows the app version in the Application card, shows hard drive space for key
    runtime paths, combines paths into one row when exact used bytes and total bytes match, and
    includes current database size plus total app record count at the bottom of the card.

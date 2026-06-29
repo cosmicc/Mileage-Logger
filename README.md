@@ -328,7 +328,8 @@ paths into one row when their exact used space and total capacity match, and inc
 database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
-full-width row and the page count shown as text below.
+full-width row and the page count shown as text below. The OwnTracks state-change list shows
+captured time, state, and waypoint without a per-segment distance column.
 
 ## Cloudflare Tunnel
 

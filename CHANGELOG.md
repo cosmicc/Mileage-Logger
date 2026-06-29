@@ -2,6 +2,8 @@
 
 ## 1.2.2 - Unreleased
 
+- Changed the Dashboard home card order so Location State is the first card shown.
+- Removed the Distance column from the Diagnostics OwnTracks State Changes table.
 - Changed the top Diagnostics cards to render as one grouped three-column desktop grid ordered by
   overview, current state, actions, and storage: Application, Data, Latest Records, OwnTracks State,
   Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space.

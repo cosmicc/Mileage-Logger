@@ -329,7 +329,6 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         <th>Captured</th>
         <th>State</th>
         <th>Waypoint</th>
-        <th>Distance</th>
       </tr>
     </thead>
     <tbody>
@@ -342,10 +341,9 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
           </span>
         </td>
         <td>{{ state_change.site_name or "-" }}</td>
-        <td>{% if state_change.distance_miles is not none %}{{ "%.1f"|format(state_change.distance_miles) }} miles{% else %}-{% endif %}</td>
       </tr>
       {% else %}
-      <tr><td colspan="4">No OwnTracks state changes found.</td></tr>
+      <tr><td colspan="3">No OwnTracks state changes found.</td></tr>
       {% endfor %}
     </tbody>
   </table>

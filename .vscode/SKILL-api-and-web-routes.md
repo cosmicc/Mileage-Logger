@@ -207,6 +207,8 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - The Dashboard root route renders a lightweight loading shell. Keep expensive Dashboard queries in
   `/dashboard/content` and render `dashboard_content.html` there so direct homepage loads can show
   the loading state before calculated cards arrive.
+- In `dashboard_content.html`, keep Location State as the first visible home card before the other
+  stat cards and distance summary cards.
 - The Trips root route renders a lightweight loading shell. Keep selected-month Trips queries,
   summary cards, forms, trip rows, and deleted-trip rows in `/trips/content` and render
   `trips_content.html` there so direct Trips loads can show a loading state before month data
@@ -607,6 +609,8 @@ failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries, and O
 state-change log paginated at 10 visible rows per page so the cards stay compact.
 Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
 with the page count rendered as plain text below the buttons.
+The OwnTracks state-change table should show captured time, state, and waypoint only; keep
+per-segment distance out of that list.
 
 ### Diagnostics Full Backup And Restore
 

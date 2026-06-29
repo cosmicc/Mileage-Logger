@@ -12,6 +12,44 @@
   </div>
 </section>
 
+<section class="stats-grid">
+  <div class="stat state-stat state-{{ location_state.state }}">
+    <span>Location State</span>
+    <strong>{{ location_state.label }}</strong>
+    <small>{{ location_state.detail }}</small>
+  </div>
+  <div class="stat">
+    <span>OwnTracks Events</span>
+    <strong>{{ location_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Trips</span>
+    <strong>{{ trip_count }}</strong>
+  </div>
+  <div class="stat">
+    <span>Month Reimbursement</span>
+    <strong>{% if reimbursement_summary.total is not none %}${{ "%.2f"|format(reimbursement_summary.total) }}{% else %}N/A{% endif %}</strong>
+    <small>{{ reimbursement_summary.reimbursement_gallons_display }} reimbursement gallons</small>
+  </div>
+  <div class="stat">
+    <span>MI Monthly Avg Gas</span>
+    <strong>{% if monthly_gas %}${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
+  </div>
+  <div class="stat">
+    <span>Last Odometer</span>
+    <strong>{% if latest_odometer %}{{ latest_odometer.value|odometer }}{% else %}-{% endif %}</strong>
+    {% if latest_odometer %}
+    <small>
+      {{ latest_odometer.source|odometer_source }} -
+      {{ latest_odometer.position }} -
+      {{ latest_odometer.recorded_at|local_datetime("%Y-%m-%d %I:%M %p %Z") }}
+    </small>
+    {% else %}
+    <small>No reading yet</small>
+    {% endif %}
+  </div>
+</section>
+
 <section class="distance-grid" aria-label="Distance driven summary">
   <div class="distance-card distance-card-primary">
     <div>
@@ -44,44 +82,6 @@
       <small>Trips only</small>
     </div>
     <span class="distance-unit">mi</span>
-  </div>
-</section>
-
-<section class="stats-grid">
-  <div class="stat">
-    <span>OwnTracks Events</span>
-    <strong>{{ location_count }}</strong>
-  </div>
-  <div class="stat">
-    <span>Trips</span>
-    <strong>{{ trip_count }}</strong>
-  </div>
-  <div class="stat">
-    <span>Month Reimbursement</span>
-    <strong>{% if reimbursement_summary.total is not none %}${{ "%.2f"|format(reimbursement_summary.total) }}{% else %}N/A{% endif %}</strong>
-    <small>{{ reimbursement_summary.reimbursement_gallons_display }} reimbursement gallons</small>
-  </div>
-  <div class="stat">
-    <span>MI Monthly Avg Gas</span>
-    <strong>{% if monthly_gas %}${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
-  </div>
-  <div class="stat state-stat state-{{ location_state.state }}">
-    <span>Location State</span>
-    <strong>{{ location_state.label }}</strong>
-    <small>{{ location_state.detail }}</small>
-  </div>
-  <div class="stat">
-    <span>Last Odometer</span>
-    <strong>{% if latest_odometer %}{{ latest_odometer.value|odometer }}{% else %}-{% endif %}</strong>
-    {% if latest_odometer %}
-    <small>
-      {{ latest_odometer.source|odometer_source }} -
-      {{ latest_odometer.position }} -
-      {{ latest_odometer.recorded_at|local_datetime("%Y-%m-%d %I:%M %p %Z") }}
-    </small>
-    {% else %}
-    <small>No reading yet</small>
-    {% endif %}
   </div>
 </section>
 
