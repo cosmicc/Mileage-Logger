@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.3 - Unreleased
+## 1.2.3 - 2026-06-30
 
 - Bumped the Mileage Logger package version to 1.2.3.
 - Changed visible Trips labels to Work Trips and visible non-trip labels to Non-Work Trips.
