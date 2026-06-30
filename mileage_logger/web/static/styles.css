@@ -56,9 +56,9 @@ a {
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 24px;
   padding: 14px clamp(16px, 4vw, 34px);
   background: rgba(17, 16, 14, 0.88);
@@ -67,6 +67,8 @@ a {
 }
 
 .brand {
+  grid-column: 1;
+  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -99,7 +101,7 @@ nav {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
 }
 
@@ -188,9 +190,10 @@ nav a:active {
 }
 
 .topbar-actions {
+  grid-column: 2;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
 }
@@ -1414,6 +1417,8 @@ td input[type="text"] {
   }
 
   .topbar {
+    display: flex;
+    justify-content: space-between;
     min-height: calc(58px + env(safe-area-inset-top));
     padding: calc(8px + env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
     backdrop-filter: none;

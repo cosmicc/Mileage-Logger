@@ -885,6 +885,9 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
         assert "gap: 7px;" in response.text
         assert "background: var(--nav-mobile-bg);" in response.text
         assert "border: 1px solid var(--nav-mobile-border);" in response.text
+        assert "grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);" in response.text
+        assert ".topbar-actions {\n  grid-column: 2;" in response.text
+        assert "justify-content: center;" in response.text
         assert "justify-content: space-between;" in response.text
         assert "flex: 0 1 clamp(46px, 14vw, 58px);" in response.text
         assert "font-size: 0;" in response.text

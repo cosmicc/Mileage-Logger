@@ -242,13 +242,14 @@ docker compose up -d --build
   stat cards and distance summary cards. On full-width layouts, keep Dashboard top statistic cards
   and distance summary cards compact like the Work Trips selected-month cards, with each row still
   spanning the app width. Mobile should continue stacking those cards one per row.
-- The shared top bar uses blue raised navigation buttons with icons and labels on authenticated
-  desktop pages. On mobile, hide the brand/icon and keep the blue navigation buttons as icon-only
-  controls in one full-width top-bar row. App buttons and button-style links are raised, brighten
-  on hover, and press inward when clicked while preserving non-navigation button colors. Avoid
-  fixed bottom navigation, and use a normal non-edge-to-edge viewport plus standalone/browser
-  manifest fallback so phone system navigation remains visible. The login page has no shared top
-  navigation. The brand icon/text is display-only and must not be a clickable home link.
+- The shared top bar uses centered blue raised navigation buttons with icons and labels on
+  authenticated desktop pages. On mobile, hide the brand/icon and keep the blue navigation buttons
+  as icon-only controls in one full-width top-bar row. App buttons and button-style links are
+  raised, brighten on hover, and press inward when clicked while preserving non-navigation button
+  colors. Avoid fixed bottom navigation, and use a normal non-edge-to-edge viewport plus
+  standalone/browser manifest fallback so phone system navigation remains visible. The login page
+  has no shared top navigation. The brand icon/text is display-only and must not be a clickable
+  home link.
 - The Dashboard root route renders a lightweight loading shell first. The expensive Dashboard
   summary queries render through `/dashboard/content`, which is fetched by the shell so direct
   homepage loads show a loading message before calculations finish.

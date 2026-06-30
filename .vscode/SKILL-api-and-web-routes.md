@@ -216,12 +216,12 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
   `trips_content.html` there so direct Work Trips loads can show a loading state before month data
   arrives.
 - `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use one
-  blue raised button treatment, with icons shown to the left of text labels. On mobile, CSS hides
-  the brand/icon and keeps nav links in one full-width icon-only blue top-bar row instead of using
-  a fixed bottom nav. App buttons and button-style links should stay raised, brighten on hover,
-  and press inward when clicked while preserving non-navigation button colors. Keep the login page
-  free of shared top navigation, keep the mobile viewport non-edge-to-edge, and preserve the
-  manifest browser fallback so phone system navigation remains visible. The brand icon/text is
+  centered blue raised button treatment, with icons shown to the left of text labels. On mobile,
+  CSS hides the brand/icon and keeps nav links in one full-width icon-only blue top-bar row instead
+  of using a fixed bottom nav. App buttons and button-style links should stay raised, brighten on
+  hover, and press inward when clicked while preserving non-navigation button colors. Keep the
+  login page free of shared top navigation, keep the mobile viewport non-edge-to-edge, and preserve
+  the manifest browser fallback so phone system navigation remains visible. The brand icon/text is
   display-only and not a home link.
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as

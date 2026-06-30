@@ -72,11 +72,11 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
   space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the bottom
   under the App Log.
-- Authenticated desktop navigation uses blue raised icon-and-label buttons matching the mobile
-  web-app layout, where navigation becomes icon-only in one full-width top-bar row and leaves the
-  bottom safe area clear for phone system navigation without opting into edge-to-edge phone
-  drawing. App buttons use a raised treatment, brighten on hover, and press inward when clicked.
-  The login page does not show the shared top navigation.
+- Authenticated desktop navigation uses centered blue raised icon-and-label buttons matching the
+  mobile web-app layout, where navigation becomes icon-only in one full-width top-bar row and
+  leaves the bottom safe area clear for phone system navigation without opting into edge-to-edge
+  phone drawing. App buttons use a raised treatment, brighten on hover, and press inward when
+  clicked. The login page does not show the shared top navigation.
 - Web-login audit records shown on Diagnostics and written into the host log directory, with an
   optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.

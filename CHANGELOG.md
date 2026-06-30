@@ -9,6 +9,7 @@
 - Changed the Diagnostics OwnTracks State Changes table so Received Delay appears before state
   details and Duration appears later in the row.
 - Changed shared top navigation buttons to one blue raised style across desktop and mobile.
+- Centered the shared top navigation button group within the full-width desktop top bar.
 - Added raised, hover-brightened, pressed-in interaction styling to app buttons and button-style
   links while preserving non-navigation button colors.
 - Changed Dashboard top statistic and distance cards to use the same compact card sizing as the
