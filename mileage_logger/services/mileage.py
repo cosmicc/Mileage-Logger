@@ -1025,28 +1025,7 @@ def _latest_odometer_reading_before(
     db: Session,
     before_datetime: datetime,
 ) -> TimedOdometerReading | None:
-    """Return the latest timed trip/checkpoint odometer before a trip starts."""
-
-    candidates: list[TimedOdometerReading] = []
-    trip = db.scalar(
-        select(Trip)
-        .where(Trip.ended_at < before_datetime)
-        .where(Trip.end_odometer_miles.is_not(None))
-        .order_by(Trip.ended_at.desc(), Trip.id.desc())
-        .limit(1)
-    )
-    if trip is not None and trip.end_odometer_miles is not None:
-        candidates.append(
-            TimedOdometerReading(
-                miles=Decimal(trip.end_odometer_miles).quantize(
-                    ODOMETER_PRECISION,
-                    rounding=ROUND_HALF_UP,
-                ),
-                source=ODOMETER_SOURCE_PREVIOUS_TRIP,
-                recorded_at=datetime_to_utc(trip.ended_at),
-                order_id=trip.id or 0,
-            )
-        )
+    """Return the latest master rolling odometer checkpoint before a trip starts."""
 
     checkpoint = db.scalar(
         select(TripProcessingCheckpoint)
@@ -1062,25 +1041,21 @@ def _latest_odometer_reading_before(
             if checkpoint.odometer_anchor_recorded_at is not None
             else datetime.min.replace(tzinfo=UTC)
         )
-        candidates.append(
-            TimedOdometerReading(
-                miles=Decimal(checkpoint.odometer_anchor_miles).quantize(
-                    ODOMETER_PRECISION,
-                    rounding=ROUND_HALF_UP,
-                ),
-                source=ODOMETER_SOURCE_OWNTRACKS_ROLLING,
-                recorded_at=checkpoint_recorded_at,
-                order_id=checkpoint.id or 0,
-            )
+        return TimedOdometerReading(
+            miles=Decimal(checkpoint.odometer_anchor_miles).quantize(
+                ODOMETER_PRECISION,
+                rounding=ROUND_HALF_UP,
+            ),
+            source=ODOMETER_SOURCE_OWNTRACKS_ROLLING,
+            recorded_at=checkpoint_recorded_at,
+            order_id=checkpoint.id or 0,
         )
 
-    if not candidates:
-        return None
-    return max(candidates, key=lambda reading: (reading.recorded_at, reading.order_id))
+    return None
 
 
 def _latest_odometer_before(db: Session, before_datetime: datetime) -> Decimal | None:
-    """Return the latest stored trip/checkpoint odometer before a trip starts."""
+    """Return the latest master rolling odometer before a trip starts."""
 
     reading = _latest_odometer_reading_before(db, before_datetime)
     return reading.miles if reading is not None else None
@@ -1099,42 +1074,9 @@ def _latest_trip_before(db: Session, before_datetime: datetime) -> Trip | None:
 
 
 def _latest_current_odometer(db: Session) -> Decimal | None:
-    """Return the most recent odometer known from trips or the rolling checkpoint."""
+    """Return the current master rolling OwnTracks odometer checkpoint."""
 
-    candidates: list[tuple[datetime, int, Decimal]] = []
-    latest_trip = db.scalar(
-        select(Trip)
-        .where(Trip.end_odometer_miles.is_not(None))
-        .order_by(Trip.ended_at.desc(), Trip.id.desc())
-        .limit(1)
-    )
-    if latest_trip is not None and latest_trip.end_odometer_miles is not None:
-        candidates.append(
-            (
-                datetime_to_utc(latest_trip.ended_at),
-                latest_trip.id or 0,
-                Decimal(latest_trip.end_odometer_miles),
-            )
-        )
-
-    checkpoint = _latest_checkpoint(db)
-    if checkpoint is not None and checkpoint.odometer_anchor_miles is not None:
-        checkpoint_recorded_at = (
-            datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
-            if checkpoint.odometer_anchor_recorded_at is not None
-            else datetime.min.replace(tzinfo=UTC)
-        )
-        candidates.append(
-            (
-                checkpoint_recorded_at,
-                checkpoint.id or 0,
-                Decimal(checkpoint.odometer_anchor_miles),
-            )
-        )
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+    return _latest_checkpoint_odometer(db)
 
 
 def _latest_checkpoint_odometer(db: Session) -> Decimal | None:
@@ -1200,21 +1142,15 @@ def _latest_checkpoint(db: Session) -> TripProcessingCheckpoint | None:
 def _month_resequence_anchor(db: Session, first_trip: Trip) -> Decimal:
     """Choose the stable odometer start point for resequencing a month."""
 
-    prior_odometer = _latest_odometer_before(db, first_trip.started_at)
-    if prior_odometer is not None:
-        return Decimal(prior_odometer).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
     if first_trip.start_odometer_miles is not None:
         return Decimal(first_trip.start_odometer_miles).quantize(
             ODOMETER_PRECISION,
             rounding=ROUND_HALF_UP,
         )
 
-    checkpoint = _latest_checkpoint(db)
-    if checkpoint is not None and checkpoint.odometer_anchor_miles is not None:
-        return Decimal(checkpoint.odometer_anchor_miles).quantize(
-            ODOMETER_PRECISION,
-            rounding=ROUND_HALF_UP,
-        )
+    prior_odometer = _latest_odometer_before(db, first_trip.started_at)
+    if prior_odometer is not None:
+        return Decimal(prior_odometer).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
     return Decimal("0.0")
 
 
@@ -1263,34 +1199,6 @@ def _resequence_start_source(
     return ODOMETER_SOURCE_PREVIOUS_TRIP
 
 
-def _update_checkpoint_after_resequence(db: Session, last_trip: Trip) -> None:
-    """Move the rolling odometer forward only when the edited month reaches the checkpoint."""
-
-    if last_trip.end_odometer_miles is None:
-        return
-
-    checkpoint = _latest_checkpoint(db)
-    if checkpoint is None:
-        checkpoint = TripProcessingCheckpoint(name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
-        db.add(checkpoint)
-        db.flush()
-
-    checkpoint_recorded_at = (
-        datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
-        if checkpoint.odometer_anchor_recorded_at is not None
-        else None
-    )
-    last_trip_ended_at = datetime_to_utc(last_trip.ended_at)
-    if checkpoint_recorded_at is not None and checkpoint_recorded_at > last_trip_ended_at:
-        return
-
-    checkpoint.odometer_anchor_miles = Decimal(last_trip.end_odometer_miles).quantize(
-        ODOMETER_PRECISION,
-        rounding=ROUND_HALF_UP,
-    )
-    checkpoint.odometer_anchor_recorded_at = last_trip_ended_at
-
-
 def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
     """Recalculate every trip odometer in a month from ordered trip distances."""
 
@@ -1327,7 +1235,6 @@ def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
         trip.end_odometer_source = ODOMETER_SOURCE_ESTIMATED
         current_odometer = end_odometer
 
-    _update_checkpoint_after_resequence(db, month_trips[-1])
     trip_logger.info(
         "Resequenced trip odometers year=%s month=%s trips=%s start_odometer=%s end_odometer=%s",
         year,
@@ -1423,7 +1330,6 @@ def resequence_trip_odometers_from(
         trip.end_odometer_source = ODOMETER_SOURCE_ESTIMATED
         current_odometer = end_odometer
 
-    _update_checkpoint_after_resequence(db, ordered_trips[-1])
     trip_logger.info(
         "Resequenced future trip odometers from_trip_id=%s trips=%s "
         "start_odometer=%s end_odometer=%s",
@@ -1556,10 +1462,6 @@ def generate_trips(
         else:
             trip = None
 
-        if trip is not None and trip.end_odometer_miles is not None:
-            odometer_anchor_miles = trip.end_odometer_miles
-            odometer_anchor_source = ODOMETER_SOURCE_PREVIOUS_TRIP
-
         last_arrival = transition
         pending_leave = None
 
@@ -1627,36 +1529,7 @@ def suppress_trip_generation_for_deleted_trip(
     return deleted_trip
 
 
-def _preserve_checkpoint_from_deleted_trip(db: Session, trip: Trip) -> None:
-    """Keep the rolling odometer current when deleting the newest visible trip."""
-
-    if trip.end_odometer_miles is None:
-        return
-
-    checkpoint = _latest_checkpoint(db)
-    if checkpoint is None:
-        checkpoint = TripProcessingCheckpoint(name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
-        db.add(checkpoint)
-        db.flush()
-
-    trip_ended_at = datetime_to_utc(trip.ended_at)
-    checkpoint_recorded_at = (
-        datetime_to_utc(checkpoint.odometer_anchor_recorded_at)
-        if checkpoint.odometer_anchor_recorded_at is not None
-        else None
-    )
-    if checkpoint_recorded_at is not None and checkpoint_recorded_at >= trip_ended_at:
-        return
-
-    checkpoint.odometer_anchor_miles = Decimal(trip.end_odometer_miles).quantize(
-        ODOMETER_PRECISION,
-        rounding=ROUND_HALF_UP,
-    )
-    checkpoint.odometer_anchor_recorded_at = trip_ended_at
-
-
 def delete_trip(db: Session, trip: Trip) -> DeletedTrip | None:
-    _preserve_checkpoint_from_deleted_trip(db, trip)
     deleted_trip = suppress_trip_generation_for_deleted_trip(db, trip)
     db.delete(trip)
     return deleted_trip

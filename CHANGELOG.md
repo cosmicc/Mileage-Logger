@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.4 - Unreleased
+
+- Bumped the Mileage Logger package version to 1.2.4.
+- Removed the ID column from the Diagnostics Recent OwnTracks Entries table.
+- Fixed public web 404 handling so unknown browser page URLs proxied through the bundled nginx web
+  service use the custom error page instead of FastAPI's JSON `{"detail":"Not Found"}` response.
+- Fixed generated work trip odometer assignment so automatic trips use stamped OwnTracks rolling
+  odometer readings or the master rolling checkpoint instead of carrying forward the previous work
+  trip end odometer.
+- Changed trip deletion and trip odometer resequencing so trip rows no longer update the master
+  rolling odometer checkpoint; only OwnTracks location processing and manual odometer entries move
+  that checkpoint.
+
 ## 1.2.3 - 2026-06-30
 
 - Bumped the Mileage Logger package version to 1.2.3.

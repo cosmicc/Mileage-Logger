@@ -3198,6 +3198,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         assert "Showing 1-10 of 12 entries." in entries_section
         assert 'class="pagination-button-row"' in entries_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in entries_section
+        assert "<th>ID</th>" not in entries_section
         assert "<th>Original</th>" in entries_section
         assert "<th>Received Delay</th>" in entries_section
         assert "<th>Event</th>" in entries_section
@@ -3255,6 +3256,7 @@ def test_diagnostics_recent_owntracks_entries_show_delay_and_event_labels() -> N
             '<section id="owntracks-entries" class="panel">',
             '<section id="login-successes" class="panel">',
         )
+        assert "<th>ID</th>" not in entries_section
         assert "Original" in entries_section
         assert "Received Delay" in entries_section
         assert "Location event" in entries_section

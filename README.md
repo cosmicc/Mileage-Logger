@@ -309,6 +309,9 @@ Keep OwnTracks location reporting enabled so the app can sum the actual path bet
 events. If a trip window has only transition events and no location updates between them, the app
 falls back to waypoint distance. Odometer values are never used to calculate trip distance,
 Dashboard work trip plus non-work trip totals, or monthly work trip plus non-work trip totals.
+Generated work trips use the master rolling OwnTracks odometer checkpoint or stamped rolling
+OwnTracks event odometers for display; they do not use the previous work trip end odometer as the
+source for the next start.
 Dashboard work trip plus non-work trip cards are floored at the stored work trip total after
 one-decimal rounding, so the displayed combined total is never lower than the work-trips-only total
 and the implied non-work trip remainder is never negative. Edit a work trip's saved waypoint route
@@ -330,12 +333,14 @@ so older invalid rows do not return from the same OwnTracks transition pair.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
 odometer value for that point, and generated trips use those rolling values for start odometers
-when available. If transition rows are not stamped yet, generated trips use the newest stored
-odometer before the trip start, with the rolling checkpoint preferred when it is newer than a prior
-trip. The trip end odometer is always advanced from the start odometer by the stored trip distance
-so the odometer display follows the trip miles. Segments fully inside the same saved waypoint are
-ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset the checkpoint
-to the entered value and OwnTracks distance continues from that new rolling value.
+when available. If transition rows are not stamped yet, generated trips use the master rolling
+checkpoint before the trip start. Prior trip end odometers are not used as the source for generated
+trip starts. The trip end odometer is always advanced from the start odometer by the stored trip
+distance so the odometer display follows the trip miles. Segments fully inside the same saved
+waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
+the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
+Trip creation, editing, deletion, and resequencing do not move the master rolling odometer
+checkpoint.
 Dashboard total-driven cards and the Work Trips selected-month cards sum OwnTracks coordinate
 segments directly for the selected local day or month, so manual odometer resets do not affect work
 trip plus non-work trip totals.
@@ -354,8 +359,8 @@ database size plus total app record count at the bottom of the card. Recent OwnT
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
 full-width row and the page count shown as text below. Recent OwnTracks entries show original event
-time, received delay, and a readable event label instead of raw receive timestamps, battery level,
-or MQTT topic details.
+time, received delay, and a readable event label instead of the database row ID, raw receive
+timestamps, battery level, or MQTT topic details.
 Successful-login attempts show Password or Passkey method pills instead of an account column. The
 OwnTracks state-change list omits the per-segment distance column and shows original event time,
 received delay, state, waypoint, source, duration, and rolling odometer when available.

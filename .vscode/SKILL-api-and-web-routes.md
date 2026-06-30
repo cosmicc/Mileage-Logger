@@ -111,8 +111,10 @@ internet-facing API paths without updating `deploy/nginx/default.conf`, docs, an
 
 Custom error pages live in `deploy/nginx/error-pages/` and are copied into the web service image.
 When public route behavior changes, keep the configured 4xx/5xx pages visually matched to the app,
-unbranded, and written for end users. Do not enable global `proxy_intercept_errors` unless API
-clients are intentionally allowed to receive HTML instead of app JSON errors.
+unbranded, and written for end users. Browser/static proxy locations should intercept upstream app
+errors so missing public page URLs render those custom pages. Do not enable interception on the
+OwnTracks API proxy locations unless API clients are intentionally allowed to receive HTML instead
+of app JSON errors.
 
 ### Credentials Configuration
 
@@ -628,7 +630,8 @@ state-change log paginated at 10 visible rows per page so the cards stay compact
 Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
 with the page count rendered as plain text below the buttons.
 The Recent OwnTracks Entries table should show original event time, capture-to-receive delay, and
-readable event labels instead of raw receive timestamps, battery level, or MQTT topic details.
+readable event labels instead of the database row ID, raw receive timestamps, battery level, or
+MQTT topic details.
 The OwnTracks state-change table should keep per-segment distance out of the list and show original
 event time, received delay, state, waypoint, source, elapsed duration since the prior state change,
 and the event row's rolling odometer when available.

@@ -88,6 +88,9 @@ class TripProcessingCheckpoint(Base):
 4. **Sum point-to-point distances** for all other locations
 5. **Advance checkpoint**: `new_odometer = anchor + distance_sum`
 6. **Update `last_owntracks_location_id`** to latest processed location
+7. Trip creation, deletion, and resequencing must not update the master checkpoint. Trip
+   odometers are row display values; the checkpoint is moved only by OwnTracks location processing
+   or manual odometer entry.
 
 ### Resetting the Anchor
 
@@ -133,8 +136,8 @@ def generate_trips(
    - Load location updates between T1 and T2
    - Calculate mileage from OwnTracks path distance or waypoint distance
    - Use stamped rolling OwnTracks odometers for trip starts when available. If no transition
-     odometer is stamped yet, use the newest stored odometer before trip start, with a newer
-     rolling checkpoint taking precedence over an older previous-trip odometer.
+     odometer is stamped yet, use the master rolling OwnTracks checkpoint before the trip start.
+     Do not fall back to the previous trip end odometer for generated trip starts.
    - Calculate the end odometer from the chosen start odometer plus the selected trip distance
    - Create Trip record
 
@@ -182,7 +185,7 @@ class Trip:
 ```python
 ODOMETER_SOURCE_MANUAL = "manual"                      # User entered
 ODOMETER_SOURCE_ESTIMATED = "estimated"                # From checkpoint
-ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"        # From prior trip
+ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"        # Legacy/resequenced trip row continuity
 # Plus path/calculation sources...
 ```
 
@@ -221,8 +224,7 @@ Creates a `Trip` with:
 - `source="manual"`
 - `mileage_source="manual"`
 - Start odometer from the current rolling OwnTracks odometer checkpoint when available, not from the
-  previous trip end odometer. Fall back to older trip/current odometer values only when no checkpoint
-  exists.
+  previous trip end odometer. Fall back to zero only when no master rolling checkpoint exists.
 - End odometer = start odometer + entered trip miles
 - New manual trips are timestamped after existing trips on the selected local date so a backdated
   manual entry lands at the end of that day, and a manual entry for today becomes the latest trip for
@@ -285,6 +287,9 @@ This ensures:
 2. Manual trip start odometer comes from the current rolling checkpoint when available
 3. Existing positive gaps between a previous end odometer and the next start odometer are reapplied
 4. End odometer = start odometer + trip miles
+
+Resequencing changes trip row odometer display values only. It must not move the master rolling
+OwnTracks odometer checkpoint.
 
 ---
 

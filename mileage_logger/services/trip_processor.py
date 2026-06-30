@@ -13,7 +13,6 @@ from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     OwnTracksLocation,
     Site,
-    Trip,
     TripProcessingCheckpoint,
 )
 from mileage_logger.services.mileage import (
@@ -82,33 +81,6 @@ def _new_locations_after_checkpoint(
     return list(db.scalars(stmt))
 
 
-def _latest_trip_odometer(db: Session) -> tuple[Decimal, datetime] | None:
-    """Return the newest odometer value already stored on generated or manual trips."""
-
-    candidates: list[tuple[Decimal, datetime]] = []
-    latest_end_trip = db.scalar(
-        select(Trip)
-        .where(Trip.end_odometer_miles.is_not(None))
-        .order_by(Trip.ended_at.desc(), Trip.id.desc())
-        .limit(1)
-    )
-    if latest_end_trip is not None and latest_end_trip.end_odometer_miles is not None:
-        candidates.append((latest_end_trip.end_odometer_miles, latest_end_trip.ended_at))
-
-    latest_start_trip = db.scalar(
-        select(Trip)
-        .where(Trip.start_odometer_miles.is_not(None))
-        .order_by(Trip.started_at.desc(), Trip.id.desc())
-        .limit(1)
-    )
-    if latest_start_trip is not None and latest_start_trip.start_odometer_miles is not None:
-        candidates.append((latest_start_trip.start_odometer_miles, latest_start_trip.started_at))
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda candidate: datetime_to_utc(candidate[1]))
-
-
 def _quantize_odometer(value: Decimal) -> Decimal:
     """Round odometer values to the precision used by the rolling odometer checkpoint."""
 
@@ -148,26 +120,6 @@ def _ensure_initial_odometer_anchor(
     """Create the first rolling odometer anchor from stored data or a zero-mile baseline."""
 
     if checkpoint.odometer_anchor_miles is not None:
-        return
-
-    stored_candidates: list[tuple[Decimal, datetime, str]] = []
-    trip_odometer = _latest_trip_odometer(db)
-    if trip_odometer is not None:
-        stored_candidates.append((trip_odometer[0], trip_odometer[1], "trip"))
-
-    if stored_candidates:
-        odometer_miles, recorded_at, source = max(
-            stored_candidates,
-            key=lambda candidate: datetime_to_utc(candidate[1]),
-        )
-        checkpoint.odometer_anchor_miles = _quantize_odometer(odometer_miles)
-        checkpoint.odometer_anchor_recorded_at = datetime_to_utc(recorded_at)
-        trip_logger.info(
-            "Saved initial %s odometer anchor miles=%s recorded_at=%s",
-            source,
-            checkpoint.odometer_anchor_miles,
-            datetime_to_utc(recorded_at).isoformat(),
-        )
         return
 
     earliest_new_location = min(new_locations, key=_location_sort_key) if new_locations else None

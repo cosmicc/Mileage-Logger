@@ -71,12 +71,13 @@ When trip processor runs:
 4. Stamp processed OwnTracks rows with the rolling odometer value for that point, whether or not
    the movement becomes a trip
 5. Use stamped rolling odometer values for generated trip starts when available. If a generated
-   trip has no stamped transition odometer yet, use the newest stored odometer before trip start;
-   a newer rolling checkpoint takes precedence over an older previous-trip odometer. End odometers
-   are calculated from the chosen start plus the generated trip distance.
+   trip has no stamped transition odometer yet, use the master rolling OwnTracks checkpoint before
+   the trip start. Prior trip end odometers are not a source for generated trip starts. End
+   odometers are calculated from the chosen start plus the generated trip distance.
 6. Use the current rolling checkpoint for new manual trip starts instead of the previous trip end
    odometer
-7. When user manually enters odometer, reset anchor to exact value
+7. Generated, edited, deleted, and resequenced trip rows do not update the master rolling
+   checkpoint. When the user manually enters odometer, reset anchor to exact value.
 
 ### Example
 
@@ -160,10 +161,6 @@ Logs go to `mileage_logger.trip_calculation` logger. Check file at `LOG_DIR/logs
 **`_new_locations_after_checkpoint(db, checkpoint)`**
 - Returns list of unprocessed OwnTracks location rows since last checkpoint
 - Used to detect new events
-
-**`_latest_trip_odometer(db)`**
-- Finds most recent odometer value from any trip record
-- Used to initialize checkpoint on first run
 
 **`update_odometer_anchor_from_reading(db, odometer_miles, recorded_at, source)`**
 - Called when user manually enters odometer on `/diagnostics` page

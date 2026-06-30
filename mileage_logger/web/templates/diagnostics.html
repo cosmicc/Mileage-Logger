@@ -370,7 +370,6 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   <table>
     <thead>
       <tr>
-        <th>ID</th>
         <th>Original</th>
         <th>Received Delay</th>
         <th>User / Device</th>
@@ -383,7 +382,6 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <tbody>
       {% for location in recent_locations %}
       <tr>
-        <td>{{ location.id }}</td>
         <td>{{ location.captured_at|local_datetime }}</td>
         <td>{{ location|owntracks_entry_received_delay }}</td>
         <td>{{ location.user or "-" }} / {{ location.device or "-" }}</td>
@@ -398,7 +396,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="8">No OwnTracks database entries found.</td></tr>
+      <tr><td colspan="7">No OwnTracks database entries found.</td></tr>
       {% endfor %}
     </tbody>
   </table>

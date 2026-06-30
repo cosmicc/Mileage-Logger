@@ -159,16 +159,20 @@ docker compose up -d --build
 3. Mileage is calculated from OwnTracks location updates between the two events
 4. If OwnTracks path data is unavailable, trip distance falls back to waypoint-to-waypoint distance
 5. Odometer values are display/checkpoint values: starts come from stamped rolling OwnTracks
-   values when available, otherwise the newest stored odometer before trip start, and ends are
-   start plus the selected trip distance
+   values when available, otherwise the master rolling OwnTracks odometer checkpoint before the
+   trip start, and ends are start plus the selected trip distance. Generated trips must not use
+   prior trip end odometers as the source for a new trip start.
 6. Trip is stored and shown on `/trips` page for review/editing
 
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
 - Manual odometer readings reset the anchor to an exact value
+- Trips do not update the master rolling odometer checkpoint. Only OwnTracks location processing
+  and manual odometer entries move that checkpoint; trip odometer resequencing is display state for
+  trip rows.
 - Manual trip starts use the current rolling OwnTracks odometer checkpoint before falling back to
-  older trip odometers; later resequencing preserves existing positive non-trip odometer gaps
-  between trips.
+  zero when no master checkpoint exists; later resequencing preserves existing positive non-trip
+  odometer gaps between trips.
 - Diagnostics shows the current odometer inside the Manual Odometer card before a new manual
   checkpoint value is saved
 - Useful when actual odometer reading differs from GPS distance estimate
@@ -298,7 +302,8 @@ docker compose up -d --build
    state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
    with the same mobile full-width pagination row used by the login and Cloudflare block lists.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
-   readable event labels instead of raw receive timestamps, battery level, or MQTT topic details.
+   readable event labels instead of the database row ID, raw receive timestamps, battery level, or
+   MQTT topic details.
    The OwnTracks state-change log intentionally omits per-section distance and shows original event
    time, received delay, state, waypoint, source, elapsed duration since the prior state change,
    and the event row's rolling odometer when available.
@@ -349,8 +354,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
 - Public web service serves custom, unbranded end-user error pages from `deploy/nginx/error-pages/` for
   common 4xx and 5xx responses. Keep the pages visually matched, include a `/login` link that can
-  switch to home for authenticated browsers, and avoid global `proxy_intercept_errors` unless API
-  clients should intentionally stop receiving JSON app errors.
+  switch to home for authenticated browsers. Browser/static proxy locations intercept upstream app
+  errors so missing page URLs show those custom pages; OwnTracks API proxy locations do not
+  intercept errors, so API clients keep JSON responses.
 - Public web service passes Cloudflare's `CF-Connecting-IP` through to the app when present. The app uses
   that effective client IP for login lockouts, login audit rows, and Cloudflare auto-blocks.
 - Passkey login derives its WebAuthn origin from `PASSKEY_ORIGIN`, the browser `Origin` header, or
@@ -373,7 +379,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES` and OwnTracks event timestamps.
 
-3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Odometer values are never a distance source; manual distance edits override generated calculations.
+3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Odometer values are never a distance source; manual distance edits override generated calculations. Prior trip end odometers are not the source for new generated trip starts.
 
 4. **Odometer Precision**: Values stored and displayed as 0.1 mile precision. Manual entries are quantized during update.
 

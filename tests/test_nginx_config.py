@@ -64,6 +64,23 @@ def test_nginx_serves_custom_error_pages() -> None:
         assert "This " in html or "The " in html
 
 
+def test_nginx_intercepts_proxied_browser_errors_only() -> None:
+    config = NGINX_CONF.read_text(encoding="utf-8")
+
+    static_block = _location_block(config, "/static/")
+    web_block = _location_block(config, "/")
+    assert "proxy_intercept_errors on;" in static_block
+    assert "proxy_intercept_errors on;" in web_block
+
+    for location in (
+        "= /api/owntracks",
+        "= /api/owntracks/",
+        "= /api/pub",
+        "= /api/pub/",
+    ):
+        assert "proxy_intercept_errors on;" not in _location_block(config, location)
+
+
 def test_nginx_keeps_web_routes_available_behind_web_access_rules() -> None:
     config = NGINX_CONF.read_text(encoding="utf-8")
 
