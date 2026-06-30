@@ -58,7 +58,7 @@ def test_nginx_serves_custom_error_pages() -> None:
         assert "Back to login" in html
         assert "Back to home" in html
         assert 'document.cookie.includes("mileage_logger_session=")' in html
-        assert "font-size:clamp(38px, 8vw, 68px)" in html
+        assert "font-size:clamp(30px, 5.6vw, 42px)" in html
         assert "font-size:clamp(24px, 5vw, 36px)" in html
         assert "background:linear-gradient" in html
         assert "This " in html or "The " in html
