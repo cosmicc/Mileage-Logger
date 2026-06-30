@@ -98,18 +98,18 @@ async def owntracks_http(
 The `/api/health` endpoint is unauthenticated inside the app for container health checks;
 `/api/owntracks` requires authentication.
 
-In Docker deployment, public nginx only forwards OwnTracks ingestion endpoints:
+In Docker deployment, the public web service only forwards OwnTracks ingestion endpoints:
 
 - `POST /api/owntracks`
 - `POST /api/owntracks/`
 - `POST /api/pub`
 
 Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` remain reachable only inside the app
-container or Docker network unless a future change explicitly reopens them at nginx. Non-OwnTracks
+container or Docker network unless a future change explicitly reopens them at the web service. Non-OwnTracks
 API routes still require `Authorization: Bearer <WEB_API_KEY>` internally. Do not add new
 internet-facing API paths without updating `deploy/nginx/default.conf`, docs, and tests.
 
-Nginx custom error pages live in `deploy/nginx/error-pages/` and are copied into the nginx image.
+Custom error pages live in `deploy/nginx/error-pages/` and are copied into the web service image.
 When public route behavior changes, keep the configured 4xx/5xx pages visually matched to the app,
 unbranded, and written for end users. Do not enable global `proxy_intercept_errors` unless API
 clients are intentionally allowed to receive HTML instead of app JSON errors.
@@ -418,13 +418,12 @@ The app has one configured web user, so passkeys are stored for `WEB_LOGIN_USERN
 `passkey_credentials` rather than adding separate user-management flows.
 `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
 `SECRET_KEY` must be changed from the default `change-me`; production Docker fails closed if the
-login credentials or session secret are missing. The bundled nginx config is loopback-only and
+login credentials or session secret are missing. The bundled web service config is loopback-only and
 passes Cloudflare's `CF-Connecting-IP` through when present. The app uses that effective client IP
 for login audit rows, lockouts, and Cloudflare auto-block identity.
-When rendering Diagnostics from the audit log, resolve the visible IP for successful-login and
-failed-login rows from stored request metadata when the direct client is trusted, then fall back to
-the stored `client_ip`. Failed-login row block buttons must use the same visible, blockable client
-IP.
+When rendering Diagnostics from the audit log, use the stored effective client IP for
+successful-login and failed-login rows. Failed-login row block buttons must use the same visible,
+blockable client IP.
 Passkey verification must use the public browser origin. Prefer explicit `PASSKEY_ORIGIN` and
 `PASSKEY_RP_ID` for unusual reverse-proxy setups; otherwise the passkey service may derive them
 from the browser `Origin` header or trusted proxy scheme/host headers. Public passkey use requires

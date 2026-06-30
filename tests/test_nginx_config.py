@@ -52,10 +52,14 @@ def test_nginx_serves_custom_error_pages() -> None:
         assert 'href="/login"' in html
         assert "Mileage Logger" not in html
         assert ">ML<" not in html
+        assert "Nginx" not in html
+        assert "nginx" not in html
         assert 'id="primary-action"' in html
         assert "Back to login" in html
         assert "Back to home" in html
         assert 'document.cookie.includes("mileage_logger_session=")' in html
+        assert "font-size:clamp(38px, 8vw, 68px)" in html
+        assert "font-size:clamp(24px, 5vw, 36px)" in html
         assert "background:linear-gradient" in html
         assert "This " in html or "The " in html
 

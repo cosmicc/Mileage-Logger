@@ -63,7 +63,7 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 
 - PostgreSQL database.
 - FastAPI mileage app.
-- Nginx reverse proxy on port `80`.
+- Web service reverse proxy on port `80`.
 - Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
@@ -140,7 +140,7 @@ OwnTracks HTTP Basic Auth, and set the OwnTracks payload encryption key to the
 http://owntracks:password@your-server/api/owntracks
 ```
 
-For internet-facing use, put TLS in front of this stack or extend the Nginx container
+For internet-facing use, put TLS in front of this stack or extend the web service container
 with certificates so OwnTracks sends location data over HTTPS.
 
 Non-OwnTracks API routes require a separate key:
@@ -164,9 +164,9 @@ When this is blank, the web UI is open to all clients. When set, only
 `POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub` stay reachable from any IP for
 OwnTracks. Pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/static/` require a
 matching client IP. Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` are blocked at
-the public nginx reverse proxy.
+the public web service reverse proxy.
 
-Nginx serves matching, end-user-focused error pages for common browser and gateway errors: 400,
+The web service serves matching, end-user-focused error pages for common browser and gateway errors: 400,
 401, 403, 404, 405, 408, 413, 429, 500, 502, 503, and 504. Each page explains the error and links
 to `/login`, or back home when the browser already has an authenticated session.
 
@@ -187,14 +187,14 @@ PASSKEY_ORIGIN=
 The login protects rendered web pages such as `/`, `/trips`, `/waypoints`, and `/diagnostics`.
 Unauthenticated browser paths are limited to `/login`, passkey login challenge/verify endpoints,
 root icon and manifest files, the service worker, and `/static/` assets needed to render those
-pages. Non-OwnTracks `/api/` routes use `WEB_API_KEY` instead of the web login, and public nginx
+pages. Non-OwnTracks `/api/` routes use `WEB_API_KEY` instead of the web login, and the public web service
 only exposes the OwnTracks ingestion endpoints. If you access the app over plain HTTP for local
 testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
 not show the app name before authentication and temporarily locks out repeated failed attempts.
 `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
 `SECRET_KEY` must be changed from `change-me`; production Docker starts fail closed if the login
-credentials or session secret are missing. Docker publishes nginx only on `127.0.0.1`, so public
+credentials or session secret are missing. Docker publishes the web service only on `127.0.0.1`, so public
 access should come through the bundled Cloudflare Tunnel service.
 Each successful login, failed login attempt, and lockout rejection is appended to
 `LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
@@ -207,7 +207,7 @@ rows, and the failed-login block button targets that same IP.
 Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
 with the normal username/password once, create a passkey from Diagnostics, then use Device Sign-In
 on the login page. Passkeys require a secure browser origin; when the app is published through
-Cloudflare Tunnel, the default Docker nginx config forwards the public HTTPS origin. If your proxy
+Cloudflare Tunnel, the default Docker web service config forwards the public HTTPS origin. If your proxy
 setup is unusual, set `PASSKEY_ORIGIN=https://your-host.example.com` and
 `PASSKEY_RP_ID=your-host.example.com` explicitly.
 
@@ -364,17 +364,17 @@ received delay, state, waypoint, source, duration, and rolling odometer when ava
 
 The Compose file includes `cloudflared` as a normal required service for a remotely managed
 Cloudflare Tunnel. The `cloudflared` container uses host networking so it can reach the host-bound
-nginx listener. In the Cloudflare dashboard, publish the application route to the host listener:
+web service listener. In the Cloudflare dashboard, publish the application route to the host listener:
 
 ```text
 http://127.0.0.1:80
 ```
 
 If `HTTP_PORT=2082`, use `http://127.0.0.1:2082` as the Cloudflare Tunnel service URL. The Compose
-stack always publishes nginx on `127.0.0.1:${HTTP_PORT:-80}` so it is not exposed on the host's
+stack always publishes the web service on `127.0.0.1:${HTTP_PORT:-80}` so it is not exposed on the host's
 public interfaces.
 
-Nginx passes Cloudflare's `CF-Connecting-IP` to the app when present. The app uses that IP for login
+The web service passes Cloudflare's `CF-Connecting-IP` to the app when present. The app uses that IP for login
 audit records, lockouts, and automatic Cloudflare blocks; otherwise it falls back to the direct
 loopback/tunnel client.
 
@@ -435,7 +435,7 @@ GAS_SNAPSHOT_RUN_ON_STARTUP=true
 
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
-public nginx exposes only the OwnTracks ingestion endpoints under `/api/`; production Docker
+the public web service exposes only the OwnTracks ingestion endpoints under `/api/`; production Docker
 requires both values, `WEB_API_KEY`, `OWNTRACKS_ENCRYPTION_KEY`, OwnTracks Basic Auth credentials,
 and a non-default `SECRET_KEY`. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.

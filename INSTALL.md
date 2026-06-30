@@ -4,7 +4,7 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 
 - `postgres`: PostgreSQL database.
 - `app`: FastAPI mileage logger.
-- `nginx`: reverse proxy that serves the web app on HTTP port `80`.
+- `nginx`: web service reverse proxy that serves the web app on HTTP port `80`.
 - `cloudflared`: Cloudflare Tunnel connector for public HTTPS access.
 - Daily Michigan gas price snapshots run as a background scheduler in the app container.
 - Host log bind mounts for diagnostics logs and failed web-login audit records.
@@ -139,10 +139,10 @@ CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 
 Production starts fail closed when `SECRET_KEY` is still `change-me`, when one web login field is
 blank, when both web login fields are missing, when `WEB_API_KEY` is missing, or when
-`OWNTRACKS_ENCRYPTION_KEY` plus OwnTracks Basic Auth credentials are missing. Docker publishes nginx
+`OWNTRACKS_ENCRYPTION_KEY` plus OwnTracks Basic Auth credentials are missing. Docker publishes the web service
 only on `127.0.0.1`, so public access should come through the bundled Cloudflare Tunnel service.
 Passkeys are optional. Create them from Diagnostics after username/password login. In normal
-Cloudflare Tunnel Docker use, nginx forwards the public HTTPS origin for WebAuthn. If your proxy
+Cloudflare Tunnel Docker use, the web service forwards the public HTTPS origin for WebAuthn. If your proxy
 does not, set `PASSKEY_ORIGIN=https://your-host.example.com` and
 `PASSKEY_RP_ID=your-host.example.com`.
 
@@ -152,19 +152,19 @@ latter is only for non-OwnTracks API routes through `Authorization: Bearer <WEB_
 
 ## Public Web And API Exposure
 
-The nginx container exposes rendered web pages and the OwnTracks ingestion API. Public nginx only
+The web service container exposes rendered web pages and the OwnTracks ingestion API. The public web service only
 forwards these API requests:
 
 - `POST /api/owntracks`
 - `POST /api/owntracks/`
 - `POST /api/pub`
 
-All other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` return `404` through nginx.
+All other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` return `404` through the web service.
 Internal app health checks still call `/api/health` directly inside the app container. Non-OwnTracks
 API routes still require `Authorization: Bearer <WEB_API_KEY>` when called from inside the Docker
 network or another trusted internal path.
 
-Nginx serves custom Mileage Logger styled error pages for 400, 401, 403, 404, 405, 408, 413, 429,
+The web service serves custom styled error pages for 400, 401, 403, 404, 405, 408, 413, 429,
 500, 502, 503, and 504 responses. The pages explain the error and include a link back to `/login`.
 App-generated JSON API errors are not globally intercepted, so API clients such as OwnTracks can
 still receive machine-readable responses from the app.
@@ -186,11 +186,11 @@ With this set:
 Leave `WEB_ALLOWED_CIDRS` blank to keep the current behavior and allow all clients to access the
 web UI.
 
-If this stack is behind another reverse proxy, nginx will usually see that proxy's IP address
+If this stack is behind another reverse proxy, the web service will usually see that proxy's IP address
 instead of the original client IP. In that setup, enforce IP restrictions at the outer proxy or
 include the proxy's address in `WEB_ALLOWED_CIDRS`.
 
-For web-login audit records, temporary lockouts, and automatic Cloudflare blocks, nginx passes
+For web-login audit records, temporary lockouts, and automatic Cloudflare blocks, the web service passes
 Cloudflare's `CF-Connecting-IP` header through to the app when present. The app uses that IP,
 otherwise it falls back to the direct loopback/tunnel client.
 
@@ -367,13 +367,13 @@ the checkpoint to the entered value and OwnTracks distance continues from that n
 
 The Compose file includes `cloudflared` as a normal required service for a remotely managed
 Cloudflare Tunnel. The `cloudflared` container uses host networking so it can reach the host-bound
-nginx listener. In the Cloudflare dashboard, publish the application route to the host listener:
+web service listener. In the Cloudflare dashboard, publish the application route to the host listener:
 
 ```text
 http://127.0.0.1:80
 ```
 
-The Compose stack always publishes nginx on `127.0.0.1:${HTTP_PORT:-80}`. To use a different
+The Compose stack always publishes the web service on `127.0.0.1:${HTTP_PORT:-80}`. To use a different
 local tunnel port, set:
 
 ```env
@@ -386,7 +386,7 @@ Then set the Cloudflare Tunnel service URL to:
 http://127.0.0.1:2082
 ```
 
-Nginx passes Cloudflare's `CF-Connecting-IP` to the app for login audit records, lockouts, and
+The web service passes Cloudflare's `CF-Connecting-IP` to the app for login audit records, lockouts, and
 automatic Cloudflare blocks. If that header is not present, the app uses the direct tunnel client.
 
 Then set:
@@ -448,7 +448,7 @@ create new waypoints.
 The web login protects rendered browser pages only. Public unauthenticated browser paths are
 limited to `/login`, passkey login challenge/verify endpoints, root icon and manifest files, the
 service worker, and `/static/` assets needed to render those pages. Non-OwnTracks `/api/` routes
-use `WEB_API_KEY` instead of the web login, while public nginx exposes only the OwnTracks ingestion
+use `WEB_API_KEY` instead of the web login, while the public web service exposes only the OwnTracks ingestion
 endpoints so OwnTracks can continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
 the app name before authentication and temporarily locks out repeated failed attempts. Successful
@@ -753,7 +753,7 @@ Check app startup and migration logs:
 docker compose logs app
 ```
 
-Validate Nginx proxy:
+Validate the web service proxy:
 
 ```bash
 curl -i "http://127.0.0.1:${HTTP_PORT:-80}/"
@@ -782,4 +782,4 @@ docker compose up -d
 
 If the web UI returns `403 Forbidden`, your client IP does not match `WEB_ALLOWED_CIDRS`.
 OwnTracks ingestion endpoints should still be reachable; other public `/api/` routes are
-intentionally blocked by nginx.
+intentionally blocked by the web service.

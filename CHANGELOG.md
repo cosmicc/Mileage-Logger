@@ -14,6 +14,8 @@
   `/api/health` available for internal health checks.
 - Added matching nginx error pages for common 4xx and 5xx responses with general end-user
   explanations and a link that returns authenticated users home instead of to login.
+- Changed web error pages so the HTTP error label is the largest text, the plain-language title is
+  secondary, and public-facing page copy uses generic web service wording.
 - Changed Docker nginx publishing to loopback-only on `127.0.0.1:${HTTP_PORT:-80}` for Cloudflare
   Tunnel use.
 - Removed the trusted proxy CIDR configuration path; login audit records, lockouts, and Cloudflare

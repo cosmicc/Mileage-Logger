@@ -92,7 +92,7 @@ docker compose up -d --build
   both decryptable OwnTracks payloads and matching HTTP Basic Auth.
 - Non-OwnTracks API routes require `Authorization: Bearer <WEB_API_KEY>` except `/api/health`,
   which stays unauthenticated for internal container health checks.
-- Public nginx exposes only `POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub`;
+- Public web service exposes only `POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub`;
   other API routes stay internal to the app container and Docker network, and still require
   `WEB_API_KEY` when called internally.
 
@@ -102,7 +102,7 @@ docker compose up -d --build
   failed-login password length, user agent, request path, lockout state, and UTC/local timestamps
   without storing the raw password
 - Uses the same effective client key as login lockout and Cloudflare auto-blocking. The bundled
-  loopback-only nginx origin passes Cloudflare's `CF-Connecting-IP` through when present; otherwise
+  loopback-only web service origin passes Cloudflare's `CF-Connecting-IP` through when present; otherwise
   the app falls back to the direct client.
 - Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
@@ -331,7 +331,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
 - Uses `docker-compose.yml` with 4 services (postgres, app, nginx, cloudflared)
-- Docker publishes nginx on `127.0.0.1:${HTTP_PORT:-80}`. The bundled `cloudflared` service uses
+- Docker publishes the web service on `127.0.0.1:${HTTP_PORT:-80}`. The bundled `cloudflared` service uses
   host networking so Cloudflare Tunnel can target the loopback listener, such as
   `http://127.0.0.1:2082` when `HTTP_PORT=2082`.
 - PostgreSQL data is stored in the named `postgres_data` Docker volume and persists across normal
@@ -345,13 +345,13 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Daily gas snapshots run as an app-container background scheduler; there is no separate
   `gas-snapshot` Compose service.
 - Diagnostics page available at `http://server/diagnostics`
-- Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
+- Public web service exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
-- Public nginx serves custom, unbranded end-user error pages from `deploy/nginx/error-pages/` for
+- Public web service serves custom, unbranded end-user error pages from `deploy/nginx/error-pages/` for
   common 4xx and 5xx responses. Keep the pages visually matched, include a `/login` link that can
   switch to home for authenticated browsers, and avoid global `proxy_intercept_errors` unless API
   clients should intentionally stop receiving JSON app errors.
-- Public nginx passes Cloudflare's `CF-Connecting-IP` through to the app when present. The app uses
+- Public web service passes Cloudflare's `CF-Connecting-IP` through to the app when present. The app uses
   that effective client IP for login lockouts, login audit rows, and Cloudflare auto-blocks.
 - Passkey login derives its WebAuthn origin from `PASSKEY_ORIGIN`, the browser `Origin` header, or
   trusted reverse-proxy scheme/host headers. For public Cloudflare Tunnel deployments, verify the
