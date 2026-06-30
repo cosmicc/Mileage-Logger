@@ -1,7 +1,7 @@
 <section class="page-header">
   <div>
     <h1>Dashboard</h1>
-    <p>Review automatic OwnTracks intake, waypoint trips, and monthly mileage.</p>
+    <p>Review automatic OwnTracks intake, waypoint work trips, and monthly mileage.</p>
     <p class="page-meta">
       App time:
       <time datetime="{{ app_local_datetime.isoformat() }}">
@@ -23,7 +23,7 @@
     <strong>{{ location_count }}</strong>
   </div>
   <div class="stat">
-    <span>Trips</span>
+    <span>Work Trips</span>
     <strong>{{ trip_count }}</strong>
   </div>
   <div class="stat">
@@ -55,7 +55,7 @@
     <div>
       <span>Today</span>
       <strong>{{ "%.1f"|format(distance_summary.today_total) }}</strong>
-      <small>Trips + non-trips</small>
+      <small>Work Trips + Non-Work Trips</small>
     </div>
     <span class="distance-unit">mi</span>
   </div>
@@ -63,7 +63,7 @@
     <div>
       <span>Today</span>
       <strong>{{ "%.1f"|format(distance_summary.today_trips) }}</strong>
-      <small>Trips only</small>
+      <small>Work Trips only</small>
     </div>
     <span class="distance-unit">mi</span>
   </div>
@@ -71,7 +71,7 @@
     <div>
       <span>This Month</span>
       <strong>{{ "%.1f"|format(distance_summary.month_total) }}</strong>
-      <small>Trips + non-trips</small>
+      <small>Work Trips + Non-Work Trips</small>
     </div>
     <span class="distance-unit">mi</span>
   </div>
@@ -79,14 +79,14 @@
     <div>
       <span>This Month</span>
       <strong>{{ "%.1f"|format(distance_summary.month_trips) }}</strong>
-      <small>Trips only</small>
+      <small>Work Trips only</small>
     </div>
     <span class="distance-unit">mi</span>
   </div>
 </section>
 
 <section class="panel">
-  <h2>Recent Trips</h2>
+  <h2>Recent Work Trips</h2>
   <table>
     <thead>
       <tr>
@@ -115,7 +115,7 @@
         <td>{{ "%.1f"|format(trip.miles) }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No trips generated yet.</td></tr>
+      <tr><td colspan="6">No work trips generated yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

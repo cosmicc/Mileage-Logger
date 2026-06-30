@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.3 - Unreleased
+
+- Bumped the Mileage Logger package version to 1.2.3.
+- Changed visible Trips labels to Work Trips and visible non-trip labels to Non-Work Trips.
+- Changed the Diagnostics Recent OwnTracks Entries table timestamp header from Captured to
+  Original while keeping the received-delay calculation unchanged.
+- Changed the Diagnostics OwnTracks State Changes table so Received Delay appears before state
+  details and Duration appears later in the row.
+- Changed shared top navigation buttons to one blue raised style across desktop and mobile.
+- Added raised, hover-brightened, pressed-in interaction styling to app buttons and button-style
+  links while preserving non-navigation button colors.
+- Changed Dashboard top statistic and distance cards to use the same compact card sizing as the
+  Work Trips selected-month cards on full-width layouts while preserving mobile card stacking.
+
 ## 1.2.2 - 2026-06-29
 
 - Bumped the Mileage Logger package version to 1.2.2.

@@ -356,7 +356,7 @@ def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None
         assert login_response.status_code == 303
         assert login_response.headers["location"] == "/trips?year=2026&month=6"
         assert page_response.status_code == 200
-        assert "Monthly Trips" in page_response.text
+        assert "Monthly Work Trips" in page_response.text
         success_entries = tail_login_success_entries(login_failure_log_path)
         assert len(success_entries) == 1
         assert success_entries[0].username == "admin"
@@ -839,7 +839,10 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
 
         assert login_response.status_code == 303
         assert response.status_code == 200
-        assert "Loading mileage totals, reimbursement details, and recent trips." in response.text
+        assert (
+            "Loading mileage totals, reimbursement details, and recent work trips."
+            in response.text
+        )
         assert 'data-dashboard-content-url="/dashboard/content"' in response.text
         assert (
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
@@ -862,9 +865,11 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
             in response.text
         )
         assert (
-            '<a class="nav-link nav-link-trips" href="/trips" aria-label="Trips" title="Trips">'
+            '<a class="nav-link nav-link-trips" href="/trips" aria-label="Work Trips" '
+            'title="Work Trips">'
             in response.text
         )
+        assert '<span class="nav-label">Work Trips</span>' in response.text
         assert '<span class="nav-label">Diagnostics</span>' in response.text
         assert (
             '<button type="submit" class="nav-logout" aria-label="Logout" title="Logout">'
@@ -872,8 +877,10 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
         )
         assert '<span class="nav-label">Logout</span>' in response.text
         assert response.text.count('class="nav-icon"') == 5
-        assert "--nav-mobile-bg: rgba(59, 130, 246, 0.2);" in response.text
-        assert "--nav-mobile-bg: rgba(239, 111, 108, 0.2);" in response.text
+        assert "--nav-mobile-bg: linear-gradient(180deg, #3b82f6, #1d4ed8);" in response.text
+        assert "--nav-mobile-bg: rgba(239, 111, 108, 0.2);" not in response.text
+        assert "transform: translateY(3px);" in response.text
+        assert ".button-link:hover" in response.text
         assert ".nav-icon {\n  display: block;" in response.text
         assert "gap: 7px;" in response.text
         assert "background: var(--nav-mobile-bg);" in response.text
@@ -929,9 +936,9 @@ def test_trips_page_renders_loading_shell() -> None:
         response = client.get("/trips?year=2026&month=6")
 
         assert response.status_code == 200
-        assert "Loading selected-month cards and trip records." in response.text
+        assert "Loading selected-month cards and work trip records." in response.text
         assert 'data-trips-content-url="/trips/content?year=2026&amp;month=6"' in response.text
-        assert "Monthly Trips" not in response.text
+        assert "Monthly Work Trips" not in response.text
     finally:
         app.dependency_overrides.clear()
 
@@ -1107,18 +1114,18 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
 
         assert response.status_code == 200
         assert "Distance driven summary" in response.text
-        assert "Trips + non-trips" in response.text
-        assert "Trips only" in response.text
+        assert "Work Trips + Non-Work Trips" in response.text
+        assert "Work Trips only" in response.text
         assert (
             "<span>Today</span>\n"
             f"      <strong>{max(today_total, Decimal('5.5'))}</strong>\n"
-            "      <small>Trips + non-trips</small>"
+            "      <small>Work Trips + Non-Work Trips</small>"
         ) in response.text
         assert "<strong>5.5</strong>" in response.text
         assert (
             "<span>This Month</span>\n"
             f"      <strong>{max(month_total, Decimal('9.5'))}</strong>\n"
-            "      <small>Trips + non-trips</small>"
+            "      <small>Work Trips + Non-Work Trips</small>"
         ) in response.text
         assert "<strong>9.5</strong>" in response.text
     finally:
@@ -1201,9 +1208,9 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
             "<span>OwnTracks Events</span>"
         )
         assert stats_section.index("<span>OwnTracks Events</span>") < stats_section.index(
-            "<span>Trips</span>"
+            "<span>Work Trips</span>"
         )
-        assert stats_section.index("<span>Trips</span>") < stats_section.index(
+        assert stats_section.index("<span>Work Trips</span>") < stats_section.index(
             "<span>Month Reimbursement</span>"
         )
         with session_factory() as db:
@@ -1282,7 +1289,7 @@ def test_dashboard_trip_plus_non_trip_total_is_never_below_trip_total(monkeypatc
         assert (
             "<span>Today</span>\n"
             "      <strong>8.4</strong>\n"
-            "      <small>Trips + non-trips</small>"
+            "      <small>Work Trips + Non-Work Trips</small>"
         ) in response.text
     finally:
         app.dependency_overrides.clear()
@@ -1395,12 +1402,12 @@ def test_dashboard_keeps_today_distance_until_local_midnight(monkeypatch) -> Non
         assert (
             "<span>Today</span>\n"
             f"      <strong>{max(today_total, Decimal('7.3'))}</strong>\n"
-            "      <small>Trips + non-trips</small>"
+            "      <small>Work Trips + Non-Work Trips</small>"
         ) in response.text
         assert (
             "<span>Today</span>\n"
             "      <strong>7.3</strong>\n"
-            "      <small>Trips only</small>"
+            "      <small>Work Trips only</small>"
         ) in response.text
     finally:
         app.dependency_overrides.clear()
@@ -3196,6 +3203,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         assert "Showing 1-10 of 12 entries." in entries_section
         assert 'class="pagination-button-row"' in entries_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in entries_section
+        assert "<th>Original</th>" in entries_section
         assert "<th>Received Delay</th>" in entries_section
         assert "<th>Event</th>" in entries_section
         assert "<th>Battery</th>" not in entries_section
@@ -3252,6 +3260,7 @@ def test_diagnostics_recent_owntracks_entries_show_delay_and_event_labels() -> N
             '<section id="owntracks-entries" class="panel">',
             '<section id="login-successes" class="panel">',
         )
+        assert "Original" in entries_section
         assert "Received Delay" in entries_section
         assert "Location event" in entries_section
         assert "Waypoint leave" in entries_section
@@ -3321,11 +3330,16 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
         assert "Travel detected" in state_section
         assert "Left waypoint" in state_section
         assert "Home" in state_section
-        assert "<th>Duration</th>" in state_section
+        assert "<th>Original</th>" in state_section
         assert "<th>Source</th>" in state_section
         assert "<th>Received Delay</th>" in state_section
+        assert "<th>Duration</th>" in state_section
         assert "<th>Rolling Odometer</th>" in state_section
         assert "<th>Distance</th>" not in state_section
+        assert state_section.index("<th>Received Delay</th>") < state_section.index(
+            "<th>State</th>"
+        )
+        assert state_section.index("<th>Source</th>") < state_section.index("<th>Duration</th>")
         assert "1.1 miles" not in state_section
         assert "10 min" in state_section
         assert "1 min" in state_section
@@ -3386,7 +3400,7 @@ def test_trips_page_delete_button_removes_trip_and_records_exact_deletion() -> N
         assert "Delete" in page_response.text
         assert delete_response.status_code == 303
         assert delete_response.headers["location"] == "/trips?year=2026&month=6"
-        assert "No trips for this month." in content_response.text
+        assert "No work trips for this month." in content_response.text
         with session_factory() as db:
             assert db.get(Trip, 1) is None
             deleted_trip = db.scalar(select(DeletedTrip))
@@ -3443,13 +3457,13 @@ def test_trips_page_removes_deleted_trip_record() -> None:
         content_response = client.get("/trips/content?year=2026&month=6")
 
         assert page_response.status_code == 200
-        assert "Deleted Trip Records" in page_response.text
+        assert "Deleted Work Trip Records" in page_response.text
         assert "Remove Record" in page_response.text
         assert "Home" in page_response.text
         assert "Client" in page_response.text
         assert delete_response.status_code == 303
         assert delete_response.headers["location"] == "/trips?year=2026&month=6"
-        assert "No deleted trip records for this month." in content_response.text
+        assert "No deleted work trip records for this month." in content_response.text
         with session_factory() as db:
             assert db.get(DeletedTrip, 1) is None
     finally:
@@ -3488,7 +3502,7 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         assert "View Month" not in page_response.text
         assert 'href="/trips?year=2026&amp;month=5"' not in page_response.text
         assert 'href="/trips?year=2026&amp;month=7"' not in page_response.text
-        assert "Add Trip" in page_response.text
+        assert "Add Work Trip" in page_response.text
         assert 'name="trip_date" value="2026-06-22"' in page_response.text
         assert 'name="origin_site_id"' in page_response.text
         assert 'name="destination_site_id"' in page_response.text
@@ -3588,10 +3602,10 @@ def test_trips_page_shows_selected_month_summary_cards() -> None:
             '<section class="panel">',
         )
         assert response.text.index('<section class="trips-summary-grid"') < response.text.index(
-            "<h2>Add Trip</h2>"
+            "<h2>Add Work Trip</h2>"
         )
-        assert "Month Trips + Non-Trips" in summary_section
-        assert "Month Trips Only" in summary_section
+        assert "Month Work Trips + Non-Work Trips" in summary_section
+        assert "Month Work Trips Only" in summary_section
         assert "OwnTracks Events" in summary_section
         assert "Month Reimbursement" in summary_section
         assert "Monthly Avg Gas" in summary_section
@@ -4117,6 +4131,12 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".loading-spinner" in stylesheet
     assert ".trips-summary-grid" in stylesheet
     assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in stylesheet
+    assert (
+        ".stats-grid {\n  display: grid;\n  grid-template-columns: repeat(6, minmax(0, 1fr));"
+        in stylesheet
+    )
+    assert ".distance-card {\n  display: flex;\n  min-height: 96px;" in stylesheet
+    assert ".distance-card strong" in stylesheet
     assert ".trip-summary-card strong" in stylesheet
     assert ".waypoint-pagination" in stylesheet
     assert ".diagnostics-pagination" in stylesheet

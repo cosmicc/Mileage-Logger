@@ -63,7 +63,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <dd>{{ location_count }}</dd>
       <dt>OwnTracks Waypoints</dt>
       <dd>{{ site_count }}</dd>
-      <dt>Trips</dt>
+      <dt>Work Trips</dt>
       <dd>{{ trip_count }}</dd>
       <dt>Gas Snapshots</dt>
       <dd>{{ gas_snapshot_count }}</dd>
@@ -326,12 +326,12 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   <table>
     <thead>
       <tr>
-        <th>Captured</th>
-        <th>Duration</th>
+        <th>Original</th>
+        <th>Received Delay</th>
         <th>State</th>
         <th>Waypoint</th>
         <th>Source</th>
-        <th>Received Delay</th>
+        <th>Duration</th>
         <th>Rolling Odometer</th>
       </tr>
     </thead>
@@ -339,7 +339,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       {% for state_change in movement_state_changes %}
       <tr>
         <td>{{ state_change.captured_at|local_datetime }}</td>
-        <td>{{ state_change.duration_display }}</td>
+        <td>{{ state_change.received_delay_display }}</td>
         <td>
           <span class="pill {{ 'good' if state_change.state == 'arrived' else 'warning' if state_change.state == 'travel' else 'muted' }}">
             {{ state_change.label }}
@@ -347,7 +347,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         </td>
         <td>{{ state_change.site_name or "-" }}</td>
         <td>{{ state_change.source }}</td>
-        <td>{{ state_change.received_delay_display }}</td>
+        <td>{{ state_change.duration_display }}</td>
         <td>{% if state_change.odometer_miles is not none %}{{ state_change.odometer_miles|odometer }} miles{% else %}-{% endif %}</td>
       </tr>
       {% else %}
@@ -371,7 +371,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <thead>
       <tr>
         <th>ID</th>
-        <th>Captured</th>
+        <th>Original</th>
         <th>Received Delay</th>
         <th>User / Device</th>
         <th>Coordinates</th>

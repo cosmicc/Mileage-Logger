@@ -197,7 +197,7 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
 - Existing row From/To controls are waypoint dropdowns populated from saved `Site` rows. Server
   handlers must validate submitted waypoint IDs, apply the selected waypoint IDs, names, and
   coordinates to the `Trip`, and mark changed rows as manually reviewed.
-- The Add Trip form defaults its date input to the app's `LOCAL_TIMEZONE` current date and uses
+- The Add Work Trip form defaults its date input to the app's `LOCAL_TIMEZONE` current date and uses
   the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
@@ -208,24 +208,28 @@ curl -X POST http://localhost:8000/api/custom-endpoint \
   `/dashboard/content` and render `dashboard_content.html` there so direct homepage loads can show
   the loading state before calculated cards arrive.
 - In `dashboard_content.html`, keep Location State as the first visible home card before the other
-  stat cards and distance summary cards.
-- The Trips root route renders a lightweight loading shell. Keep selected-month Trips queries,
-  summary cards, forms, trip rows, and deleted-trip rows in `/trips/content` and render
-  `trips_content.html` there so direct Trips loads can show a loading state before month data
+  stat cards and distance summary cards. Full-width Dashboard stat cards and distance cards should
+  use the same compact sizing as the Work Trips selected-month cards while still spanning the app
+  width by row; mobile should continue stacking those cards one per row.
+- The Trips root route renders a lightweight loading shell. Keep selected-month Work Trips queries,
+  summary cards, forms, work trip rows, and deleted-trip rows in `/trips/content` and render
+  `trips_content.html` there so direct Work Trips loads can show a loading state before month data
   arrives.
-- `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use the
-  same color-coded button identity as the mobile controls, with icons shown to the left of text
-  labels. On mobile, CSS hides the brand/icon and keeps nav links in one full-width icon-only
-  colored top-bar row instead of using a fixed bottom nav. Keep the login page free of shared top
-  navigation, keep the mobile viewport non-edge-to-edge, and preserve the manifest browser fallback
-  so phone system navigation remains visible. The brand icon/text is display-only and not a home
-  link.
+- `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use one
+  blue raised button treatment, with icons shown to the left of text labels. On mobile, CSS hides
+  the brand/icon and keeps nav links in one full-width icon-only blue top-bar row instead of using
+  a fixed bottom nav. App buttons and button-style links should stay raised, brighten on hover,
+  and press inward when clicked while preserving non-navigation button colors. Keep the login page
+  free of shared top navigation, keep the mobile viewport non-edge-to-edge, and preserve the
+  manifest browser fallback so phone system navigation remains visible. The brand icon/text is
+  display-only and not a home link.
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.
 - `trips_content.html` shows compact selected-month cards directly below the month selector rule
-  and above Add Trip. Keep these scoped to the selected month: trips plus non-trips, trips only,
-  OwnTracks events by captured time, trip count, reimbursement, and monthly average gas price.
+  and above Add Work Trip. Keep these scoped to the selected month: work trips plus non-work trips,
+  work trips only, OwnTracks events by captured time, work trip count, reimbursement, and monthly
+  average gas price.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
@@ -452,7 +456,7 @@ def search(
     <select name="origin_site_id" required>...</select>
     <select name="destination_site_id" required>...</select>
     <input type="number" name="miles" step="0.1" required>
-    <button type="submit">Add Trip</button>
+    <button type="submit">Add Work Trip</button>
 </form>
 ```
 
@@ -612,11 +616,11 @@ failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries, and O
 state-change log paginated at 10 visible rows per page so the cards stay compact.
 Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
 with the page count rendered as plain text below the buttons.
-The Recent OwnTracks Entries table should show capture-to-receive delay and readable event labels
-instead of raw receive timestamps, battery level, or MQTT topic details.
-The OwnTracks state-change table should keep per-segment distance out of the list and show captured
-time, elapsed duration since the prior state change, state, waypoint, source, received delay, and
-the event row's rolling odometer when available.
+The Recent OwnTracks Entries table should show original event time, capture-to-receive delay, and
+readable event labels instead of raw receive timestamps, battery level, or MQTT topic details.
+The OwnTracks state-change table should keep per-segment distance out of the list and show original
+event time, received delay, state, waypoint, source, elapsed duration since the prior state change,
+and the event row's rolling odometer when available.
 
 ### Diagnostics Full Backup And Restore
 

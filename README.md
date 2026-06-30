@@ -1,7 +1,7 @@
 # Mileage Logger
 
 Mileage Logger receives OwnTracks waypoint events from an Android phone over HTTP or MQTT,
-stores them in PostgreSQL, lets you review and edit generated waypoint trips, and produces
+stores them in PostgreSQL, lets you review and edit generated waypoint work trips, and produces
 monthly reimbursement PDF logs.
 
 ## Current Scope
@@ -13,13 +13,14 @@ monthly reimbursement PDF logs.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
-- OwnTracks waypoint transition model used to turn leave/enter events into trips, with
+- OwnTracks waypoint transition model used to turn leave/enter events into work trips, with
   location updates between those events used as the primary trip distance.
 - Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
   the latest current reading before saving a new checkpoint.
 - Manual trip entry defaults to today's local date and uses saved waypoint dropdowns for From/To,
-  with trip-row waypoint and mileage review on the Trips page. Trips uses one month/year picker
-  that loads the selected month automatically and shows compact selected-month summary cards.
+  with trip-row waypoint and mileage review on the Work Trips page. Work Trips uses one month/year
+  picker that loads the selected month automatically and shows compact selected-month summary
+  cards.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation.
 - GitHub Actions CI for linting and tests.
@@ -71,10 +72,11 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
   space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the bottom
   under the App Log.
-- Authenticated desktop navigation uses color-coded icon-and-label buttons matching the mobile
+- Authenticated desktop navigation uses blue raised icon-and-label buttons matching the mobile
   web-app layout, where navigation becomes icon-only in one full-width top-bar row and leaves the
   bottom safe area clear for phone system navigation without opting into edge-to-edge phone
-  drawing. The login page does not show the shared top navigation.
+  drawing. App buttons use a raised treatment, brighten on hover, and press inward when clicked.
+  The login page does not show the shared top navigation.
 - Web-login audit records shown on Diagnostics and written into the host log directory, with an
   optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
@@ -256,7 +258,7 @@ ingestion can receive waypoint definitions, transition events, and location upda
 
 ## Trip Detection
 
-The app generates trips directly from OwnTracks waypoint transitions:
+The app generates work trips directly from OwnTracks waypoint transitions:
 
 - A trip is created from a waypoint `leave` event followed by another waypoint `enter` event.
 - The destination `enter` event must be confirmed by at least
@@ -264,8 +266,9 @@ The app generates trips directly from OwnTracks waypoint transitions:
   The default is 5 minutes so driving through a waypoint does not create a trip.
 - `Home` is the exact waypoint name for home.
 - `Home` to `Home` is never a trip.
-- Trips between the same non-home waypoint are kept only when the calculated distance is at least
-  1.0 mile, because shorter same-waypoint loops are treated as invalid GPS drift or non-trips.
+- Work trips between the same non-home waypoint are kept only when the calculated distance is at
+  least 1.0 mile, because shorter same-waypoint loops are treated as invalid GPS drift or
+  non-work trips.
 - If an `enter` event arrives without a matching `leave`, the app infers the most likely origin
   from the previous waypoint. If there is no previous waypoint and the destination is not `Home`,
   the app assumes the missed origin was `Home`.
@@ -287,24 +290,25 @@ Generated mileage uses this order:
 Keep OwnTracks location reporting enabled so the app can sum the actual path between waypoint
 events. If a trip window has only transition events and no location updates between them, the app
 falls back to waypoint distance. Odometer values are never used to calculate trip distance,
-Dashboard trip plus non-trip totals, or monthly trip plus non-trip totals. Dashboard trip plus
-non-trip cards are floored at the stored trip total after one-decimal rounding, so the displayed
-combined total is never lower than the trips-only total and the implied non-trip remainder is never
-negative. Edit a trip's saved waypoint route or miles on the `Trips` page when generated values
-need correction. A distance correction resequences that month's displayed start and end odometers
-in chronological trip order. Manual trips entered from the `Trips` page default to today's local
+Dashboard work trip plus non-work trip totals, or monthly work trip plus non-work trip totals.
+Dashboard work trip plus non-work trip cards are floored at the stored work trip total after
+one-decimal rounding, so the displayed combined total is never lower than the work-trips-only total
+and the implied non-work trip remainder is never negative. Edit a work trip's saved waypoint route
+or miles on the `Work Trips` page when generated values need correction. A distance correction
+resequences that month's displayed start and end odometers in chronological work trip order.
+Manual work trips entered from the `Work Trips` page default to today's local
 date, use saved waypoint dropdowns for From/To, and save start/end odometers immediately from the
-current rolling OwnTracks odometer checkpoint plus the entered trip miles. A manual trip is placed
-after the existing trips on the selected local date, so backdated manual entries land at the end of
-that day and today's manual entries become the latest trip for today. If the manual trip is inserted
-before existing trips, the app resequences that trip and every later trip so odometers remain
-cumulative across month boundaries while preserving existing positive odometer gaps between trips
-for non-trip driving. Deleting a
-trip from the `Trips` page also saves an exact deleted-trip record so only that same OwnTracks
-transition pair is not generated again; future trips with the same route are still generated
-normally.
-Automatic same-waypoint trips under 1.0 mile are also removed with an exact suppression record so
-older invalid rows do not return from the same OwnTracks transition pair.
+current rolling OwnTracks odometer checkpoint plus the entered work trip miles. A manual work trip
+is placed after the existing work trips on the selected local date, so backdated manual entries
+land at the end of that day and today's manual entries become the latest work trip for today. If
+the manual work trip is inserted before existing work trips, the app resequences that work trip and
+every later work trip so odometers remain cumulative across month boundaries while preserving
+existing positive odometer gaps between work trips for non-work trip driving. Deleting a
+work trip from the `Work Trips` page also saves an exact deleted-trip record so only that same
+OwnTracks transition pair is not generated again; future work trips with the same route are still
+generated normally.
+Automatic same-waypoint work trips under 1.0 mile are also removed with an exact suppression record
+so older invalid rows do not return from the same OwnTracks transition pair.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when
 those points do not become a trip. Each processed OwnTracks location row stores the rolling
 odometer value for that point, and generated trips use those rolling values for start odometers
@@ -314,12 +318,14 @@ trip. The trip end odometer is always advanced from the start odometer by the st
 so the odometer display follows the trip miles. Segments fully inside the same saved waypoint are
 ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset the checkpoint
 to the entered value and OwnTracks distance continues from that new rolling value.
-Dashboard total-driven cards and the Trips selected-month cards sum OwnTracks coordinate segments
-directly for the selected local day or month, so manual odometer resets do not affect trip plus
-non-trip totals.
+Dashboard total-driven cards and the Work Trips selected-month cards sum OwnTracks coordinate
+segments directly for the selected local day or month, so manual odometer resets do not affect work
+trip plus non-work trip totals.
 The Dashboard current-month reimbursement card uses the same trip-mile total, reimbursement
 gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
-displayed gallons limited to one decimal place.
+displayed gallons limited to one decimal place. Dashboard top statistic and distance cards use the
+same compact sizing as the Work Trips selected-month cards on full-width layouts, while mobile
+keeps each card on its own row.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. The top Diagnostics cards are
 grouped together in this order: Application, Data, Latest Records, OwnTracks State, Manual
@@ -329,11 +335,12 @@ paths into one row when their exact used space and total capacity match, and inc
 database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
-full-width row and the page count shown as text below. Recent OwnTracks entries show received delay
-and a readable event label instead of raw receive timestamps, battery level, or MQTT topic details.
+full-width row and the page count shown as text below. Recent OwnTracks entries show original event
+time, received delay, and a readable event label instead of raw receive timestamps, battery level,
+or MQTT topic details.
 Successful-login attempts show Password or Passkey method pills instead of an account column. The
-OwnTracks state-change list omits the per-segment distance column and shows captured time,
-duration, state, waypoint, source, received delay, and rolling odometer when available.
+OwnTracks state-change list omits the per-segment distance column and shows original event time,
+received delay, state, waypoint, source, duration, and rolling odometer when available.
 
 ## Cloudflare Tunnel
 
@@ -370,7 +377,7 @@ Then start the normal stack with `docker compose up -d --build`.
 Background processors also run while the web app is up. Trip processing recalculates the current
 local day on a short interval and finalizes completed local days. After trip processing updates its
 checkpoint, processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged
-automatically. Trips, waypoints, reports, and gas price records are not removed by this purge. The
+automatically. Work trips, waypoints, reports, and gas price records are not removed by this purge. The
 app container also runs the daily gas snapshot scheduler when `GAS_SNAPSHOT_ENABLED=true`.
 
 Useful Docker environment options:
@@ -476,14 +483,14 @@ systemd inside the container.
 1. Create work waypoints in OwnTracks and publish/export them to the server.
 2. Review or export saved waypoints from the `Waypoints` page.
 3. Configure OwnTracks to send waypoint transition events and normal location updates.
-4. Let the app automatically create trips from incoming OwnTracks transitions.
-5. Review `Trips`, choose the needed month/year with the month picker, add manual trips with the
-   local-today date default, and edit row waypoint dropdowns or miles if needed. Existing row dates
-   and odometers are read-only. The summary cards above Add Trip show the selected month's
-   trip plus non-trip miles, trip-only miles, OwnTracks events, trip count, reimbursement, and
-   monthly average gas price.
+4. Let the app automatically create work trips from incoming OwnTracks transitions.
+5. Review `Work Trips`, choose the needed month/year with the month picker, add manual work trips
+   with the local-today date default, and edit row waypoint dropdowns or miles if needed. Existing
+   row dates and odometers are read-only. The summary cards above Add Work Trip show the selected
+   month's work trip plus non-work trip miles, work-trip-only miles, OwnTracks events, work trip
+   count, reimbursement, and monthly average gas price.
 6. Add or fetch a monthly gas price for that report month.
-7. Download the monthly PDF report from the `Trips` page.
+7. Download the monthly PDF report from the `Work Trips` page.
 
 ## Project Commands
 

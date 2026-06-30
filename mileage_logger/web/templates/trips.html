@@ -8,15 +8,15 @@
   <div class="loading-overlay-card" role="status" aria-live="polite">
     <span class="loading-spinner" aria-hidden="true"></span>
     <div>
-      <h1>Trips</h1>
-      <p>Loading selected-month cards and trip records.</p>
+      <h1>Work Trips</h1>
+      <p>Loading selected-month cards and work trip records.</p>
     </div>
   </div>
 </section>
 <noscript>
   <section class="panel">
     <h2>JavaScript Required</h2>
-    <p>The Trips page loads selected-month totals and trip rows after the initial page opens.</p>
+    <p>The Work Trips page loads selected-month totals and work trip rows after the initial page opens.</p>
   </section>
 </noscript>
 <script>
@@ -45,8 +45,8 @@
       shell.setAttribute("aria-busy", "false");
       shell.innerHTML = `
         <section class="panel">
-          <h2>Trips Could Not Load</h2>
-          <p class="panel-meta">Refresh the page to try loading the Trips page again.</p>
+          <h2>Work Trips Could Not Load</h2>
+          <p class="panel-meta">Refresh the page to try loading the Work Trips page again.</p>
         </section>
       `;
     };
@@ -57,7 +57,7 @@
     })
       .then((response) => {
         if (!response.ok) {
-          throw new Error(`Trips content request failed: ${response.status}`);
+          throw new Error(`Work Trips content request failed: ${response.status}`);
         }
         return response.text();
       })

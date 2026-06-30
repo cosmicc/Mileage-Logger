@@ -216,35 +216,39 @@ docker compose up -d --build
 - Existing trip rows display trip dates and odometers as read-only values. Row update forms accept
   selected origin/destination waypoint IDs from dropdowns plus mileage edits; posted dates,
   free-text names, and odometer fields are not accepted for existing rows.
-- The Trips page month selector is a single browser month/year picker. It defaults to the app's
+- The Work Trips page month selector is a single browser month/year picker. It defaults to the app's
   current `LOCAL_TIMEZONE` month, auto-loads the selected month, and displays the month as
-  `Showing June 2026 (06/2026)` style text under the Trips title.
-- The Trips page shows compact selected-month summary cards between the month selector line and
-  Add Trip. Keep the cards scoped to the selected month: trips plus non-trips, trips only,
-  OwnTracks events, trip count, reimbursement, and monthly average gas.
+  `Showing June 2026 (06/2026)` style text under the Work Trips title.
+- The Work Trips page shows compact selected-month summary cards between the month selector line
+  and Add Work Trip. Keep the cards scoped to the selected month: work trips plus non-work trips,
+  work trips only, OwnTracks events, work trip count, reimbursement, and monthly average gas.
 - The Trips root route renders a lightweight loading shell first. The selected-month cards,
-  Add Trip form, trip rows, and deleted-trip rows render through `/trips/content`, which is fetched
-  by the shell so direct Trips loads show a loading message before month calculations finish.
+  Add Work Trip form, work trip rows, and deleted-trip rows render through `/trips/content`, which
+  is fetched by the shell so direct Work Trips loads show a loading message before month
+  calculations finish.
 - Manual trip creation defaults the date field to the app's `LOCAL_TIMEZONE` current date and uses
   origin/destination waypoint dropdowns populated from saved waypoints. Manual inserts calculate
   and save start/end odometers immediately from the current rolling OwnTracks odometer checkpoint,
   then resequence that trip and all later trips when the inserted date is before existing trip rows.
   New manual trips are placed after existing trips on the selected local date, and resequencing keeps
   existing positive odometer gaps between trips so non-trip driving remains represented.
-- Dashboard trip plus non-trip distance cards use OwnTracks path distance as the total-distance
-  source but floor the combined total at the stored trip total after one-decimal rounding, so the
-  displayed non-trip remainder is never negative.
+- Dashboard work trip plus non-work trip distance cards use OwnTracks path distance as the
+  total-distance source but floor the combined total at the stored work trip total after
+  one-decimal rounding, so the displayed non-work trip remainder is never negative.
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
   Display the card's reimbursement gallons at one decimal place.
 - The Dashboard home content shows the Location State card as the first visible card before other
-  stat cards and distance summary cards.
-- The shared top bar uses color-coded boxed navigation links with icons and labels on authenticated
-  desktop pages. On mobile, hide the brand/icon, keep the navigation buttons as icon-only colored
-  controls in one full-width top-bar row, avoid fixed bottom navigation, and use a normal
-  non-edge-to-edge viewport plus standalone/browser manifest fallback so phone system navigation
-  remains visible. The login page has no shared top navigation. The brand icon/text is display-only
-  and must not be a clickable home link.
+  stat cards and distance summary cards. On full-width layouts, keep Dashboard top statistic cards
+  and distance summary cards compact like the Work Trips selected-month cards, with each row still
+  spanning the app width. Mobile should continue stacking those cards one per row.
+- The shared top bar uses blue raised navigation buttons with icons and labels on authenticated
+  desktop pages. On mobile, hide the brand/icon and keep the blue navigation buttons as icon-only
+  controls in one full-width top-bar row. App buttons and button-style links are raised, brighten
+  on hover, and press inward when clicked while preserving non-navigation button colors. Avoid
+  fixed bottom navigation, and use a normal non-edge-to-edge viewport plus standalone/browser
+  manifest fallback so phone system navigation remains visible. The login page has no shared top
+  navigation. The brand icon/text is display-only and must not be a clickable home link.
 - The Dashboard root route renders a lightweight loading shell first. The expensive Dashboard
   summary queries render through `/dashboard/content`, which is fetched by the shell so direct
   homepage loads show a loading message before calculations finish.
@@ -287,11 +291,11 @@ docker compose up -d --build
    group at three cards per row on desktop and one card per row on mobile. The detailed OwnTracks
    state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
    with the same mobile full-width pagination row used by the login and Cloudflare block lists.
-   The recent OwnTracks entries table shows capture-to-receive delay and readable event labels
-   instead of raw receive timestamps, battery level, or MQTT topic details.
-   The OwnTracks state-change log intentionally omits per-section distance and shows captured time,
-   elapsed duration since the prior state change, state, waypoint, source, received delay, and the
-   event row's rolling odometer when available.
+   The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
+   readable event labels instead of raw receive timestamps, battery level, or MQTT topic details.
+   The OwnTracks state-change log intentionally omits per-section distance and shows original event
+   time, received delay, state, waypoint, source, elapsed duration since the prior state change,
+   and the event row's rolling odometer when available.
 9. Diagnostics shows the app version in the Application card, shows hard drive space for key
    runtime paths, combines paths into one row when exact used bytes and total bytes match, and
    includes current database size plus total app record count at the bottom of the card.
