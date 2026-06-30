@@ -14,12 +14,13 @@ def _service_block(compose_text: str, service_name: str) -> str:
     return match.group("body")
 
 
-def test_nginx_host_port_uses_bind_address_and_cloudflared_host_network() -> None:
+def test_nginx_host_port_is_loopback_only_for_cloudflared_host_network() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
     nginx_block = _service_block(compose_text, "nginx")
     cloudflared_block = _service_block(compose_text, "cloudflared")
 
-    assert '"${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"' in nginx_block
+    assert '"127.0.0.1:${HTTP_PORT:-80}:80"' in nginx_block
+    assert "BIND_ADDRESS" not in compose_text
     assert "network_mode: host" in cloudflared_block
 
 
@@ -43,7 +44,10 @@ def test_app_container_requires_production_web_login_secrets() -> None:
     assert "SECRET_KEY: \"${SECRET_KEY:?" in app_block
     assert "WEB_LOGIN_USERNAME: \"${WEB_LOGIN_USERNAME:?" in app_block
     assert "WEB_LOGIN_PASSWORD: \"${WEB_LOGIN_PASSWORD:?" in app_block
-    assert 'TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-172.16.0.0/12}"' in app_block
+    assert "WEB_API_KEY: \"${WEB_API_KEY:?" in app_block
+    assert "OWNTRACKS_USERNAME: \"${OWNTRACKS_USERNAME:?" in app_block
+    assert "OWNTRACKS_PASSWORD: \"${OWNTRACKS_PASSWORD:?" in app_block
+    assert "OWNTRACKS_ENCRYPTION_KEY: \"${OWNTRACKS_ENCRYPTION_KEY:?" in app_block
     assert 'PASSKEY_RP_NAME: "${PASSKEY_RP_NAME:-Mileage Logger}"' in app_block
     assert 'PASSKEY_RP_ID: "${PASSKEY_RP_ID:-}"' in app_block
     assert 'PASSKEY_ORIGIN: "${PASSKEY_ORIGIN:-}"' in app_block

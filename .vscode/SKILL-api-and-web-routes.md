@@ -53,20 +53,33 @@ def update_trip(
 
 ---
 
-## OwnTracks API Authentication
+## API Authentication
 
-### Authentication Methods
+### OwnTracks Authentication
 
-OwnTracks supports two auth methods, checked in `verify_owntracks_auth()`:
+OwnTracks HTTP ingestion is handled by `/api/owntracks`, `/api/owntracks/`, `/api/pub`, and
+`/api/pub/`. OwnTracks requests must use both:
 
 ```python
-# Method 1: HTTP Basic Auth
 # Headers: Authorization: Basic base64(OWNTRACKS_USERNAME:OWNTRACKS_PASSWORD)
-
-# Method 2: API Token
-# Headers: X-Api-Key: <OWNTRACKS_API_TOKEN>
-# Or:      Authorization: Bearer <OWNTRACKS_API_TOKEN>
+# Body: {"_type":"encrypted","data":"..."} encrypted with OWNTRACKS_ENCRYPTION_KEY
 ```
+
+The encryption key must be 32 UTF-8 bytes or fewer. The server pads it to libsodium SecretBox's
+32-byte key size, decrypts the OwnTracks `data` value, then passes the original JSON payload into
+the existing OwnTracks parser. Plaintext OwnTracks HTTP payloads are rejected, and the endpoint
+fails closed when `OWNTRACKS_ENCRYPTION_KEY` is not configured.
+
+### Non-OwnTracks API Authentication
+
+Every other `/api/*` route requires the separate `WEB_API_KEY` through:
+
+```text
+Authorization: Bearer <WEB_API_KEY>
+```
+
+The only non-OwnTracks exception is `/api/health`, which stays unauthenticated for internal
+container health checks. Do not reuse `OWNTRACKS_ENCRYPTION_KEY` as `WEB_API_KEY`.
 
 ### Protecting Endpoints
 
@@ -78,8 +91,8 @@ async def owntracks_http(
     request: Request,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
-    verify_owntracks_auth(request)  # Raises HTTPException(401) if auth fails
-    # ... process OwnTracks payload ...
+    verify_owntracks_auth(request)  # Raises HTTPException(401) if Basic Auth fails
+    # decrypt encrypted OwnTracks payload, then process it
 ```
 
 The `/api/health` endpoint is unauthenticated inside the app for container health checks;
@@ -92,8 +105,14 @@ In Docker deployment, public nginx only forwards OwnTracks ingestion endpoints:
 - `POST /api/pub`
 
 Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` remain reachable only inside the app
-container or Docker network unless a future change explicitly reopens them at nginx. Do not add
-new internet-facing API paths without updating `deploy/nginx/default.conf`, docs, and tests.
+container or Docker network unless a future change explicitly reopens them at nginx. Non-OwnTracks
+API routes still require `Authorization: Bearer <WEB_API_KEY>` internally. Do not add new
+internet-facing API paths without updating `deploy/nginx/default.conf`, docs, and tests.
+
+Nginx custom error pages live in `deploy/nginx/error-pages/` and are copied into the nginx image.
+When public route behavior changes, keep the configured 4xx/5xx pages visually matched to the app,
+unbranded, and written for end users. Do not enable global `proxy_intercept_errors` unless API
+clients are intentionally allowed to receive HTML instead of app JSON errors.
 
 ### Credentials Configuration
 
@@ -101,7 +120,8 @@ new internet-facing API paths without updating `deploy/nginx/default.conf`, docs
 # .env
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=secret-password
-OWNTRACKS_API_TOKEN=secret-token
+OWNTRACKS_ENCRYPTION_KEY=secret-encryption-key
+WEB_API_KEY=separate-web-api-key
 ```
 
 ---
@@ -167,17 +187,17 @@ def my_endpoint(
 # GET (no auth)
 curl http://localhost:8000/api/health
 
-# POST with auth (HTTP Basic)
+# POST with non-OwnTracks API auth
 curl -X POST http://localhost:8000/api/custom-endpoint \
   -H "Content-Type: application/json" \
-  -u owntracks:password \
+  -H "Authorization: Bearer ${WEB_API_KEY}" \
   -d '{"trip_id": 1, "custom_field": "value"}'
 
-# API Key auth
-curl -X POST http://localhost:8000/api/custom-endpoint \
+# OwnTracks ingestion uses Basic Auth plus encrypted payloads when configured
+curl -X POST http://localhost:8000/api/owntracks \
   -H "Content-Type: application/json" \
-  -H "X-Api-Key: secret-token" \
-  -d '{"trip_id": 1, "custom_field": "value"}'
+  -u "${OWNTRACKS_USERNAME}:${OWNTRACKS_PASSWORD}" \
+  -d '{"_type":"encrypted","data":"..."}'
 ```
 
 ---
@@ -345,9 +365,6 @@ WEB_LOGIN_PASSWORD=secret
 # Optional: Restrict by IP (CIDR notation)
 WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24
 
-# Optional: Trust reverse-proxy client-IP headers from these direct proxy ranges
-TRUSTED_PROXY_CIDRS=172.16.0.0/12
-
 # Optional: override WebAuthn relying-party settings for passkeys
 PASSKEY_RP_NAME=Mileage Logger
 PASSKEY_RP_ID=mileage.example.com
@@ -401,14 +418,9 @@ The app has one configured web user, so passkeys are stored for `WEB_LOGIN_USERN
 `passkey_credentials` rather than adding separate user-management flows.
 `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
 `SECRET_KEY` must be changed from the default `change-me`; production Docker fails closed if the
-login credentials or session secret are missing. Behind a reverse proxy, configure
-`TRUSTED_PROXY_CIDRS` for the direct proxy client IP ranges that may supply `CF-Connecting-IP`,
-`X-Real-IP`, or `X-Forwarded-For`. Requests from untrusted direct clients must ignore those headers
-for lockout and Cloudflare auto-block identity. The bundled nginx config selects one client IP
-from `CF-Connecting-IP` when Cloudflare supplies it, otherwise falls back to the immediate peer,
-then overwrites `X-Real-IP`, `X-Forwarded-For`, and `CF-Connecting-IP` with that selected value.
-Keep the nginx origin behind Cloudflare Tunnel, loopback, a firewall, or another trusted edge so
-direct clients cannot forge Cloudflare headers.
+login credentials or session secret are missing. The bundled nginx config is loopback-only and
+passes Cloudflare's `CF-Connecting-IP` through when present. The app uses that effective client IP
+for login audit rows, lockouts, and Cloudflare auto-block identity.
 When rendering Diagnostics from the audit log, resolve the visible IP for successful-login and
 failed-login rows from stored request metadata when the direct client is trusted, then fall back to
 the stored `client_ip`. Failed-login row block buttons must use the same visible, blockable client

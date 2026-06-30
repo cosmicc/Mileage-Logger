@@ -5,41 +5,68 @@ from fastapi import HTTPException, Request, status
 
 from mileage_logger.config import get_settings
 
+OWNTRACKS_API_PATHS = {
+    "/api/owntracks",
+    "/api/owntracks/",
+    "/api/pub",
+    "/api/pub/",
+}
+WEB_API_AUTH_EXEMPT_PATHS = {"/api/health", *OWNTRACKS_API_PATHS}
+
+
+def _verify_owntracks_basic_auth(request: Request) -> bool:
+    settings = get_settings()
+    basic_configured = bool(settings.owntracks_username and settings.owntracks_password)
+    if not basic_configured:
+        return False
+
+    authorization = request.headers.get("authorization", "")
+    if not authorization.startswith("Basic "):
+        return False
+
+    encoded = authorization.removeprefix("Basic ").strip()
+    try:
+        username, password = base64.b64decode(encoded).decode("utf-8").split(":", 1)
+    except (ValueError, UnicodeDecodeError):
+        username, password = "", ""
+    username_matches = secrets.compare_digest(username, settings.owntracks_username)
+    password_matches = secrets.compare_digest(
+        password,
+        settings.owntracks_password,
+    )
+    return username_matches and password_matches
+
 
 def verify_owntracks_auth(request: Request) -> None:
     settings = get_settings()
-    token_configured = bool(settings.owntracks_api_token)
-    basic_configured = bool(settings.owntracks_username or settings.owntracks_password)
-
-    if not token_configured and not basic_configured:
+    if not settings.owntracks_encryption_key.strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OWNTRACKS_ENCRYPTION_KEY is not configured",
+        )
+    if not (settings.owntracks_username.strip() and settings.owntracks_password.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OwnTracks Basic Auth is not configured",
+        )
+    if _verify_owntracks_basic_auth(request):
         return
 
-    if token_configured:
-        header_token = request.headers.get("x-api-key", "")
-        authorization = request.headers.get("authorization", "")
-        bearer_token = authorization.removeprefix("Bearer ").strip()
-        header_matches = secrets.compare_digest(header_token, settings.owntracks_api_token)
-        bearer_matches = secrets.compare_digest(
-            bearer_token,
-            settings.owntracks_api_token,
-        )
-        if header_matches or bearer_matches:
-            return
-
-    if basic_configured:
-        authorization = request.headers.get("authorization", "")
-        if authorization.startswith("Basic "):
-            encoded = authorization.removeprefix("Basic ").strip()
-            try:
-                username, password = base64.b64decode(encoded).decode("utf-8").split(":", 1)
-            except (ValueError, UnicodeDecodeError):
-                username, password = "", ""
-            username_matches = secrets.compare_digest(username, settings.owntracks_username)
-            password_matches = secrets.compare_digest(
-                password,
-                settings.owntracks_password,
-            )
-            if username_matches and password_matches:
-                return
-
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+
+
+def verify_web_api_auth(request: Request) -> None:
+    settings = get_settings()
+    expected_token = settings.web_api_key.strip()
+    if not expected_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="WEB_API_KEY is not configured",
+        )
+
+    authorization = request.headers.get("authorization", "")
+    scheme, _, supplied_token = authorization.partition(" ")
+    if scheme.casefold() != "bearer" or not supplied_token.strip():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+    if not secrets.compare_digest(supplied_token.strip(), expected_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")

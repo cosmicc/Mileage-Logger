@@ -1,7 +1,10 @@
 import re
 from pathlib import Path
 
+ERROR_PAGE_STATUSES = (400, 401, 403, 404, 405, 408, 413, 429, 500, 502, 503, 504)
 NGINX_CONF = Path("deploy/nginx/default.conf")
+NGINX_DOCKERFILE = Path("deploy/nginx/Dockerfile")
+NGINX_ERROR_PAGES = Path("deploy/nginx/error-pages")
 
 
 def _location_block(config: str, location: str) -> str:
@@ -34,6 +37,29 @@ def test_public_nginx_only_proxies_owntracks_api_endpoints() -> None:
     assert "location ^~ /redoc {\n        return 404;\n    }" in config
 
 
+def test_nginx_serves_custom_error_pages() -> None:
+    config = NGINX_CONF.read_text(encoding="utf-8")
+    dockerfile = NGINX_DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "COPY deploy/nginx/error-pages/ /usr/share/nginx/html/errors/" in dockerfile
+    assert 'add_header X-Robots-Tag "noindex, nofollow" always;' in config
+
+    for status in ERROR_PAGE_STATUSES:
+        page = NGINX_ERROR_PAGES / f"{status}.html"
+        html = page.read_text(encoding="utf-8")
+
+        assert f"error_page {status} /errors/{status}.html;" in config
+        assert 'href="/login"' in html
+        assert "Mileage Logger" not in html
+        assert ">ML<" not in html
+        assert 'id="primary-action"' in html
+        assert "Back to login" in html
+        assert "Back to home" in html
+        assert 'document.cookie.includes("mileage_logger_session=")' in html
+        assert "background:linear-gradient" in html
+        assert "This " in html or "The " in html
+
+
 def test_nginx_keeps_web_routes_available_behind_web_access_rules() -> None:
     config = NGINX_CONF.read_text(encoding="utf-8")
 
@@ -48,17 +74,15 @@ def test_nginx_keeps_web_routes_available_behind_web_access_rules() -> None:
     assert "proxy_pass http://mileage_logger_app;" in web_block
 
 
-def test_nginx_replaces_forwarded_client_ip_headers_with_selected_client_ip() -> None:
-    """Nginx should replace forwarded chains with one Cloudflare-derived client IP."""
+def test_nginx_passes_loopback_tunnel_headers_without_trusted_proxy_maps() -> None:
+    """Nginx should bind to a loopback tunnel origin without trusted-proxy CIDR maps."""
 
     config = NGINX_CONF.read_text(encoding="utf-8")
 
-    assert "map $http_cf_connecting_ip $mileage_logger_client_ip" in config
-    assert "default $http_cf_connecting_ip;" in config
-    assert '"" $remote_addr;' in config
-    assert "map $remote_addr $trusted_forwarded_proto" in config
-    assert "127.0.0.1 $cloudflare_forwarded_proto;" in config
-    assert "::1 $cloudflare_forwarded_proto;" in config
+    assert "mileage_logger_client_ip" not in config
+    assert "trusted_forwarded_proto" not in config
+    assert "map $remote_addr" not in config
+    assert "map $http_x_forwarded_proto $mileage_logger_forwarded_proto" in config
 
     for location in (
         "= /api/owntracks",
@@ -69,9 +93,9 @@ def test_nginx_replaces_forwarded_client_ip_headers_with_selected_client_ip() ->
         "/",
     ):
         block = _location_block(config, location)
-        assert "proxy_set_header X-Real-IP $mileage_logger_client_ip;" in block
-        assert "proxy_set_header X-Forwarded-For $mileage_logger_client_ip;" in block
-        assert "proxy_set_header X-Forwarded-Proto $trusted_forwarded_proto;" in block
-        assert "proxy_set_header CF-Connecting-IP $mileage_logger_client_ip;" in block
+        assert "proxy_set_header X-Real-IP $remote_addr;" in block
+        assert "proxy_set_header X-Forwarded-For $remote_addr;" in block
+        assert "proxy_set_header X-Forwarded-Proto $mileage_logger_forwarded_proto;" in block
+        assert "proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;" in block
 
     assert "$proxy_add_x_forwarded_for" not in config

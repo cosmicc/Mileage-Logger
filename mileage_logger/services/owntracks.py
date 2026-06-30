@@ -1,13 +1,17 @@
+import base64
+import binascii
 import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from nacl.exceptions import CryptoError
+from nacl.secret import SecretBox
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mileage_logger.config import get_settings
+from mileage_logger.config import Settings, get_settings
 from mileage_logger.models import OwnTracksLocation, Site
 from mileage_logger.services.timezone import datetime_to_local_date
 from mileage_logger.services.trip_processor import run_automatic_trip_processing
@@ -24,6 +28,14 @@ class EmptyOwnTracksPayload(OwnTracksError):
 
 
 class UnsupportedOwnTracksType(OwnTracksError):
+    pass
+
+
+class EncryptedOwnTracksPayloadError(OwnTracksError):
+    pass
+
+
+class OwnTracksEncryptionNotConfigured(EncryptedOwnTracksPayloadError):
     pass
 
 
@@ -82,6 +94,50 @@ def _decode_payload(body: bytes) -> dict:
     if not isinstance(payload, dict):
         raise OwnTracksError("OwnTracks payload must be a JSON object")
     return payload
+
+
+def _owntracks_secretbox_key(settings: Settings | None = None) -> bytes:
+    """Return the OwnTracks secret padded to libsodium SecretBox's 32-byte key size."""
+
+    active_settings = settings or get_settings()
+    key = active_settings.owntracks_encryption_key.encode("utf-8")
+    if not key:
+        raise OwnTracksEncryptionNotConfigured("OWNTRACKS_ENCRYPTION_KEY is not configured")
+    if len(key) > SecretBox.KEY_SIZE:
+        raise EncryptedOwnTracksPayloadError("OWNTRACKS_ENCRYPTION_KEY is longer than 32 bytes")
+    return key.ljust(SecretBox.KEY_SIZE, b"\0")
+
+
+def decrypt_owntracks_payload(body: bytes, settings: Settings | None = None) -> bytes:
+    """Decrypt an OwnTracks encrypted HTTP payload into the original JSON bytes."""
+
+    wrapper = _decode_payload(body)
+    if wrapper.get("_type") != "encrypted":
+        raise EncryptedOwnTracksPayloadError(
+            "OwnTracks payload encryption is required when OWNTRACKS_ENCRYPTION_KEY is set"
+        )
+
+    encoded_data = wrapper.get("data")
+    if not isinstance(encoded_data, str) or not encoded_data.strip():
+        raise EncryptedOwnTracksPayloadError("Encrypted OwnTracks payload is missing data")
+
+    try:
+        encrypted = base64.b64decode(encoded_data, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise EncryptedOwnTracksPayloadError(
+            "Encrypted OwnTracks payload data is not valid base64"
+        ) from exc
+
+    try:
+        cleartext = SecretBox(_owntracks_secretbox_key(settings)).decrypt(encrypted)
+    except CryptoError as exc:
+        raise EncryptedOwnTracksPayloadError(
+            "Encrypted OwnTracks payload could not be decrypted"
+        ) from exc
+
+    clear_payload = _decode_payload(cleartext)
+    clear_payload["_decrypted"] = True
+    return json.dumps(clear_payload, separators=(",", ":")).encode("utf-8")
 
 
 def _location_message_from_payload(

@@ -87,25 +87,28 @@ docker compose up -d --build
 - Handles both HTTP and MQTT OwnTracks messages
 - Parses `location` and `transition` event types
 - Validates required fields: `lat`, `lon`, `tst`
-- Supports both HTTP Basic Auth and API token authentication
+- Supports OwnTracks encrypted HTTP payloads when `OWNTRACKS_ENCRYPTION_KEY` is set. The HTTP
+  ingestion aliases `/api/owntracks`, `/api/owntracks/`, `/api/pub`, and `/api/pub/` then require
+  both decryptable OwnTracks payloads and matching HTTP Basic Auth.
+- Non-OwnTracks API routes require `Authorization: Bearer <WEB_API_KEY>` except `/api/health`,
+  which stays unauthenticated for internal container health checks.
 - Public nginx exposes only `POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub`;
-  other API routes stay internal to the app container and Docker network.
+  other API routes stay internal to the app container and Docker network, and still require
+  `WEB_API_KEY` when called internally.
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
 - Writes structured JSON-lines records for successful and failed web UI login attempts
 - Saves client IP details, submitted username, authentication method for successful logins,
   failed-login password length, user agent, request path, lockout state, and UTC/local timestamps
   without storing the raw password
-- Uses the same effective client key as login lockout and Cloudflare auto-blocking. Forwarded
-  client IP headers are trusted only when the direct request client matches `TRUSTED_PROXY_CIDRS`;
-  otherwise spoofed `CF-Connecting-IP`, `X-Real-IP`, and `X-Forwarded-For` headers stay in audit
-  metadata but do not control lockout or block targets.
+- Uses the same effective client key as login lockout and Cloudflare auto-blocking. The bundled
+  loopback-only nginx origin passes Cloudflare's `CF-Connecting-IP` through when present; otherwise
+  the app falls back to the direct client.
 - Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
   intentionally has no separate footer refresh or download buttons
-- Diagnostics resolves the visible IP for successful-login and failed-login rows from stored
-  request metadata when the direct client is trusted, then falls back to the stored `client_ip`.
-  Failed-login row block buttons must use the same visible, blockable client IP.
+- Diagnostics shows the stored effective IP for successful-login and failed-login rows. Failed-login
+  row block buttons must use that same visible, blockable client IP.
 
 **[passkeys.py](mileage_logger/services/passkeys.py)** — WebAuthn passkey login
 - Generates and verifies WebAuthn registration and authentication ceremonies with `py_webauthn`
@@ -186,8 +189,8 @@ docker compose up -d --build
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
-  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `TRUSTED_PROXY_CIDRS`, `PASSKEY_RP_NAME`,
-  `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
+  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `WEB_API_KEY`,
+  `OWNTRACKS_ENCRYPTION_KEY`, `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ---
@@ -203,7 +206,9 @@ docker compose up -d --build
 ### Adding an API Endpoint
 1. Add route to [api/routes.py](mileage_logger/api/routes.py)
 2. Use `Depends(get_db)` for database session
-3. Add authentication check if needed (see `verify_owntracks_auth` in [api/deps.py](mileage_logger/api/deps.py))
+3. Leave the default API bearer-token middleware in place for non-OwnTracks API routes, and update
+   the explicit exemption list in [api/deps.py](mileage_logger/api/deps.py) only for intentional
+   health-check or OwnTracks-ingestion endpoints.
 4. Return JSON or raise `HTTPException`
 
 ### Adding a Web Page
@@ -326,9 +331,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
 - Uses `docker-compose.yml` with 4 services (postgres, app, nginx, cloudflared)
-- Docker publishes nginx on `${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}`. The bundled
-  `cloudflared` service uses host networking so Cloudflare Tunnel can target the same host-bound
-  listener, such as `http://127.0.0.1:2082` when `BIND_ADDRESS=127.0.0.1` and `HTTP_PORT=2082`.
+- Docker publishes nginx on `127.0.0.1:${HTTP_PORT:-80}`. The bundled `cloudflared` service uses
+  host networking so Cloudflare Tunnel can target the loopback listener, such as
+  `http://127.0.0.1:2082` when `HTTP_PORT=2082`.
 - PostgreSQL data is stored in the named `postgres_data` Docker volume and persists across normal
   `docker compose up -d --build` rebuilds. Do not use `docker compose down -v`, prune volumes, or
   change the Compose/Portainer stack name unless you have a verified backup and migration plan.
@@ -342,12 +347,12 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Diagnostics page available at `http://server/diagnostics`
 - Public nginx exposes rendered web pages and OwnTracks ingestion only; `/api/health`, admin API
   routes, `/docs`, `/redoc`, and `/openapi.json` are intentionally not internet-facing.
-- Public nginx selects one client IP from `CF-Connecting-IP` when Cloudflare supplies it, otherwise
-  falls back to the immediate peer, then overwrites `X-Real-IP`, `X-Forwarded-For`, and
-  `CF-Connecting-IP` with that selected value. The app accepts forwarded client IP headers only
-  from `TRUSTED_PROXY_CIDRS` for login lockouts and Cloudflare auto-blocks; keep the nginx origin
-  behind Cloudflare Tunnel, loopback, a firewall, or another trusted edge so direct clients cannot
-  forge Cloudflare headers.
+- Public nginx serves custom, unbranded end-user error pages from `deploy/nginx/error-pages/` for
+  common 4xx and 5xx responses. Keep the pages visually matched, include a `/login` link that can
+  switch to home for authenticated browsers, and avoid global `proxy_intercept_errors` unless API
+  clients should intentionally stop receiving JSON app errors.
+- Public nginx passes Cloudflare's `CF-Connecting-IP` through to the app when present. The app uses
+  that effective client IP for login lockouts, login audit rows, and Cloudflare auto-blocks.
 - Passkey login derives its WebAuthn origin from `PASSKEY_ORIGIN`, the browser `Origin` header, or
   trusted reverse-proxy scheme/host headers. For public Cloudflare Tunnel deployments, verify the
   browser origin is the public HTTPS URL or set `PASSKEY_ORIGIN` and `PASSKEY_RP_ID` explicitly.

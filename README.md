@@ -133,7 +133,8 @@ http://your-server/api/owntracks
 ```
 
 Use the `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` values from `.env` for
-OwnTracks HTTP Basic Auth. If you put credentials directly in the URL, use:
+OwnTracks HTTP Basic Auth, and set the OwnTracks payload encryption key to the
+`OWNTRACKS_ENCRYPTION_KEY` value from `.env`. If you put credentials directly in the URL, use:
 
 ```text
 http://owntracks:password@your-server/api/owntracks
@@ -141,6 +142,16 @@ http://owntracks:password@your-server/api/owntracks
 
 For internet-facing use, put TLS in front of this stack or extend the Nginx container
 with certificates so OwnTracks sends location data over HTTPS.
+
+Non-OwnTracks API routes require a separate key:
+
+```bash
+curl -H "Authorization: Bearer ${WEB_API_KEY}" \
+  "http://127.0.0.1:${HTTP_PORT:-80}/api/locations"
+```
+
+Do not reuse `OWNTRACKS_ENCRYPTION_KEY` as `WEB_API_KEY`. `/api/health` stays unauthenticated for
+internal container health checks.
 
 To restrict the browser UI while leaving OwnTracks ingestion open, set `WEB_ALLOWED_CIDRS`
 to comma-separated IP blocks:
@@ -155,6 +166,10 @@ OwnTracks. Pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/stat
 matching client IP. Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` are blocked at
 the public nginx reverse proxy.
 
+Nginx serves matching, end-user-focused error pages for common browser and gateway errors: 400,
+401, 403, 404, 405, 408, 413, 429, 500, 502, 503, and 504. Each page explains the error and links
+to `/login`, or back home when the browser already has an authenticated session.
+
 To require a simple username/password login for browser pages, set both web login variables:
 
 ```env
@@ -167,28 +182,27 @@ WEB_LOGIN_LOCKOUT_SECONDS=300
 PASSKEY_RP_NAME=Mileage Logger
 PASSKEY_RP_ID=
 PASSKEY_ORIGIN=
-TRUSTED_PROXY_CIDRS=172.16.0.0/12
 ```
 
 The login protects rendered web pages such as `/`, `/trips`, `/waypoints`, and `/diagnostics`.
-The app still leaves `/api/` outside the web login internally, but public nginx only exposes the
-OwnTracks ingestion endpoints. If you access the app over plain HTTP for local testing, set
+Unauthenticated browser paths are limited to `/login`, passkey login challenge/verify endpoints,
+root icon and manifest files, the service worker, and `/static/` assets needed to render those
+pages. Non-OwnTracks `/api/` routes use `WEB_API_KEY` instead of the web login, and public nginx
+only exposes the OwnTracks ingestion endpoints. If you access the app over plain HTTP for local
+testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
 not show the app name before authentication and temporarily locks out repeated failed attempts.
 `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
 `SECRET_KEY` must be changed from `change-me`; production Docker starts fail closed if the login
-credentials or session secret are missing. `TRUSTED_PROXY_CIDRS` is optional for direct local
-development, but Docker sets it to the bridge proxy range so login lockouts and Cloudflare
-auto-blocks can use nginx-set client IP headers. Keep the nginx origin reachable only through
-Cloudflare Tunnel, loopback, a firewall, or another trusted edge when relying on Cloudflare client
-IP headers.
+credentials or session secret are missing. Docker publishes nginx only on `127.0.0.1`, so public
+access should come through the bundled Cloudflare Tunnel service.
 Each successful login, failed login attempt, and lockout rejection is appended to
 `LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
 details, submitted username, password length, user agent, request path, reason, attempt count,
 lockout state, and timestamps. Successful entries include client IP details, submitted username,
 authentication method, web client, request path, and timestamps. The raw submitted password is
-never stored. Diagnostics resolves successful-login and failed-login rows from trusted forwarded
-metadata, so the failed-login block button targets the real browser IP.
+never stored. Diagnostics uses the stored effective client IP for successful-login and failed-login
+rows, and the failed-login block button targets that same IP.
 
 Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
 with the normal username/password once, create a passkey from Diagnostics, then use Device Sign-In
@@ -207,8 +221,12 @@ Set OwnTracks HTTP mode to:
 https://your-host.example.com/api/owntracks
 ```
 
-If `OWNTRACKS_API_TOKEN` is set, send it as `X-Api-Key` or `Authorization: Bearer ...`.
-If `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are set, use OwnTracks HTTP Basic Auth.
+Set HTTP Basic Auth in OwnTracks from `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD`, then set the
+OwnTracks payload encryption key to `OWNTRACKS_ENCRYPTION_KEY`. When the encryption key is
+configured, plaintext OwnTracks HTTP payloads are rejected.
+
+`OWNTRACKS_ENCRYPTION_KEY` must be 32 UTF-8 bytes or fewer. The app pads shorter keys to
+libsodium's 32-byte SecretBox key size, matching OwnTracks Recorder behavior.
 
 The `/api/pub` alias is also available for Recorder-style setups.
 
@@ -352,16 +370,13 @@ nginx listener. In the Cloudflare dashboard, publish the application route to th
 http://127.0.0.1:80
 ```
 
-If `HTTP_PORT=2082` and `BIND_ADDRESS=127.0.0.1`, use `http://127.0.0.1:2082` as the Cloudflare
-Tunnel service URL. For a real interface bind such as `BIND_ADDRESS=192.168.1.50`, use
-`http://192.168.1.50:${HTTP_PORT}`. Leave `BIND_ADDRESS=0.0.0.0` to preserve the old all-interface
-host binding.
+If `HTTP_PORT=2082`, use `http://127.0.0.1:2082` as the Cloudflare Tunnel service URL. The Compose
+stack always publishes nginx on `127.0.0.1:${HTTP_PORT:-80}` so it is not exposed on the host's
+public interfaces.
 
-Nginx uses Cloudflare's `CF-Connecting-IP` when present and falls back to the immediate peer, then
-passes that selected client IP to the app for login audit records, lockouts, and automatic
-Cloudflare blocks. If direct public clients can bypass Cloudflare and hit nginx, they can supply a
-forged `CF-Connecting-IP`; use a tunnel-only loopback bind, firewall, or trusted outer proxy for
-internet-facing deployments.
+Nginx passes Cloudflare's `CF-Connecting-IP` to the app when present. The app uses that IP for login
+audit records, lockouts, and automatic Cloudflare blocks; otherwise it falls back to the direct
+loopback/tunnel client.
 
 Set the tunnel token in `.env`:
 
@@ -392,6 +407,8 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=14
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
+OWNTRACKS_ENCRYPTION_KEY=change-owntracks-encryption-key
+WEB_API_KEY=change-web-api-key
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
@@ -400,14 +417,12 @@ WEB_LOGIN_LOCKOUT_SECONDS=300
 PASSKEY_RP_NAME=Mileage Logger
 PASSKEY_RP_ID=
 PASSKEY_ORIGIN=
-TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
 CLOUDFLARE_IP_BLOCK_ALLOWLIST=
 CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
 HTTP_PORT=80
-BIND_ADDRESS=0.0.0.0
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 AUTOMATIC_BACKUPS_ENABLED=true
@@ -421,11 +436,9 @@ GAS_SNAPSHOT_RUN_ON_STARTUP=true
 Docker Compose passes `LOCAL_TIMEZONE` through as the container `TZ` value for the app stack.
 Set both `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` to enable login on rendered web pages while
 public nginx exposes only the OwnTracks ingestion endpoints under `/api/`; production Docker
-requires both values and a non-default `SECRET_KEY`. `WEB_LOGIN_MAX_ATTEMPTS` and
+requires both values, `WEB_API_KEY`, `OWNTRACKS_ENCRYPTION_KEY`, OwnTracks Basic Auth credentials,
+and a non-default `SECRET_KEY`. `WEB_LOGIN_MAX_ATTEMPTS` and
 `WEB_LOGIN_LOCKOUT_SECONDS` control the temporary lockout for repeated failed attempts.
-`TRUSTED_PROXY_CIDRS` controls which direct reverse-proxy clients may supply forwarded client IP
-headers for login audit records, lockouts, and Cloudflare auto-blocks. Leave it blank when the app
-is served directly; use the Docker default when requests arrive through the bundled nginx service.
 Passkeys are optional and are configured from Diagnostics after username/password login.
 `PASSKEY_RP_NAME` controls the device prompt name. `PASSKEY_RP_ID` and `PASSKEY_ORIGIN` can be left
 blank for normal same-host use, or set to the public HTTPS host and origin when a custom reverse

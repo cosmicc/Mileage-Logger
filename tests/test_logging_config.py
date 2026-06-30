@@ -57,18 +57,13 @@ def test_production_requires_web_login_and_changed_secret_key() -> None:
         secret_key="production-test-secret",
         web_login_username="admin",
         web_login_password="secret-password",
+        web_api_key="web-api-secret",
+        owntracks_username="owntracks",
+        owntracks_password="owntracks-password",
+        owntracks_encryption_key="owntracks-secret",
     )
 
     assert settings.app_env == "production"
-
-
-def test_trusted_proxy_cidrs_are_validated_and_normalized() -> None:
-    settings = Settings(trusted_proxy_cidrs=" 127.0.0.1 , 172.16.0.0/12 ")
-
-    assert settings.trusted_proxy_cidrs == "127.0.0.1,172.16.0.0/12"
-
-    with pytest.raises(ValidationError, match="TRUSTED_PROXY_CIDRS"):
-        Settings(trusted_proxy_cidrs="not-a-cidr")
 
 
 def test_log_line_visibility_uses_threshold_but_keeps_errors() -> None:

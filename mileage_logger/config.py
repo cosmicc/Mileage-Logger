@@ -1,4 +1,3 @@
-import ipaddress
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, Self
@@ -37,16 +36,16 @@ class Settings(BaseSettings):
     passkey_rp_name: str = "Mileage Logger"
     passkey_rp_id: str = ""
     passkey_origin: str = ""
-    trusted_proxy_cidrs: str = ""
     cloudflare_ip_blocking_enabled: bool = False
     cloudflare_api_token: str = ""
     cloudflare_zone_id: str = ""
     cloudflare_ip_block_allowlist: str = ""
     cloudflare_auto_block_failed_login_attempts: int = Field(default=5, ge=1)
 
-    owntracks_api_token: str = ""
+    web_api_key: str = ""
     owntracks_username: str = ""
     owntracks_password: str = ""
+    owntracks_encryption_key: str = ""
     owntracks_sync_waypoints: bool = True
     owntracks_default_site_radius_m: int = 150
     automatic_trip_processing_enabled: bool = True
@@ -89,21 +88,6 @@ class Settings(BaseSettings):
             raise ValueError("LOG_LEVEL must be debug, info, or warning")
         return normalized
 
-    @field_validator("trusted_proxy_cidrs", mode="before")
-    @classmethod
-    def validate_trusted_proxy_cidrs(cls, value: object) -> str:
-        """Normalize and validate trusted reverse-proxy IP ranges."""
-
-        entries = [entry.strip() for entry in str(value or "").split(",") if entry.strip()]
-        for entry in entries:
-            try:
-                ipaddress.ip_network(entry, strict=False)
-            except ValueError as exc:
-                raise ValueError(
-                    "TRUSTED_PROXY_CIDRS must contain valid IP addresses or CIDR ranges"
-                ) from exc
-        return ",".join(entries)
-
     @field_validator("passkey_rp_id", mode="before")
     @classmethod
     def validate_passkey_rp_id(cls, value: object) -> str:
@@ -134,6 +118,22 @@ class Settings(BaseSettings):
             raise ValueError("PASSKEY_ORIGIN must use https outside localhost testing")
         return origin
 
+    @field_validator("web_api_key", "owntracks_encryption_key", mode="before")
+    @classmethod
+    def strip_secret_text(cls, value: object) -> str:
+        """Normalize optional shared-secret settings without logging or deriving them."""
+
+        return str(value or "").strip()
+
+    @field_validator("owntracks_encryption_key")
+    @classmethod
+    def validate_owntracks_encryption_key(cls, value: str) -> str:
+        """Validate OwnTracks' libsodium shared secret size limit."""
+
+        if len(value.encode("utf-8")) > 32:
+            raise ValueError("OWNTRACKS_ENCRYPTION_KEY must be 32 UTF-8 bytes or fewer")
+        return value
+
     @model_validator(mode="after")
     def validate_web_security_settings(self) -> Self:
         """Fail closed for unsafe web authentication settings."""
@@ -148,6 +148,14 @@ class Settings(BaseSettings):
             )
         if web_login_configured and _secret_key_is_unsafe(self.secret_key):
             raise ValueError("SECRET_KEY must be changed before enabling web login")
+        owntracks_basic_configured = bool(
+            self.owntracks_username.strip() and self.owntracks_password.strip()
+        )
+        if self.owntracks_encryption_key and not owntracks_basic_configured:
+            raise ValueError(
+                "OWNTRACKS_USERNAME and OWNTRACKS_PASSWORD must be set when "
+                "OWNTRACKS_ENCRYPTION_KEY is set"
+            )
         if app_env in PRODUCTION_ENVIRONMENTS:
             if not web_login_configured:
                 raise ValueError(
@@ -155,6 +163,15 @@ class Settings(BaseSettings):
                 )
             if _secret_key_is_unsafe(self.secret_key):
                 raise ValueError("SECRET_KEY must be changed when APP_ENV=production")
+            if not self.web_api_key.strip():
+                raise ValueError("WEB_API_KEY must be set when APP_ENV=production")
+            if not self.owntracks_encryption_key.strip():
+                raise ValueError("OWNTRACKS_ENCRYPTION_KEY must be set when APP_ENV=production")
+            if not owntracks_basic_configured:
+                raise ValueError(
+                    "OWNTRACKS_USERNAME and OWNTRACKS_PASSWORD must be set when "
+                    "APP_ENV=production"
+                )
         return self
 
     @model_validator(mode="after")

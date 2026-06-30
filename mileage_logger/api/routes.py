@@ -17,7 +17,10 @@ from mileage_logger.services.gas_prices import (
 from mileage_logger.services.mileage import update_trip_details
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
+    OwnTracksEncryptionNotConfigured,
+    OwnTracksError,
     UnsupportedOwnTracksType,
+    decrypt_owntracks_payload,
     process_owntracks_payload,
 )
 from mileage_logger.services.pdf import generate_monthly_pdf
@@ -40,6 +43,7 @@ async def owntracks_http(request: Request, db: Session = Depends(get_db)) -> JSO
     verify_owntracks_auth(request)
     body = await request.body()
     try:
+        body = decrypt_owntracks_payload(body)
         process_owntracks_payload(
             db,
             body,
@@ -53,6 +57,12 @@ async def owntracks_http(request: Request, db: Session = Depends(get_db)) -> JSO
     except UnsupportedOwnTracksType as exc:
         logger.debug("Ignored unsupported OwnTracks payload: %s", exc)
         return JSONResponse(content=[])
+    except OwnTracksEncryptionNotConfigured as exc:
+        logger.error("Rejected OwnTracks payload because encryption is not configured")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except OwnTracksError as exc:
+        logger.warning("Rejected OwnTracks payload: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JSONResponse(content=[])
 
 

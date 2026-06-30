@@ -45,9 +45,10 @@ target = Path(sys.argv[2])
 replacements = {
     "change-me": secrets.token_hex(32),
     "change-web-login-password": secrets.token_urlsafe(32),
+    "change-web-api-key": secrets.token_urlsafe(32),
     "change-postgres-password": secrets.token_urlsafe(32),
     "change-owntracks-password": secrets.token_urlsafe(32),
-    "change-owntracks-token": secrets.token_hex(32),
+    "change-owntracks-encryption-key": secrets.token_urlsafe(24),
 }
 
 content = template.read_text()

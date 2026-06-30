@@ -61,33 +61,6 @@ def _ip_from_text(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address |
         return None
 
 
-def _trusted_proxy_networks(
-    settings: Settings,
-) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
-    """Return configured reverse-proxy networks validated by Settings."""
-
-    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-    for entry in settings.trusted_proxy_cidrs.split(","):
-        if entry.strip():
-            networks.append(ipaddress.ip_network(entry.strip(), strict=False))
-    return tuple(networks)
-
-
-def _client_in_trusted_proxy_networks(client_host: str, settings: Settings) -> bool:
-    """Return whether a direct client host is configured as a trusted reverse proxy."""
-
-    direct_ip = _ip_from_text(client_host)
-    if direct_ip is None:
-        return False
-    return any(direct_ip in network for network in _trusted_proxy_networks(settings))
-
-
-def login_direct_client_is_trusted_proxy(client_host: str, settings: Settings) -> bool:
-    """Return whether a stored or live direct client may supply forwarded login headers."""
-
-    return _client_in_trusted_proxy_networks(client_host, settings)
-
-
 def _header_ip(value: str) -> str:
     """Return a normalized header IP address or an empty string for invalid values."""
 
@@ -103,21 +76,13 @@ def login_client_key_from_values(
     cf_connecting_ip: str = "",
     x_real_ip: str = "",
     x_forwarded_for: str = "",
-    settings: Settings,
+    settings: Settings | None = None,
 ) -> str:
-    """Return the effective login client key from stored or live request IP values."""
+    """Return the login client key from Cloudflare's client IP or the direct client."""
 
-    if _client_in_trusted_proxy_networks(direct_client_ip, settings):
-        cloudflare_ip = _header_ip(cf_connecting_ip)
-        if cloudflare_ip:
-            return cloudflare_ip
-        real_ip = _header_ip(x_real_ip)
-        if real_ip:
-            return real_ip
-        forwarded_for = x_forwarded_for.split(",", maxsplit=1)[0]
-        forwarded_ip = _header_ip(forwarded_for)
-        if forwarded_ip:
-            return forwarded_ip
+    cloudflare_ip = _header_ip(cf_connecting_ip)
+    if cloudflare_ip:
+        return cloudflare_ip
 
     direct_client = direct_client_ip.strip()
     if direct_client:

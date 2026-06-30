@@ -336,7 +336,6 @@ def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None
         web_login_username="admin",
         web_login_password="secret-password",
         login_failure_log_path=str(login_failure_log_path),
-        trusted_proxy_cidrs="172.18.0.0/16",
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -378,7 +377,6 @@ def test_web_login_rejects_invalid_credentials(monkeypatch, tmp_path) -> None:
         web_login_username="admin",
         web_login_password="secret-password",
         login_failure_log_path=str(login_failure_log_path),
-        trusted_proxy_cidrs="172.18.0.0/16",
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -412,7 +410,6 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
         web_login_username="admin",
         web_login_password="secret-password",
         login_failure_log_path=str(login_failure_log_path),
-        trusted_proxy_cidrs="172.18.0.0/16",
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -453,7 +450,7 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
         app.dependency_overrides.clear()
 
 
-def test_web_login_ignores_spoofed_forwarding_headers_from_untrusted_clients(
+def test_web_login_uses_cloudflare_client_ip_when_header_is_present(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -488,16 +485,16 @@ def test_web_login_ignores_spoofed_forwarding_headers_from_untrusted_clients(
         payload = json.loads(log_text.splitlines()[0])
 
         assert response.status_code == 401
-        assert payload["client_ip"] == "203.0.113.88"
+        assert payload["client_ip"] == "198.51.100.77"
         assert payload["direct_client_ip"] == "203.0.113.88"
         assert payload["cf_connecting_ip"] == "198.51.100.77"
-        assert list(FAILED_LOGIN_ATTEMPTS) == ["203.0.113.88"]
+        assert list(FAILED_LOGIN_ATTEMPTS) == ["198.51.100.77"]
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
-def test_failed_login_entries_resolve_blockable_ip_from_trusted_proxy_headers(
+def test_failed_login_entries_use_stored_effective_client_ip(
     tmp_path,
 ) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
@@ -527,16 +524,16 @@ def test_failed_login_entries_resolve_blockable_ip_from_trusted_proxy_headers(
         "lockout_remaining_seconds": 0,
     }
     login_failure_log_path.write_text(f"{json.dumps(stale_payload)}\n", encoding="utf-8")
-    settings = Settings(database_url="sqlite://", trusted_proxy_cidrs="172.18.0.0/16")
+    settings = Settings(database_url="sqlite://")
 
     entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
 
     assert len(entries) == 1
-    assert entries[0].client_ip == "203.0.113.44"
+    assert entries[0].client_ip == "198.51.100.77"
     assert entries[0].direct_client_ip == "172.18.0.5"
 
 
-def test_successful_login_entries_resolve_trusted_proxy_client_ip_for_diagnostics(
+def test_successful_login_entries_use_stored_effective_client_ip_for_diagnostics(
     tmp_path,
 ) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
@@ -568,16 +565,13 @@ def test_successful_login_entries_resolve_trusted_proxy_client_ip_for_diagnostic
     assert entries[0].client_ip == "172.18.0.5"
     assert entries[0].authentication_method == "password"
 
-    diagnostics_entries = tail_login_success_entries(
-        login_failure_log_path,
-        settings=Settings(database_url="sqlite://", trusted_proxy_cidrs="172.18.0.0/16"),
-    )
+    diagnostics_entries = tail_login_success_entries(login_failure_log_path, settings=Settings())
 
     assert len(diagnostics_entries) == 1
-    assert diagnostics_entries[0].client_ip == "198.51.100.77"
+    assert diagnostics_entries[0].client_ip == "172.18.0.5"
 
 
-def test_failed_login_entries_ignore_stored_spoofed_headers_from_untrusted_clients(
+def test_failed_login_entries_ignore_forwarding_headers_after_audit_write(
     tmp_path,
 ) -> None:
     login_failure_log_path = tmp_path / "login-failures.log"
@@ -607,7 +601,7 @@ def test_failed_login_entries_ignore_stored_spoofed_headers_from_untrusted_clien
         "lockout_remaining_seconds": 0,
     }
     login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
-    settings = Settings(database_url="sqlite://", trusted_proxy_cidrs="172.18.0.0/16")
+    settings = Settings(database_url="sqlite://")
 
     entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
 
@@ -1625,7 +1619,6 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
         cloudflare_auto_block_failed_login_attempts=5,
-        trusted_proxy_cidrs="172.18.0.0/16",
     )
     created_blocks: list[str] = []
 
@@ -1668,7 +1661,7 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
         app.dependency_overrides.clear()
 
 
-def test_spoofed_cloudflare_header_does_not_control_auto_block(
+def test_cloudflare_header_controls_auto_block_when_present(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -1701,7 +1694,7 @@ def test_spoofed_cloudflare_header_does_not_control_auto_block(
     )
     client, session_factory = _test_client_session(client_host="203.0.113.88")
     try:
-        for spoofed_ip in ("198.51.100.55", "198.51.100.56"):
+        for _ in range(2):
             response = client.post(
                 "/login",
                 data={
@@ -1709,16 +1702,17 @@ def test_spoofed_cloudflare_header_does_not_control_auto_block(
                     "password": "wrong-password",
                     "next_url": "/diagnostics",
                 },
-                headers={"CF-Connecting-IP": spoofed_ip},
+                headers={"CF-Connecting-IP": "198.51.100.55"},
             )
             assert response.status_code == 401
 
-        assert created_blocks == ["203.0.113.88"]
+        assert created_blocks == ["198.51.100.55"]
         with session_factory() as db:
-            block = db.scalar(select(CloudflareIPBlock))
-            assert block is not None
-            assert block.ip_address == "203.0.113.88"
-            assert block.reason == "2 consecutive failed web login attempts"
+            blocks = list(db.scalars(select(CloudflareIPBlock).order_by(CloudflareIPBlock.id)))
+            assert [block.ip_address for block in blocks] == ["198.51.100.55"]
+            assert all(
+                block.reason == "2 consecutive failed web login attempts" for block in blocks
+            )
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -1741,7 +1735,6 @@ def test_successful_web_login_resets_consecutive_failures_before_auto_block(
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
         cloudflare_auto_block_failed_login_attempts=5,
-        trusted_proxy_cidrs="172.18.0.0/16",
     )
 
     def fail_create_cloudflare_ip_block(ip_address: str, *, note: str, settings: Settings):
@@ -2360,7 +2353,6 @@ def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
         database_url="sqlite://",
         log_dir=str(tmp_path),
         login_failure_log_path=str(login_failure_log_path),
-        trusted_proxy_cidrs="172.18.0.0/16",
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="token",
         cloudflare_zone_id="zone",
@@ -2376,8 +2368,8 @@ def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
             '<section id="login-failures" class="panel">',
             '<section id="cloudflare-blocked-ips" class="panel">',
         )
-        assert "203.0.113.44" in login_section
-        assert 'name="ip_address" value="203.0.113.44"' in login_section
+        assert "198.51.100.77" in login_section
+        assert 'name="ip_address" value="198.51.100.77"' in login_section
         assert 'aria-label="Block IP at Cloudflare"' in login_section
     finally:
         app.dependency_overrides.clear()

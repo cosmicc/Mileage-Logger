@@ -1,6 +1,5 @@
 """Structured audit logging for web UI login attempts."""
 
-import ipaddress
 import json
 import logging
 from dataclasses import dataclass
@@ -18,7 +17,7 @@ from mileage_logger.logging_config import (
     redact_sensitive_text,
 )
 from mileage_logger.services.timezone import datetime_to_local
-from mileage_logger.web.auth import login_client_key, login_direct_client_is_trusted_proxy
+from mileage_logger.web.auth import login_client_key
 
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger(LOGIN_FAILURE_LOGGER)
@@ -172,55 +171,10 @@ def _login_success_authentication_method(payload: dict[str, Any]) -> str:
     return "password"
 
 
-def _payload_ip(value: object) -> str:
-    """Return a normalized stored IP address or an empty string for invalid values."""
-
-    try:
-        return str(ipaddress.ip_address(str(value or "").strip()))
-    except ValueError:
-        return ""
-
-
-def _forwarded_for_first_ip(value: object) -> str:
-    """Return the first usable IP from an X-Forwarded-For audit value."""
-
-    first_value = str(value or "").split(",", maxsplit=1)[0]
-    return _payload_ip(first_value)
-
-
-def _ip_is_loopback(value: str) -> bool:
-    """Return whether an IP is loopback and should not be a Cloudflare block target."""
-
-    try:
-        return ipaddress.ip_address(value).is_loopback
-    except ValueError:
-        return False
-
-
 def _client_ip_from_payload(payload: dict[str, Any], settings: Settings | None) -> str:
-    """Resolve the effective failed-login client IP from a stored audit payload."""
+    """Return the stored effective failed-login client IP from an audit payload."""
 
-    stored_client_ip = _bounded_text(payload.get("client_ip", "unknown"))
-    if settings is None:
-        return stored_client_ip
-
-    direct_client_ip = _bounded_text(payload.get("direct_client_ip", ""))
-    if not login_direct_client_is_trusted_proxy(direct_client_ip, settings):
-        return stored_client_ip
-    stored_ip = _payload_ip(stored_client_ip)
-    direct_ip = _payload_ip(direct_client_ip)
-
-    for candidate in (
-        _forwarded_for_first_ip(payload.get("x_forwarded_for", "")),
-        _payload_ip(payload.get("x_real_ip", "")),
-        _payload_ip(payload.get("cf_connecting_ip", "")),
-    ):
-        if candidate and candidate != direct_ip and not _ip_is_loopback(candidate):
-            return candidate
-
-    if stored_ip and stored_ip != direct_ip:
-        return stored_client_ip
-    return stored_client_ip
+    return _bounded_text(payload.get("client_ip", "unknown"))
 
 
 def _build_login_failure_payload(

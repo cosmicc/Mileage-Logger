@@ -8,6 +8,16 @@
   Original while keeping the received-delay calculation unchanged.
 - Changed the Diagnostics OwnTracks State Changes table so Received Delay appears before state
   details and Duration appears later in the row.
+- Added OwnTracks HTTP payload encryption support using `OWNTRACKS_ENCRYPTION_KEY`; OwnTracks
+  ingestion now requires matching HTTP Basic Auth and decryptable encrypted payloads.
+- Added `WEB_API_KEY` bearer-token protection for non-OwnTracks `/api/*` routes while keeping
+  `/api/health` available for internal health checks.
+- Added matching nginx error pages for common 4xx and 5xx responses with general end-user
+  explanations and a link that returns authenticated users home instead of to login.
+- Changed Docker nginx publishing to loopback-only on `127.0.0.1:${HTTP_PORT:-80}` for Cloudflare
+  Tunnel use.
+- Removed the trusted proxy CIDR configuration path; login audit records, lockouts, and Cloudflare
+  auto-blocks now use Cloudflare's provided client IP when present and otherwise the direct client.
 - Changed shared top navigation buttons to one blue raised style across desktop and mobile.
 - Centered the shared top navigation button group within the full-width desktop top bar.
 - Added raised, hover-brightened, pressed-in interaction styling to app buttons and button-style
@@ -70,10 +80,8 @@
 - Fixed web-login security startup checks so production fails closed without configured login
   credentials and a changed `SECRET_KEY`, and enabling web login in any environment rejects the
   default session secret.
-- Fixed login lockout and Cloudflare auto-block identity handling so forwarded client IP headers
-  are trusted only from configured `TRUSTED_PROXY_CIDRS`, with bundled nginx selecting one
-  Cloudflare-derived client IP and overwriting spoofable forwarded client IP headers before
-  proxying.
+- Fixed login lockout and Cloudflare auto-block identity handling so bundled nginx selects one
+  Cloudflare-derived client IP and overwrites spoofable forwarded client IP headers before proxying.
 - Fixed Diagnostics login rows and Cloudflare block buttons to correct stale proxy/container
   `client_ip` values from trusted forwarded headers for both successful and failed web-login
   attempts.
@@ -122,8 +130,8 @@
   the lower upload-restore area of the Full Data Backup card.
 - Removed the Failed Login Attempts card refresh and download action row from Diagnostics so the
   card fits its table content more tightly.
-- Added a Docker `BIND_ADDRESS` setting for the nginx host-port binding and changed bundled
-  `cloudflared` to host networking so Cloudflare Tunnel can route to that bound host listener.
+- Added a Docker host-port binding setting and changed bundled `cloudflared` to host networking so
+  Cloudflare Tunnel can route to that bound host listener.
 - Added Diagnostics controls to hide failed-login rows, manually block/unblock failed-login IPs at
   Cloudflare, list app-managed Cloudflare IP blocks, and automatically block an IP after the
   configured consecutive failed-login threshold.

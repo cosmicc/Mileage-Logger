@@ -5,10 +5,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from mileage_logger.api.deps import WEB_API_AUTH_EXEMPT_PATHS, verify_web_api_auth
 from mileage_logger.api.routes import router as api_router
 from mileage_logger.config import get_settings
 from mileage_logger.database import engine
@@ -66,6 +68,21 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 @app.middleware("http")
 async def require_web_login(request: Request, call_next):
     return await enforce_web_login(request, call_next)
+
+
+@app.middleware("http")
+async def require_web_api_bearer_auth(request: Request, call_next):
+    path = request.url.path
+    if (path == "/api" or path.startswith("/api/")) and path not in WEB_API_AUTH_EXEMPT_PATHS:
+        try:
+            verify_web_api_auth(request)
+        except HTTPException as exc:
+            return JSONResponse(
+                content={"detail": exc.detail},
+                status_code=exc.status_code,
+                headers=exc.headers,
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")

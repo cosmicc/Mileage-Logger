@@ -17,8 +17,8 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 - Port `80` open to the network where your phone will connect.
 
 For internet-facing use, put HTTPS in front of this stack before using it with real location data.
-OwnTracks HTTP mode supports Basic Auth, but credentials and location data should still travel over
-TLS.
+OwnTracks HTTP mode uses Basic Auth plus payload encryption, but credentials and metadata should
+still travel over TLS.
 
 ## Install Docker On Ubuntu
 
@@ -64,9 +64,10 @@ This creates `.env` from `.env.docker.example` and generates values for:
 
 - `SECRET_KEY`
 - `WEB_LOGIN_PASSWORD`
+- `WEB_API_KEY`
 - `POSTGRES_PASSWORD`
-- `OWNTRACKS_API_TOKEN`
 - `OWNTRACKS_PASSWORD`
+- `OWNTRACKS_ENCRYPTION_KEY`
 
 It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the web-login
 audit log file inside that directory, and the optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the
@@ -96,7 +97,6 @@ Important values:
 
 ```env
 HTTP_PORT=80
-BIND_ADDRESS=0.0.0.0
 WEB_ALLOWED_CIDRS=
 SECRET_KEY=<generated-session-secret>
 WEB_LOGIN_USERNAME=admin
@@ -107,7 +107,6 @@ WEB_LOGIN_LOCKOUT_SECONDS=300
 PASSKEY_RP_NAME=Mileage Logger
 PASSKEY_RP_ID=
 PASSKEY_ORIGIN=
-TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
@@ -139,16 +138,17 @@ CLOUDFLARED_TRANSPORT_PROTOCOL=auto
 ```
 
 Production starts fail closed when `SECRET_KEY` is still `change-me`, when one web login field is
-blank, or when both web login fields are missing. `TRUSTED_PROXY_CIDRS` tells the app which
-reverse-proxy client IP ranges may supply forwarded client IP headers for login lockouts and
-Cloudflare auto-blocks; the Docker default trusts the internal bridge where bundled nginx runs.
+blank, when both web login fields are missing, when `WEB_API_KEY` is missing, or when
+`OWNTRACKS_ENCRYPTION_KEY` plus OwnTracks Basic Auth credentials are missing. Docker publishes nginx
+only on `127.0.0.1`, so public access should come through the bundled Cloudflare Tunnel service.
 Passkeys are optional. Create them from Diagnostics after username/password login. In normal
 Cloudflare Tunnel Docker use, nginx forwards the public HTTPS origin for WebAuthn. If your proxy
 does not, set `PASSKEY_ORIGIN=https://your-host.example.com` and
 `PASSKEY_RP_ID=your-host.example.com`.
 
-The generated `OWNTRACKS_USERNAME` and `OWNTRACKS_PASSWORD` are what you enter in OwnTracks HTTP
-mode.
+The generated `OWNTRACKS_USERNAME`, `OWNTRACKS_PASSWORD`, and `OWNTRACKS_ENCRYPTION_KEY` are what
+you enter in OwnTracks HTTP mode. Do not reuse `OWNTRACKS_ENCRYPTION_KEY` as `WEB_API_KEY`; the
+latter is only for non-OwnTracks API routes through `Authorization: Bearer <WEB_API_KEY>`.
 
 ## Public Web And API Exposure
 
@@ -160,7 +160,14 @@ forwards these API requests:
 - `POST /api/pub`
 
 All other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` return `404` through nginx.
-Internal app health checks still call `/api/health` directly inside the app container.
+Internal app health checks still call `/api/health` directly inside the app container. Non-OwnTracks
+API routes still require `Authorization: Bearer <WEB_API_KEY>` when called from inside the Docker
+network or another trusted internal path.
+
+Nginx serves custom Mileage Logger styled error pages for 400, 401, 403, 404, 405, 408, 413, 429,
+500, 502, 503, and 504 responses. The pages explain the error and include a link back to `/login`.
+App-generated JSON API errors are not globally intercepted, so API clients such as OwnTracks can
+still receive machine-readable responses from the app.
 
 You can restrict browser UI pages to specific IP blocks while keeping OwnTracks ingestion open.
 
@@ -183,12 +190,9 @@ If this stack is behind another reverse proxy, nginx will usually see that proxy
 instead of the original client IP. In that setup, enforce IP restrictions at the outer proxy or
 include the proxy's address in `WEB_ALLOWED_CIDRS`.
 
-For web-login audit records, temporary lockouts, and automatic Cloudflare blocks, the app only uses
-forwarded client IP headers from direct clients listed in `TRUSTED_PROXY_CIDRS`. The bundled nginx
-configuration selects one client IP from `CF-Connecting-IP` when Cloudflare supplies it, otherwise
-falls back to the immediate peer, then overwrites `X-Real-IP`, `X-Forwarded-For`, and
-`CF-Connecting-IP` with that value. Keep nginx reachable only through Cloudflare Tunnel, loopback,
-a firewall, or another trusted edge when relying on Cloudflare client IP headers.
+For web-login audit records, temporary lockouts, and automatic Cloudflare blocks, nginx passes
+Cloudflare's `CF-Connecting-IP` header through to the app when present. The app uses that IP,
+otherwise it falls back to the direct loopback/tunnel client.
 
 ## Start The Stack
 
@@ -245,10 +249,11 @@ docker-compose.yml
 6. Import or enter the environment variables from `.env.docker.example`.
 7. Change these required secret values before deploying:
    - `SECRET_KEY`
+   - `WEB_API_KEY`
    - `POSTGRES_PASSWORD`
    - `DATABASE_URL`
-   - `OWNTRACKS_API_TOKEN`
    - `OWNTRACKS_PASSWORD`
+   - `OWNTRACKS_ENCRYPTION_KEY`
    - `CLOUDFLARED_TUNNEL_TOKEN`
 8. Optional: set `WEB_ALLOWED_CIDRS` to restrict web UI access while keeping OwnTracks ingestion
    open.
@@ -286,14 +291,16 @@ http://your-server/api/owntracks
 3. Set HTTP Basic Auth credentials:
    - Username: value of `OWNTRACKS_USERNAME` in `.env`
    - Password: value of `OWNTRACKS_PASSWORD` in `.env`
-4. Set Identification:
+4. Set payload encryption:
+   - Encryption key: value of `OWNTRACKS_ENCRYPTION_KEY` in `.env`
+5. Set Identification:
    - Username: your name or short ID, for example `ian`
    - Device name: your phone name, for example `pixel`
    - Tracker ID: two letters, for example `IP`
-5. Set monitoring mode to `Move`.
-6. Grant location permission `Allow all the time`.
-7. Disable Android battery optimization for OwnTracks.
-8. Publish a test payload or trigger a waypoint transition to confirm the server receives OwnTracks.
+6. Set monitoring mode to `Move`.
+7. Grant location permission `Allow all the time`.
+8. Disable Android battery optimization for OwnTracks.
+9. Publish a test payload or trigger a waypoint transition to confirm the server receives OwnTracks.
 
 For work waypoints, add OwnTracks regions/waypoints on the phone. Keep OwnTracks location
 reporting enabled so the app receives location updates between waypoint transitions. If you use
@@ -366,11 +373,10 @@ nginx listener. In the Cloudflare dashboard, publish the application route to th
 http://127.0.0.1:80
 ```
 
-Set `BIND_ADDRESS` to control which host IP Docker publishes nginx on. Leave
-`BIND_ADDRESS=0.0.0.0` to keep the old all-interface binding. For a tunnel-only listener, set:
+The Compose stack always publishes nginx on `127.0.0.1:${HTTP_PORT:-80}`. To use a different
+local tunnel port, set:
 
 ```env
-BIND_ADDRESS=127.0.0.1
 HTTP_PORT=2082
 ```
 
@@ -380,14 +386,8 @@ Then set the Cloudflare Tunnel service URL to:
 http://127.0.0.1:2082
 ```
 
-For a real interface bind such as `BIND_ADDRESS=192.168.1.50`, use
-`http://192.168.1.50:${HTTP_PORT}` in Cloudflare.
-
-Nginx uses Cloudflare's `CF-Connecting-IP` when present and falls back to the immediate peer, then
-passes that selected client IP to the app for login audit records, lockouts, and automatic
-Cloudflare blocks. If direct public clients can bypass Cloudflare and hit nginx, they can supply a
-forged `CF-Connecting-IP`; use a tunnel-only loopback bind, firewall, or trusted outer proxy for
-internet-facing deployments.
+Nginx passes Cloudflare's `CF-Connecting-IP` to the app for login audit records, lockouts, and
+automatic Cloudflare blocks. If that header is not present, the app uses the direct tunnel client.
 
 Then set:
 
@@ -429,14 +429,12 @@ WEB_LOGIN_LOCKOUT_SECONDS=300
 PASSKEY_RP_NAME=Mileage Logger
 PASSKEY_RP_ID=
 PASSKEY_ORIGIN=
-TRUSTED_PROXY_CIDRS=172.16.0.0/12
 CLOUDFLARE_IP_BLOCKING_ENABLED=false
 CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
 CLOUDFLARE_IP_BLOCK_ALLOWLIST=
 CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
 HTTP_PORT=80
-BIND_ADDRESS=0.0.0.0
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 AUTOMATIC_BACKUPS_ENABLED=true
@@ -447,9 +445,11 @@ MAX_BACKUP_RESTORE_BYTES=262144000
 When `OWNTRACKS_SYNC_WAYPOINTS=true`, published OwnTracks waypoint payloads create or update app
 waypoints. Location `inregions` values are only used to match already-saved waypoints; they do not
 create new waypoints.
-The web login protects rendered browser pages only. The app leaves `/api/` outside web login
-internally, while public nginx exposes only the OwnTracks ingestion endpoints so OwnTracks can
-continue to use its existing API authentication. Set
+The web login protects rendered browser pages only. Public unauthenticated browser paths are
+limited to `/login`, passkey login challenge/verify endpoints, root icon and manifest files, the
+service worker, and `/static/` assets needed to render those pages. Non-OwnTracks `/api/` routes
+use `WEB_API_KEY` instead of the web login, while public nginx exposes only the OwnTracks ingestion
+endpoints so OwnTracks can continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
 the app name before authentication and temporarily locks out repeated failed attempts. Successful
 logins, failed login attempts, and lockout rejections are written as structured JSON-lines records
@@ -482,10 +482,42 @@ From the server, send a test point:
 
 ```bash
 source .env
-curl -u "${OWNTRACKS_USERNAME}:${OWNTRACKS_PASSWORD}" \
-  -H "Content-Type: application/json" \
-  -d "{\"_type\":\"location\",\"lat\":42.3314,\"lon\":-83.0458,\"tst\":$(date +%s),\"tid\":\"IP\",\"topic\":\"owntracks/test/phone\"}" \
-  "http://127.0.0.1:${HTTP_PORT:-80}/api/owntracks"
+python - <<'PY'
+import base64
+import json
+import os
+import urllib.request
+from datetime import datetime, UTC
+
+from nacl.secret import SecretBox
+
+key = os.environ["OWNTRACKS_ENCRYPTION_KEY"].encode("utf-8").ljust(SecretBox.KEY_SIZE, b"\0")
+payload = {
+    "_type": "location",
+    "lat": 42.3314,
+    "lon": -83.0458,
+    "tst": int(datetime.now(UTC).timestamp()),
+    "tid": "IP",
+    "topic": "owntracks/test/phone",
+}
+encrypted = SecretBox(key).encrypt(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+body = json.dumps({
+    "_type": "encrypted",
+    "data": base64.b64encode(bytes(encrypted)).decode("ascii"),
+}).encode("utf-8")
+request = urllib.request.Request(
+    f"http://127.0.0.1:{os.environ.get('HTTP_PORT', '80')}/api/owntracks",
+    data=body,
+    method="POST",
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": "Basic " + base64.b64encode(
+            f"{os.environ['OWNTRACKS_USERNAME']}:{os.environ['OWNTRACKS_PASSWORD']}".encode()
+        ).decode("ascii"),
+    },
+)
+print(urllib.request.urlopen(request, timeout=10).status)
+PY
 ```
 
 Expected response:
@@ -732,6 +764,7 @@ If OwnTracks returns unauthorized, confirm `.env` values and restart:
 
 ```bash
 grep OWNTRACKS .env
+grep WEB_API_KEY .env
 docker compose restart app
 ```
 
