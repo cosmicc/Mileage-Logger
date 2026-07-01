@@ -9,6 +9,16 @@
 - Fixed generated work trip odometer assignment so automatic trips use stamped OwnTracks rolling
   odometer readings or the master rolling checkpoint instead of carrying forward the previous work
   trip end odometer.
+- Fixed generated and already-recorded work trips with blank odometers so retained OwnTracks path
+  rows can derive trip start and stop odometers from the master rolling checkpoint.
+- Fixed Dashboard OwnTracks Events and Work Trips count cards so they reset at the current
+  America/Detroit month boundary instead of showing all-time counts.
+- Changed the legacy previous-month reset path to retain historical month data instead of deleting
+  prior-month OwnTracks and gas snapshot rows at rollover.
+- Added monthly OwnTracks summary rollups so selected-month web totals and event counts remain
+  stable after old raw OwnTracks location/event rows are purged.
+- Changed OwnTracks raw location/event retention to a minimum of 90 days and kept automatic
+  cleanup limited to raw OwnTracks rows only.
 - Changed trip deletion and trip odometer resequencing so trip rows no longer update the master
   rolling odometer checkpoint; only OwnTracks location processing and manual odometer entries move
   that checkpoint.

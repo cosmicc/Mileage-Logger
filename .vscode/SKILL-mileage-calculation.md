@@ -137,6 +137,9 @@ def generate_trips(
    - Calculate mileage from OwnTracks path distance or waypoint distance
    - Use stamped rolling OwnTracks odometers for trip starts when available. If no transition
      odometer is stamped yet, use the master rolling OwnTracks checkpoint before the trip start.
+     If the only available master checkpoint is later than the trip start, estimate the start from
+     retained OwnTracks path rows between the trip start and that checkpoint. Do not fill from a
+     later checkpoint when the needed path rows are no longer retained.
      Do not fall back to the previous trip end odometer for generated trip starts.
    - Calculate the end odometer from the chosen start odometer plus the selected trip distance
    - Create Trip record
@@ -290,6 +293,14 @@ This ensures:
 
 Resequencing changes trip row odometer display values only. It must not move the master rolling
 OwnTracks odometer checkpoint.
+
+### Backfilling Blank Odometers
+
+`backfill_missing_trip_odometers(db)` fills existing trip rows that are missing start or end
+odometers when a master OwnTracks checkpoint and retained path rows can support the estimate. It
+does not alter trip distance, route fields, source fields, deleted-trip tombstones, or the master
+checkpoint. Automatic trip processing runs this repair pass so recently recorded rows with blank
+odometers are healed after deployment.
 
 ---
 

@@ -10,6 +10,7 @@ from mileage_logger.models import (
     DeletedTrip,
     GasPriceSnapshot,
     OwnTracksLocation,
+    OwnTracksMonthlySummary,
     Site,
     Trip,
     TripProcessingCheckpoint,
@@ -28,6 +29,10 @@ from mileage_logger.services.mileage import (
     generate_trips,
     haversine_miles,
     update_trip_details,
+)
+from mileage_logger.services.owntracks_rollups import (
+    owntracks_monthly_event_count,
+    owntracks_monthly_total_miles,
 )
 from mileage_logger.services.retention import (
     purge_processed_owntracks_locations,
@@ -460,6 +465,41 @@ def test_generate_trips_estimates_odometer_from_checkpoint_anchor() -> None:
         Decimal("0.1")
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
+    assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
+
+
+def test_generate_trips_estimates_odometer_from_later_master_checkpoint() -> None:
+    db = _session()
+    day = datetime(2026, 7, 1, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    trip_end = day + timedelta(minutes=24)
+    db.add_all(
+        [
+            home,
+            client,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("2500.0"),
+                odometer_anchor_recorded_at=trip_end,
+            ),
+            _transition(day, home, "leave"),
+            _transition(trip_end, client, "enter"),
+            _dwell_confirmation(trip_end, client),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date())
+    distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
+    expected_start = (Decimal("2500.0") - distance).quantize(Decimal("0.1"))
+
+    assert len(trips) == 1
+    assert trips[0].miles == distance
+    assert trips[0].start_odometer_miles == expected_start
+    assert trips[0].end_odometer_miles == (expected_start + distance).quantize(Decimal("0.1"))
+    assert trips[0].end_odometer_miles == Decimal("2500.0")
     assert trips[0].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
     assert trips[0].end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
@@ -1363,7 +1403,7 @@ def test_generate_trips_does_not_delete_existing_auto_trips_without_source_event
     assert db.scalar(select(Trip).where(Trip.id == trip.id)) is not None
 
 
-def test_reset_previous_month_data_keeps_current_month_and_waypoints() -> None:
+def test_reset_previous_month_data_retains_historical_month_data() -> None:
     db = _session()
     previous_month = datetime(2026, 5, 31, 13, 0, tzinfo=UTC)
     current_month = datetime(2026, 6, 1, 13, 0, tzinfo=UTC)
@@ -1417,45 +1457,87 @@ def test_reset_previous_month_data_keeps_current_month_and_waypoints() -> None:
 
     result = reset_previous_month_data(db, now=current_month)
 
-    remaining_locations = list(db.scalars(select(OwnTracksLocation)))
+    remaining_locations = list(
+        db.scalars(select(OwnTracksLocation).order_by(OwnTracksLocation.captured_at.asc()))
+    )
     remaining_trips = list(db.scalars(select(Trip).order_by(Trip.trip_date.asc())))
-    remaining_snapshots = list(db.scalars(select(GasPriceSnapshot)))
-    assert result.location_points == 1
+    remaining_snapshots = list(
+        db.scalars(select(GasPriceSnapshot).order_by(GasPriceSnapshot.observed_on.asc()))
+    )
+    assert result.location_points == 0
     assert result.trips == 0
-    assert result.gas_snapshots == 1
+    assert result.gas_snapshots == 0
     assert db.scalar(select(Site).where(Site.id == site.id)) is not None
-    assert [location.captured_at for location in remaining_locations] == [_naive(current_month)]
+    assert [location.captured_at for location in remaining_locations] == [
+        _naive(previous_month),
+        _naive(current_month),
+    ]
     assert [trip.trip_date for trip in remaining_trips] == [
         date(2026, 5, 31),
         date(2026, 6, 1),
     ]
-    assert [snapshot.observed_on for snapshot in remaining_snapshots] == [date(2026, 6, 1)]
+    assert [snapshot.observed_on for snapshot in remaining_snapshots] == [
+        date(2026, 5, 31),
+        date(2026, 6, 1),
+    ]
 
 
 def test_purge_processed_owntracks_locations_keeps_unprocessed_and_recent_rows() -> None:
     db = _session()
     current_time = datetime(2026, 6, 20, 13, 0, tzinfo=UTC)
-    old_processed_location = _location(
+    retained_because_inside_minimum = _location(
         current_time - timedelta(days=20),
+        "42.3200",
+        "-83.0400",
+    )
+    old_processed_location = _location(
+        current_time - timedelta(days=100),
         "42.3314",
         "-83.0458",
     )
-    old_unprocessed_location = _location(
-        current_time - timedelta(days=19),
+    second_old_processed_location = _location(
+        current_time - timedelta(days=100, hours=-1),
         "42.3440",
         "-83.0600",
     )
-    recent_location = _location(
-        current_time - timedelta(days=1),
+    old_unprocessed_location = _location(
+        current_time - timedelta(days=99),
         "42.3500",
         "-83.0700",
     )
-    db.add_all([old_processed_location, old_unprocessed_location, recent_location])
+    recent_location = _location(
+        current_time - timedelta(days=1),
+        "42.3600",
+        "-83.0800",
+    )
+    db.add_all(
+        [
+            retained_because_inside_minimum,
+            old_processed_location,
+            second_old_processed_location,
+            old_unprocessed_location,
+            recent_location,
+        ]
+    )
     db.commit()
+    expected_month_miles = (
+        haversine_miles(
+            old_processed_location.latitude,
+            old_processed_location.longitude,
+            second_old_processed_location.latitude,
+            second_old_processed_location.longitude,
+        )
+        + haversine_miles(
+            second_old_processed_location.latitude,
+            second_old_processed_location.longitude,
+            old_unprocessed_location.latitude,
+            old_unprocessed_location.longitude,
+        )
+    ).quantize(Decimal("0.1"))
 
     result = purge_processed_owntracks_locations(
         db,
-        checkpoint_location_id=old_processed_location.id,
+        checkpoint_location_id=second_old_processed_location.id,
         now=current_time,
         retention_days=14,
     )
@@ -1463,11 +1545,18 @@ def test_purge_processed_owntracks_locations_keeps_unprocessed_and_recent_rows()
     remaining_locations = list(
         db.scalars(select(OwnTracksLocation).order_by(OwnTracksLocation.id.asc()))
     )
-    assert result.location_points == 1
+    summary = db.scalar(select(OwnTracksMonthlySummary))
+    assert result.location_points == 2
     assert [location.id for location in remaining_locations] == [
+        retained_because_inside_minimum.id,
         old_unprocessed_location.id,
         recent_location.id,
     ]
+    assert summary is not None
+    assert summary.event_count == 3
+    assert summary.total_miles == expected_month_miles
+    assert owntracks_monthly_event_count(db, year=2026, month=3) == 3
+    assert owntracks_monthly_total_miles(db, year=2026, month=3) == expected_month_miles
 
 
 def test_automatic_trip_processing_finalizes_completed_days_without_early_purge() -> None:
@@ -1675,6 +1764,50 @@ def test_automatic_trip_processing_uses_rolling_odometer_for_trip_values() -> No
     assert second_route_point.odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
 
 
+def test_automatic_trip_processing_backfills_existing_missing_trip_odometers() -> None:
+    db = _session()
+    day = datetime(2026, 7, 1, 13, 0, tzinfo=UTC)
+    start_location = _location(day, "42.3314", "-83.0458")
+    end_location = _location(day + timedelta(minutes=24), "42.3440", "-83.0600")
+    distance = haversine_miles(
+        start_location.latitude,
+        start_location.longitude,
+        end_location.latitude,
+        end_location.longitude,
+    )
+    trip = Trip(
+        trip_date=day.date(),
+        started_at=day,
+        ended_at=end_location.captured_at,
+        start_latitude=start_location.latitude,
+        start_longitude=start_location.longitude,
+        end_latitude=end_location.latitude,
+        end_longitude=end_location.longitude,
+        miles=distance,
+        mileage_source=MILEAGE_SOURCE_WAYPOINT_DISTANCE,
+        source="auto",
+    )
+    db.add_all([start_location, end_location, trip])
+    db.flush()
+    db.add(
+        TripProcessingCheckpoint(
+            name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+            last_owntracks_location_id=end_location.id,
+            odometer_anchor_miles=Decimal("2500.0"),
+            odometer_anchor_recorded_at=end_location.captured_at,
+        )
+    )
+    db.commit()
+
+    result = run_automatic_trip_processing(db, now=end_location.captured_at + timedelta(hours=1))
+
+    assert result.repaired_trip_count == 1
+    assert trip.start_odometer_miles == (Decimal("2500.0") - distance).quantize(Decimal("0.1"))
+    assert trip.end_odometer_miles == Decimal("2500.0")
+    assert trip.start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
+    assert trip.end_odometer_source == ODOMETER_SOURCE_ESTIMATED
+
+
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:
     db = _session()
     previous_day = datetime(2026, 6, 11, 23, 0, tzinfo=UTC)
@@ -1715,8 +1848,8 @@ def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() 
 
 def test_automatic_trip_processing_purges_old_processed_locations_and_keeps_trip() -> None:
     db = _session()
-    previous_day = datetime(2026, 6, 1, 13, 0, tzinfo=UTC)
     current_time = datetime(2026, 6, 20, 13, 0, tzinfo=UTC)
+    previous_day = current_time - timedelta(days=100)
     client = _site("Client", "42.3440", "-83.0600")
     home = _site("Home", "42.3314", "-83.0458")
     db.add_all(

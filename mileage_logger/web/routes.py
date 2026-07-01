@@ -80,6 +80,10 @@ from mileage_logger.services.mileage import (
     resequence_month_trip_odometers,
     site_indexes,
 )
+from mileage_logger.services.owntracks_rollups import (
+    owntracks_monthly_event_count,
+    owntracks_monthly_total_miles,
+)
 from mileage_logger.services.passkeys import (
     PasskeyCeremonyError,
     begin_passkey_authentication,
@@ -371,6 +375,19 @@ def _trip_miles_for_date_range(db: Session, start_date: date, end_date: date) ->
     return _quantize_distance(Decimal(str(total or "0.0")))
 
 
+def _trip_count_for_date_range(db: Session, start_date: date, end_date: date) -> int:
+    """Count trips in a half-open local date range."""
+
+    return int(
+        db.scalar(
+            select(func.count(Trip.id))
+            .where(Trip.trip_date >= start_date)
+            .where(Trip.trip_date < end_date)
+        )
+        or 0
+    )
+
+
 def _owntracks_location_before(
     db: Session,
     before_dt: datetime,
@@ -472,13 +489,8 @@ def _monthly_distance_components(db: Session, *, year: int, month: int) -> dict[
     """Return selected-month distance components for Trips and Dashboard cards."""
 
     month_start_date, month_end_date = _month_date_bounds(year, month)
-    month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
     return _distance_components(
-        _owntracks_total_miles_for_datetime_range(
-            db,
-            month_start_dt,
-            month_end_dt,
-        ),
+        owntracks_monthly_total_miles(db, year=year, month=month),
         _trip_miles_for_date_range(db, month_start_date, month_end_date),
     )
 
@@ -518,7 +530,6 @@ def _trips_month_summary(
         .order_by(MonthlyGasPrice.updated_at.desc(), MonthlyGasPrice.id.desc())
         .limit(1)
     )
-    month_start_dt, month_end_dt = _month_datetime_bounds(year, month)
     distance_components = _monthly_distance_components(db, year=year, month=month)
     reimbursement_summary = _dashboard_reimbursement_summary(
         db,
@@ -531,11 +542,7 @@ def _trips_month_summary(
         "month_total": distance_components["total"],
         "month_trips": distance_components["trips"],
         "month_non_trips": distance_components["non_trips"],
-        "owntracks_event_count": _owntracks_event_count_for_datetime_range(
-            db,
-            month_start_dt,
-            month_end_dt,
-        ),
+        "owntracks_event_count": owntracks_monthly_event_count(db, year=year, month=month),
         "trip_count": trip_count,
         "reimbursement": reimbursement_summary,
         "monthly_gas": monthly_gas,
@@ -1517,8 +1524,9 @@ def _dashboard_template_context(db: Session) -> dict:
         year=year,
         month=month,
     )
-    location_count = db.scalar(select(func.count(OwnTracksLocation.id))) or 0
-    trip_count = db.scalar(select(func.count(Trip.id))) or 0
+    month_start_date, month_end_date = _month_date_bounds(year, month)
+    location_count = owntracks_monthly_event_count(db, year=year, month=month)
+    trip_count = _trip_count_for_date_range(db, month_start_date, month_end_date)
     reimbursement_summary = _dashboard_reimbursement_summary(
         db,
         year=year,

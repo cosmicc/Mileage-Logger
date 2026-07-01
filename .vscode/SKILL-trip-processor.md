@@ -9,7 +9,7 @@ The trip processor (`mileage_logger/services/trip_processor.py`) is the core eng
 2. Detects qualifying waypoint transition pairs (leave + enter)
 3. Generates `Trip` records with calculated mileage
 4. Maintains a rolling odometer checkpoint
-5. Purges old OwnTracks location records
+5. Purges only old raw OwnTracks location/event records after the 90-day minimum retention window
 
 ---
 
@@ -72,12 +72,18 @@ When trip processor runs:
    the movement becomes a trip
 5. Use stamped rolling odometer values for generated trip starts when available. If a generated
    trip has no stamped transition odometer yet, use the master rolling OwnTracks checkpoint before
-   the trip start. Prior trip end odometers are not a source for generated trip starts. End
-   odometers are calculated from the chosen start plus the generated trip distance.
+   the trip start. If the available master checkpoint is later than the trip start, estimate the
+   start only when retained OwnTracks path rows connect the trip start to that checkpoint. Prior
+   trip end odometers are not a source for generated trip starts. End odometers are calculated from
+   the chosen start plus the generated trip distance.
 6. Use the current rolling checkpoint for new manual trip starts instead of the previous trip end
    odometer
-7. Generated, edited, deleted, and resequenced trip rows do not update the master rolling
+7. Run the missing-trip-odometer backfill pass so existing rows with blank odometers can be filled
+   from the master checkpoint when retained OwnTracks path data is available.
+8. Generated, edited, deleted, and resequenced trip rows do not update the master rolling
    checkpoint. When the user manually enters odometer, reset anchor to exact value.
+9. Before old raw OwnTracks rows are purged, refresh monthly OwnTracks summary rollups so older
+   month web totals and event counts remain stable after raw location/event cleanup.
 
 ### Example
 
@@ -218,7 +224,7 @@ Key settings for trip processing:
 | `AUTOMATIC_TRIP_PROCESSING_ENABLED` | `true` | Enable/disable background processor |
 | `AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS` | `60` | How often to run trip generation |
 | `OWNTRACKS_WAYPOINT_DWELL_MINUTES` | `5` | Minimum time inside destination before trip confirmed |
-| `OWNTRACKS_LOCATION_RETENTION_DAYS` | `14` | Days to keep location records before purging |
+| `OWNTRACKS_LOCATION_RETENTION_DAYS` | `90` | Days to keep raw OwnTracks location/event records before purging; values below 90 are treated as 90 |
 | `OWNTRACKS_PURGE_ENABLED` | `true` | Enable/disable automatic purge |
 | `LOCAL_TIMEZONE` | `America/Detroit` | Timezone for trip date selection |
 
@@ -246,7 +252,8 @@ Key test patterns:
 ## Performance Considerations
 
 - **Database queries**: Trip processor runs once per minute (configurable), one query per unprocessed location
-- **OwnTracks retention**: Purge keeps only last 14 days (configurable) to avoid table bloat
+- **OwnTracks retention**: Purge keeps at least the last 90 days of raw OwnTracks rows and stores
+  monthly summaries before cleanup so older month web totals remain stable
 - **Checkpoint**: One row in database, updated once per processor run
 - **Lock**: Single thread processing to prevent concurrent modification conflicts
 

@@ -6,10 +6,14 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
-from mileage_logger.models import GasPriceSnapshot, OwnTracksLocation
+from mileage_logger.models import OwnTracksLocation
+from mileage_logger.services.owntracks_rollups import (
+    refresh_owntracks_monthly_summaries_before_purge,
+)
 from mileage_logger.services.timezone import datetime_to_local, local_day_bounds
 
 logger = logging.getLogger(__name__)
+MIN_OWNTRACKS_LOCATION_RETENTION_DAYS = 90
 
 
 @dataclass(frozen=True)
@@ -61,14 +65,23 @@ def purge_processed_owntracks_locations(
         return _empty_retention_result()
 
     current_dt = now or datetime.now(UTC)
-    configured_retention_days = (
+    requested_retention_days = (
         settings.owntracks_location_retention_days
         if retention_days is None
         else retention_days
     )
+    configured_retention_days = max(
+        requested_retention_days,
+        MIN_OWNTRACKS_LOCATION_RETENTION_DAYS,
+    )
     cutoff_dt = _owntracks_retention_cutoff(
         now=current_dt,
         retention_days=configured_retention_days,
+    )
+    refreshed_summary_count = refresh_owntracks_monthly_summaries_before_purge(
+        db,
+        checkpoint_location_id=checkpoint_location_id,
+        cutoff_dt=cutoff_dt,
     )
     location_result = db.execute(
         delete(OwnTracksLocation)
@@ -86,11 +99,13 @@ def purge_processed_owntracks_locations(
     if result.location_points:
         logger.info(
             "OwnTracks retention purge removed processed rows cutoff=%s "
-            "checkpoint_location_id=%s location_points=%s retention_days=%s",
+            "checkpoint_location_id=%s location_points=%s retention_days=%s "
+            "refreshed_monthly_summaries=%s",
             cutoff_dt.isoformat(),
             checkpoint_location_id,
             result.location_points,
             configured_retention_days,
+            refreshed_summary_count,
         )
     else:
         logger.debug(
@@ -108,43 +123,13 @@ def reset_previous_month_data(
     *,
     now: datetime | None = None,
 ) -> RetentionResult:
+    """Keep historical monthly data; retained for compatibility with older callers."""
+
     current_dt = now or datetime.now(UTC)
     local_dt = datetime_to_local(current_dt)
     month_start_date = local_dt.date().replace(day=1)
-    month_start_dt, _ = local_day_bounds(month_start_date)
-
-    location_result = db.execute(
-        delete(OwnTracksLocation)
-        .where(OwnTracksLocation.captured_at < month_start_dt)
-        .execution_options(synchronize_session=False)
-    )
-    gas_snapshot_result = db.execute(
-        delete(GasPriceSnapshot)
-        .where(GasPriceSnapshot.observed_on < month_start_date)
-        .execution_options(synchronize_session=False)
-    )
-    db.commit()
-
-    result = RetentionResult(
-        location_points=_rowcount(location_result.rowcount),
-        trips=0,
-        gas_snapshots=_rowcount(gas_snapshot_result.rowcount),
-    )
-    if result.total:
-        logger.info(
-            "Monthly reset removed old records month_start=%s location_points=%s trips=%s "
-            "gas_snapshots=%s",
-            month_start_date.isoformat(),
-            result.location_points,
-            result.trips,
-            result.gas_snapshots,
-        )
-    else:
-        logger.debug(
-            "Monthly reset found no old records month_start=%s",
-            month_start_date.isoformat(),
-        )
-    return result
+    logger.debug("Monthly reset skipped; historical data retained month_start=%s", month_start_date)
+    return _empty_retention_result()
 
 
 MonthlyResetResult = RetentionResult

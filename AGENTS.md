@@ -64,7 +64,8 @@ docker compose up -d --build
 - Runs `generate_trips()` when waypoint transitions occur
 - Maintains rolling `TripProcessingCheckpoint` to track odometer distance
 - Enforces minimum dwell time before confirming arrival at a waypoint
-- Purges old OwnTracks location records based on `OWNTRACKS_LOCATION_RETENTION_DAYS`
+- Purges only old raw OwnTracks location/event records based on `OWNTRACKS_LOCATION_RETENTION_DAYS`,
+  with an enforced minimum retention of 90 days
 
 **[mileage.py](mileage_logger/services/mileage.py)** — Trip mileage calculation
 - `generate_trips()` - Core trip generation from waypoint transitions
@@ -160,7 +161,9 @@ docker compose up -d --build
 4. If OwnTracks path data is unavailable, trip distance falls back to waypoint-to-waypoint distance
 5. Odometer values are display/checkpoint values: starts come from stamped rolling OwnTracks
    values when available, otherwise the master rolling OwnTracks odometer checkpoint before the
-   trip start, and ends are start plus the selected trip distance. Generated trips must not use
+   trip start, and ends are start plus the selected trip distance. If only a later master
+   checkpoint is available, missing generated-trip odometers may be estimated from retained
+   OwnTracks path rows between the trip start and that checkpoint. Generated trips must not use
    prior trip end odometers as the source for a new trip start.
 6. Trip is stored and shown on `/trips` page for review/editing
 
@@ -244,6 +247,11 @@ docker compose up -d --build
 - Dashboard work trip plus non-work trip distance cards use OwnTracks path distance as the
   total-distance source but floor the combined total at the stored work trip total after
   one-decimal rounding, so the displayed non-work trip remainder is never negative.
+- Dashboard OwnTracks Events and Work Trips count cards are scoped to the current app-local month.
+  The month starts at midnight on the first day in `LOCAL_TIMEZONE` (default America/Detroit), and
+  month rollover must not delete prior-month trips, OwnTracks rows, gas price records, or derived
+  app data. Monthly OwnTracks summary rollups preserve selected-month web totals and event counts
+  after raw OwnTracks location/event rows are purged.
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
   Display the card's reimbursement gallons at one decimal place.
@@ -383,7 +391,10 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 4. **Odometer Precision**: Values stored and displayed as 0.1 mile precision. Manual entries are quantized during update.
 
-5. **Data Retention**: OwnTracks location records are purged after `OWNTRACKS_LOCATION_RETENTION_DAYS` (default 14), but trips are kept. Set `OWNTRACKS_PURGE_ENABLED=false` to disable.
+5. **Data Retention**: Only raw OwnTracks location/event records are purged automatically, and only
+   after at least 90 days even when `OWNTRACKS_LOCATION_RETENTION_DAYS` is set lower. Trips,
+   odometers, reports, gas prices, monthly OwnTracks summary rollups, backups, and other derived
+   app data are kept. Set `OWNTRACKS_PURGE_ENABLED=false` to disable raw OwnTracks cleanup.
 
 ---
 

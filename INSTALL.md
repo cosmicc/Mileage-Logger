@@ -118,7 +118,7 @@ OWNTRACKS_SYNC_WAYPOINTS=true
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
-OWNTRACKS_LOCATION_RETENTION_DAYS=14
+OWNTRACKS_LOCATION_RETENTION_DAYS=90
 LOG_DIR=/data/logs
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
@@ -406,8 +406,10 @@ docker compose up -d --build
 
 The web app also starts a background processor. It recalculates the current local day on a short
 interval and finalizes completed local days. After trip processing updates its checkpoint,
-processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged automatically.
-Trips, waypoints, reports, and gas price records are not removed by this purge.
+processed OwnTracks location/event rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged
+automatically, with an enforced minimum retention of 90 days. Trips, odometer fields, waypoints,
+reports, gas price records, monthly OwnTracks summary rollups, backups, and other derived app data
+are not removed by this purge.
 
 Configuration:
 
@@ -418,7 +420,7 @@ LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
-OWNTRACKS_LOCATION_RETENTION_DAYS=14
+OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
 WEB_LOGIN_USERNAME=admin

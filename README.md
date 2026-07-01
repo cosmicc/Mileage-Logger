@@ -336,14 +336,23 @@ odometer value for that point, and generated trips use those rolling values for 
 when available. If transition rows are not stamped yet, generated trips use the master rolling
 checkpoint before the trip start. Prior trip end odometers are not used as the source for generated
 trip starts. The trip end odometer is always advanced from the start odometer by the stored trip
-distance so the odometer display follows the trip miles. Segments fully inside the same saved
-waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics reset
-the checkpoint to the entered value and OwnTracks distance continues from that new rolling value.
+distance so the odometer display follows the trip miles. If a recently recorded work trip is
+missing displayed odometers, automatic trip processing can backfill those blanks from the master
+checkpoint when retained OwnTracks path rows support the estimate. Segments fully inside the same
+saved waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics
+reset the checkpoint to the entered value and OwnTracks distance continues from that new rolling
+value.
 Trip creation, editing, deletion, and resequencing do not move the master rolling odometer
 checkpoint.
 Dashboard total-driven cards and the Work Trips selected-month cards sum OwnTracks coordinate
 segments directly for the selected local day or month, so manual odometer resets do not affect work
 trip plus non-work trip totals.
+Dashboard OwnTracks Events and Work Trips count cards are scoped to the current app-local month,
+which starts at midnight on the first day of the month in `LOCAL_TIMEZONE`. Prior months remain
+available from the Work Trips month picker; month rollover does not delete prior-month trip,
+OwnTracks, or gas price records. Before raw OwnTracks location/event rows age out, the app stores
+monthly OwnTracks summary rollups so selected-month web totals and event counts remain stable after
+the raw location rows are purged.
 The Dashboard current-month reimbursement card uses the same trip-mile total, reimbursement
 gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
 displayed gallons limited to one decimal place. Dashboard top statistic and distance cards use the
@@ -396,9 +405,11 @@ Then start the normal stack with `docker compose up -d --build`.
 
 Background processors also run while the web app is up. Trip processing recalculates the current
 local day on a short interval and finalizes completed local days. After trip processing updates its
-checkpoint, processed OwnTracks rows older than `OWNTRACKS_LOCATION_RETENTION_DAYS` are purged
-automatically. Work trips, waypoints, reports, and gas price records are not removed by this purge. The
-app container also runs the daily gas snapshot scheduler when `GAS_SNAPSHOT_ENABLED=true`.
+checkpoint, processed OwnTracks location/event rows older than
+`OWNTRACKS_LOCATION_RETENTION_DAYS` are purged automatically, with an enforced minimum retention of
+90 days. Work trips, odometer fields, waypoints, reports, gas price records, monthly OwnTracks
+summary rollups, backups, and other derived app data are not removed by this purge. The app
+container also runs the daily gas snapshot scheduler when `GAS_SNAPSHOT_ENABLED=true`.
 
 Useful Docker environment options:
 
@@ -409,7 +420,7 @@ LOCAL_TIMEZONE=America/Detroit
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
-OWNTRACKS_LOCATION_RETENTION_DAYS=14
+OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
 OWNTRACKS_ENCRYPTION_KEY=change-owntracks-encryption-key

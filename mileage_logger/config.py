@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     automatic_trip_processing_enabled: bool = True
     automatic_trip_processing_interval_seconds: int = Field(default=60, ge=5)
     owntracks_purge_enabled: bool = True
-    owntracks_location_retention_days: int = Field(default=14, ge=1)
+    owntracks_location_retention_days: int = Field(default=90, ge=1)
     owntracks_waypoint_dwell_minutes: int = Field(default=5, ge=1)
     owntracks_travel_distance_m: Decimal = Field(default=Decimal("50.0"), ge=Decimal("0"))
 

@@ -17,6 +17,7 @@ from mileage_logger.models import (
 )
 from mileage_logger.services.mileage import (
     ODOMETER_SOURCE_OWNTRACKS_ROLLING,
+    backfill_missing_trip_odometers,
     generate_trips,
     owntracks_segment_miles,
     site_indexes,
@@ -37,6 +38,7 @@ class TripProcessingResult:
     processed_dates: tuple[date, ...]
     processed_location_count: int = 0
     checkpoint_location_id: int | None = None
+    repaired_trip_count: int = 0
 
     @property
     def monthly_reset(self) -> RetentionResult:
@@ -274,6 +276,7 @@ def run_automatic_trip_processing(
     processed_dates: list[date] = []
     processed_location_count = 0
     checkpoint_location_id: int | None = None
+    repaired_trip_count = 0
 
     with _PROCESSING_LOCK:
         trip_logger.info(
@@ -311,6 +314,10 @@ def run_automatic_trip_processing(
         for day in sorted(dates_to_process):
             generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
 
+        repaired_trip_count = backfill_missing_trip_odometers(db)
+        if repaired_trip_count:
+            db.commit()
+
         if new_locations:
             db.commit()
 
@@ -326,17 +333,19 @@ def run_automatic_trip_processing(
         processed_dates=tuple(processed_dates),
         processed_location_count=processed_location_count,
         checkpoint_location_id=checkpoint_location_id,
+        repaired_trip_count=repaired_trip_count,
     )
     trip_logger.info(
         "automatic trip processing complete generated=%s purged_location_points=%s "
         "purged_trips=%s purged_gas_snapshots=%s processed_locations=%s checkpoint_location_id=%s "
-        "dates=%s",
+        "repaired_trip_odometers=%s dates=%s",
         result.generated,
         result.retention.location_points,
         result.retention.trips,
         result.retention.gas_snapshots,
         result.processed_location_count,
         result.checkpoint_location_id or "",
+        result.repaired_trip_count,
         ",".join(day.isoformat() for day in result.processed_dates),
     )
     return result
@@ -383,13 +392,15 @@ class AutomaticTripProcessor:
                 logger.exception("Automatic trip processing failed")
                 return
 
-        if result.generated or result.retention.total:
+        if result.generated or result.retention.total or result.repaired_trip_count:
             logger.info(
                 "Automatic trip processing complete generated=%s "
-                "purged_location_points=%s purged_trips=%s purged_gas_snapshots=%s dates=%s",
+                "purged_location_points=%s purged_trips=%s purged_gas_snapshots=%s "
+                "repaired_trip_odometers=%s dates=%s",
                 result.generated,
                 result.retention.location_points,
                 result.retention.trips,
                 result.retention.gas_snapshots,
+                result.repaired_trip_count,
                 ",".join(day.isoformat() for day in result.processed_dates),
             )

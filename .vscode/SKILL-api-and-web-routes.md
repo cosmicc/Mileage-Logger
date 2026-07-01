@@ -226,6 +226,11 @@ curl -X POST http://localhost:8000/api/owntracks \
 - Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
   gallons, monthly gas price, and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home
   card matches the downloadable report. Keep displayed reimbursement gallons to one decimal place.
+- Dashboard OwnTracks Events and Work Trips count cards are current-month cards. Scope them with
+  the app-local month bounds from midnight on the first day of the month in `LOCAL_TIMEZONE`;
+  month rollover should not delete older month data to make these cards reset. Selected-month
+  Work Trips summary cards should use monthly OwnTracks summary rollups when raw OwnTracks rows
+  have aged out.
 - The Dashboard root route renders a lightweight loading shell. Keep expensive Dashboard queries in
   `/dashboard/content` and render `dashboard_content.html` there so direct homepage loads can show
   the loading state before calculated cards arrive.

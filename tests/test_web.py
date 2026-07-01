@@ -24,6 +24,7 @@ from mileage_logger.models import (
     HiddenLoginFailure,
     MonthlyGasPrice,
     OwnTracksLocation,
+    OwnTracksMonthlySummary,
     PasskeyCredential,
     Site,
     Trip,
@@ -1125,6 +1126,86 @@ def test_dashboard_shows_today_and_month_distance_totals(monkeypatch) -> None:
             "      <small>Work Trips + Non-Work Trips</small>"
         ) in response.text
         assert "<strong>9.5</strong>" in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_dashboard_count_cards_reset_at_detroit_month_boundary(monkeypatch) -> None:
+    dashboard_now = datetime(
+        2026,
+        7,
+        1,
+        0,
+        30,
+        tzinfo=ZoneInfo("America/Detroit"),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.local_now", lambda: dashboard_now)
+    monkeypatch.setattr("mileage_logger.web.routes.local_today", lambda: dashboard_now.date())
+    monkeypatch.setattr(
+        "mileage_logger.web.routes._monthly_gas_context",
+        lambda _db, _year, _month: (None, ""),
+    )
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    _location(
+                        datetime(2026, 7, 1, 3, 59, tzinfo=UTC),
+                        datetime(2026, 7, 1, 3, 59, tzinfo=UTC),
+                        {"_type": "location"},
+                    ),
+                    _location(
+                        datetime(2026, 7, 1, 4, 0, tzinfo=UTC),
+                        datetime(2026, 7, 1, 4, 0, tzinfo=UTC),
+                        {"_type": "location"},
+                    ),
+                    _location(
+                        datetime(2026, 7, 1, 4, 30, tzinfo=UTC),
+                        datetime(2026, 7, 1, 4, 30, tzinfo=UTC),
+                        {"_type": "location"},
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 30),
+                        started_at=datetime(2026, 7, 1, 3, 30, tzinfo=UTC),
+                        ended_at=datetime(2026, 7, 1, 3, 50, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("5.0"),
+                    ),
+                    Trip(
+                        trip_date=date(2026, 7, 1),
+                        started_at=datetime(2026, 7, 1, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 7, 1, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("6.0"),
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/dashboard/content")
+
+        assert response.status_code == 200
+        stats_section = _html_section(
+            response.text,
+            '<section class="stats-grid">',
+            '<section class="distance-grid"',
+        )
+        assert "2026-07-01 12:30:00 AM" in response.text
+        assert (
+            "<span>OwnTracks Events</span>\n"
+            "    <strong>2</strong>"
+        ) in stats_section
+        assert (
+            "<span>Work Trips</span>\n"
+            "    <strong>1</strong>"
+        ) in stats_section
     finally:
         app.dependency_overrides.clear()
 
@@ -3612,6 +3693,48 @@ def test_trips_page_shows_selected_month_summary_cards() -> None:
         assert "4.0 reimbursement gallons" in summary_section
         assert "$3.500" in summary_section
         assert "MI regular" in summary_section
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_trips_page_uses_owntracks_monthly_summary_after_raw_rows_are_purged() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    OwnTracksMonthlySummary(
+                        year=2026,
+                        month=3,
+                        total_miles=Decimal("18.4"),
+                        event_count=42,
+                    ),
+                    Trip(
+                        trip_date=date(2026, 3, 12),
+                        started_at=datetime(2026, 3, 12, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 3, 12, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("5.0"),
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/trips/content?year=2026&month=3")
+
+        assert response.status_code == 200
+        summary_section = _html_section(
+            response.text,
+            '<section class="trips-summary-grid"',
+            '<section class="panel">',
+        )
+        assert "Showing March 2026 (03/2026)" in response.text
+        assert "<strong>18.4</strong>" in summary_section
+        assert "<strong>42</strong>" in summary_section
+        assert "<strong>5.0</strong>" in summary_section
     finally:
         app.dependency_overrides.clear()
 

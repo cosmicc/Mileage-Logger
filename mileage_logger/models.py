@@ -269,6 +269,26 @@ class MonthlyGasPrice(Base):
     )
 
 
+class OwnTracksMonthlySummary(Base):
+    """Stable monthly OwnTracks-derived totals retained after raw location cleanup."""
+
+    __tablename__ = "owntracks_monthly_summaries"
+    __table_args__ = (
+        UniqueConstraint("year", "month", name="uq_owntracks_monthly_summary_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    total_miles: Mapped[Decimal] = mapped_column(Numeric(12, 1), default=Decimal("0.0"))
+    event_count: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(80), default="owntracks_retention_rollup")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
 class CloudflareIPBlock(Base):
     """App-managed Cloudflare zone IP Access Rule block."""
 
