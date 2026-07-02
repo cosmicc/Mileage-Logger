@@ -8,7 +8,7 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.config import Settings, get_settings
-from mileage_logger.database_engine import database_engine_options
+from mileage_logger.database_engine import database_engine_options, normalized_database_url
 
 settings = get_settings()
 
@@ -47,9 +47,10 @@ def create_configured_engine(application_settings: Settings) -> Any:
     """Create the configured SQLAlchemy engine or an unavailable-engine placeholder."""
 
     try:
+        database_url = normalized_database_url(application_settings.database_url)
         engine_options = database_engine_options(application_settings)
-        return create_engine(application_settings.database_url, **engine_options)
-    except ArgumentError as exc:
+        return create_engine(database_url, **engine_options)
+    except (ArgumentError, ModuleNotFoundError) as exc:
         return UnavailableDatabaseEngine(
             f"Invalid DATABASE_URL configuration: {exc}",
             exc,

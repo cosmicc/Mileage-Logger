@@ -318,6 +318,60 @@ queued-payload totals.
 The app will receive configuration from the environment variables imported into the Portainer
 stack.
 
+## Docker Swarm Stack Deployment
+
+Use `docker-stack.yml` only for Docker Swarm. Keep `docker-compose.yml` for normal Compose or
+Portainer standalone stacks.
+
+Swarm does not build images during `docker stack deploy`, does not support Compose profiles, and
+does not preserve the normal Compose loopback-only nginx port binding. The Swarm stack therefore
+uses image tags and overlay networking. Build the images on a single-node Swarm, or push them to a
+registry reachable by every Swarm node:
+
+```bash
+docker build -t mileage-logger-app:latest .
+docker build -t mileage-logger-nginx:latest -f deploy/nginx/Dockerfile .
+```
+
+For a multi-node Swarm, push those images to a registry and set `APP_IMAGE` and `NGINX_IMAGE` to
+the registry tags.
+
+`docker stack deploy` does not accept `--env-file`. In Portainer Swarm mode, enter the variables
+from `.env.docker.example` in the stack environment editor. From the command line, export the
+needed variables in the shell before deploying.
+
+Remote PostgreSQL Swarm deployment:
+
+```bash
+export APP_IMAGE=mileage-logger-app:latest
+export NGINX_IMAGE=mileage-logger-nginx:latest
+export DATABASE_URL=postgresql+psycopg://mileage:url_encoded_password@central-db-host:5432/mileage_logger
+docker stack deploy -c docker-stack.yml mileage-logger
+```
+
+Bundled PostgreSQL Swarm deployment:
+
+```bash
+export APP_IMAGE=mileage-logger-app:latest
+export NGINX_IMAGE=mileage-logger-nginx:latest
+export DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage_logger
+docker stack deploy -c docker-stack.yml -c docker-stack.local-postgres.yml mileage-logger
+```
+
+For Swarm, configure the Cloudflare Tunnel public hostname origin service as:
+
+```text
+http://nginx
+```
+
+The Swarm stack intentionally does not publish nginx directly. If you add a published port later,
+remember Swarm publishes it on the node interface, not as the normal Compose-only
+`127.0.0.1:${HTTP_PORT}` binding.
+
+Keep `HOST_LOG_DIR` and `HOST_OWNTRACKS_BUFFER_DIR` available on the Swarm node that runs the app
+task. Named volumes such as `owntracks_buffer_fallback` and `postgres_data` are node-local unless
+your Swarm volume driver provides shared storage.
+
 The diagnostics page is available at:
 
 ```text

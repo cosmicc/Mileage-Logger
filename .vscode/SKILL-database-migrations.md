@@ -250,6 +250,8 @@ The entrypoint waits for the database configured by `DATABASE_URL`, not just the
 service. Runtime and startup checks share `mileage_logger.database_engine.database_engine_options()`
 so PostgreSQL connections use `pool_pre_ping`, configurable pool size, overflow, pool timeout,
 pool recycle, connect timeout, and LIFO reuse for safer network database behavior.
+Bare `postgresql://` URLs are normalized to `postgresql+psycopg://` so SQLAlchemy uses the
+installed psycopg v3 driver instead of trying to import psycopg2.
 Malformed `DATABASE_URL` values should be treated as database unavailable instead of crashing app
 import, so OwnTracks buffer limp mode can still start. When documenting or testing remote database
 setup, remind operators to URL-encode passwords that contain reserved characters such as `@`, `:`,

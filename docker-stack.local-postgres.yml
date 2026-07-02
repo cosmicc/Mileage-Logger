@@ -1,0 +1,27 @@
+# Optional Docker Swarm overlay for deploying the bundled PostgreSQL service.
+# Use with: docker stack deploy -c docker-stack.yml -c docker-stack.local-postgres.yml mileage-logger
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mileage_logger}
+      POSTGRES_USER: ${POSTGRES_USER:-mileage}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mileage}
+      TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: any
+      update_config:
+        parallelism: 1
+        order: stop-first
+
+volumes:
+  postgres_data:

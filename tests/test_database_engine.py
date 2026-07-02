@@ -8,7 +8,7 @@ from mileage_logger.database import (
     create_configured_engine,
     is_database_unavailable_error,
 )
-from mileage_logger.database_engine import database_engine_options
+from mileage_logger.database_engine import database_engine_options, normalized_database_url
 
 
 def test_postgresql_engine_options_are_configurable_for_network_database() -> None:
@@ -30,6 +30,17 @@ def test_postgresql_engine_options_are_configurable_for_network_database() -> No
     assert options["pool_recycle"] == 900
     assert options["pool_use_lifo"] is True
     assert options["connect_args"] == {"connect_timeout": 7}
+
+
+def test_bare_postgresql_url_uses_installed_psycopg_driver() -> None:
+    settings = Settings(
+        database_url="postgresql://mileage:secret@db-server:5432/mileage_logger",
+    )
+
+    engine = create_configured_engine(settings)
+
+    assert engine.url.drivername == "postgresql+psycopg"
+    assert normalized_database_url(settings.database_url).startswith("postgresql+psycopg://")
 
 
 def test_sqlite_engine_options_skip_postgresql_pool_arguments() -> None:

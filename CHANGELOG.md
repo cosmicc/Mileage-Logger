@@ -15,6 +15,11 @@
   container or set `COMPOSE_PROFILES=` and use only a remote `DATABASE_URL`.
 - Fixed malformed `DATABASE_URL` startup handling so the app can still enter OwnTracks buffer limp
   mode instead of crashing during import, and documented URL-encoding database passwords.
+- Fixed bare `postgresql://` database URLs so they use the installed psycopg v3 driver instead of
+  trying to import unavailable psycopg2.
+- Added Docker Swarm stack files for remote PostgreSQL and optional bundled PostgreSQL deployments.
+- Expanded `.env.docker.example` comments so Docker and Portainer configuration variables are
+  easier to understand before deployment.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the
   configured PostgreSQL host is remote, plus primary and backup OwnTracks buffer availability with
   red/green status indicators.

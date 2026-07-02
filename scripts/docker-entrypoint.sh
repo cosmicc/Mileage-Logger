@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ArgumentError
 
 from mileage_logger.config import Settings
-from mileage_logger.database_engine import database_engine_options
+from mileage_logger.database_engine import database_engine_options, normalized_database_url
 
 timeout = int(sys.argv[1])
 settings = Settings()
@@ -20,11 +20,14 @@ last_error = None
 
 while time.time() < deadline:
     try:
-        engine = create_engine(settings.database_url, **database_engine_options(settings))
+        engine = create_engine(
+            normalized_database_url(settings.database_url),
+            **database_engine_options(settings),
+        )
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         raise SystemExit(0)
-    except ArgumentError as exc:
+    except (ArgumentError, ModuleNotFoundError) as exc:
         raise SystemExit(f"Database URL is invalid: {exc}") from exc
     except Exception as exc:
         last_error = exc

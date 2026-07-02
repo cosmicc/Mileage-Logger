@@ -401,6 +401,11 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Requires Docker Engine and Docker Compose v2
 - Uses `docker-compose.yml` with app, nginx, cloudflared, and an optional default-on `postgres`
   service behind the `local-postgres` Compose profile.
+- Docker Swarm deployments use `docker-stack.yml`; add `docker-stack.local-postgres.yml` only when
+  bundled PostgreSQL should run in Swarm. Swarm stack files must avoid Compose-only `build`,
+  `profiles`, conditional `depends_on`, and loopback-only port binding assumptions. Use prebuilt
+  `APP_IMAGE` and `NGINX_IMAGE` tags, and configure Cloudflare Tunnel to target `http://nginx`
+  over the stack overlay network.
 - The bundled `postgres` service remains the default database target when
   `COMPOSE_PROFILES=local-postgres`, but app startup and migrations wait on the configured
   `DATABASE_URL` instead of depending on the bundled local database container's health. For a

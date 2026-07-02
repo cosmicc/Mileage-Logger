@@ -2,6 +2,8 @@ import re
 from pathlib import Path
 
 COMPOSE_FILE = Path("docker-compose.yml")
+STACK_FILE = Path("docker-stack.yml")
+STACK_LOCAL_POSTGRES_FILE = Path("docker-stack.local-postgres.yml")
 DOCKER_ENV_FILE = Path(".env.docker.example")
 
 
@@ -101,3 +103,33 @@ def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:
     assert expected_buffer_mount in app_block
     assert "owntracks_buffer_fallback:/data/owntracks-buffer-fallback" in app_block
     assert re.search(r"^  owntracks_buffer_fallback:\n", compose_text, re.MULTILINE)
+
+
+def test_swarm_stack_avoids_compose_only_features() -> None:
+    stack_text = STACK_FILE.read_text(encoding="utf-8")
+    app_block = _service_block(stack_text, "app")
+    nginx_block = _service_block(stack_text, "nginx")
+    cloudflared_block = _service_block(stack_text, "cloudflared")
+
+    assert "\n    build:" not in stack_text
+    assert "\n    profiles:" not in stack_text
+    assert "\n    depends_on:" not in stack_text
+    assert "\n    network_mode:" not in stack_text
+    assert "\n    restart:" not in stack_text
+    assert 'image: "${APP_IMAGE:-mileage-logger-app:latest}"' in app_block
+    assert 'image: "${NGINX_IMAGE:-mileage-logger-nginx:latest}"' in nginx_block
+    assert "ports:" not in nginx_block
+    assert "TUNNEL_TOKEN:" in cloudflared_block
+    assert "restart_policy:" in stack_text
+
+
+def test_swarm_stack_has_optional_local_postgres_overlay() -> None:
+    stack_text = STACK_FILE.read_text(encoding="utf-8")
+    local_postgres_text = STACK_LOCAL_POSTGRES_FILE.read_text(encoding="utf-8")
+    env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
+
+    assert "\n  postgres:" not in stack_text
+    assert "\n  postgres:" in local_postgres_text
+    assert "postgres_data:/var/lib/postgresql/data" in local_postgres_text
+    assert "APP_IMAGE=mileage-logger-app:latest" in env_text
+    assert "NGINX_IMAGE=mileage-logger-nginx:latest" in env_text

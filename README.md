@@ -49,7 +49,7 @@ be configured with `EIA_SERIES_ID` once the preferred Michigan data series is se
 
 Mileage Logger is intended to run as a Docker Compose stack. It runs the complete stack:
 
-- PostgreSQL database.
+- Optional bundled PostgreSQL database, or a remote PostgreSQL database through `DATABASE_URL`.
 - FastAPI mileage app.
 - Web service reverse proxy on port `80`.
 - Daily gas price snapshot scheduler inside the app container.
@@ -139,6 +139,14 @@ unreachable. The limp-mode warning page shows PostgreSQL status plus the primary
 state and queued-payload totals. A malformed `DATABASE_URL` is treated as database unavailable so
 the app can still start in limp mode and accept buffered OwnTracks payloads while the environment
 value is corrected.
+
+Docker Swarm deployments use [docker-stack.yml](docker-stack.yml) instead of `docker-compose.yml`.
+Swarm cannot build images, use Compose profiles, or keep the normal Compose loopback-only port
+binding. Build/tag `APP_IMAGE` and `NGINX_IMAGE` first, set Swarm environment variables through
+Portainer or the shell, and deploy the base stack for remote PostgreSQL. Add
+[docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
+PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel
+origin service as `http://nginx` so cloudflared reaches nginx over the stack overlay network.
 
 OwnTracks HTTP mode should point at:
 

@@ -4,6 +4,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from mileage_logger.config import get_settings
+from mileage_logger.database_engine import normalized_database_url
 from mileage_logger.models import Base
 
 config = context.config
@@ -12,13 +13,14 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+database_url = normalized_database_url(settings.database_url)
+config.set_main_option("sqlalchemy.url", database_url)
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
