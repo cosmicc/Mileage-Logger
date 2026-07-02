@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 COMPOSE_FILE = Path("docker-compose.yml")
+DOCKER_ENV_FILE = Path(".env.docker.example")
 
 
 def _service_block(compose_text: str, service_name: str) -> str:
@@ -51,6 +52,22 @@ def test_app_container_requires_production_web_login_secrets() -> None:
     assert 'PASSKEY_RP_NAME: "${PASSKEY_RP_NAME:-Mileage Logger}"' in app_block
     assert 'PASSKEY_RP_ID: "${PASSKEY_RP_ID:-}"' in app_block
     assert 'PASSKEY_ORIGIN: "${PASSKEY_ORIGIN:-}"' in app_block
+
+
+def test_bundled_postgres_is_default_optional_compose_profile() -> None:
+    compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+    env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
+    postgres_block = _service_block(compose_text, "postgres")
+    app_block = _service_block(compose_text, "app")
+
+    assert 'profiles: ["local-postgres"]' in postgres_block
+    assert "COMPOSE_PROFILES=local-postgres" in env_text
+    assert (
+        'DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://'
+        'mileage:mileage@postgres:5432/mileage_logger}"'
+        in app_block
+    )
+    assert "depends_on" not in app_block
 
 
 def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:

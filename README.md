@@ -112,14 +112,15 @@ docker compose logs -f nginx
 docker compose down
 ```
 
-Database rows live in the Docker named volume `postgres_data`, mounted at
-`/var/lib/postgresql/data` inside the PostgreSQL container. Normal rebuilds such as
-`docker compose up -d --build` keep that volume. Do not use `docker compose down -v`, Docker volume
-prune, or a different Compose/Portainer stack name unless you have a verified backup and intend to
-move or recreate the database.
-The bundled PostgreSQL service remains the default database target. To use a central PostgreSQL
-server later, point `DATABASE_URL` at that server; the app startup and migrations wait on the
-configured URL instead of requiring the bundled local database container.
+With the default `COMPOSE_PROFILES=local-postgres` setting, database rows live in the Docker named
+volume `postgres_data`, mounted at `/var/lib/postgresql/data` inside the PostgreSQL container.
+Normal rebuilds such as `docker compose up -d --build` keep that volume. Do not use
+`docker compose down -v`, Docker volume prune, or a different Compose/Portainer stack name unless
+you have a verified backup and intend to move or recreate the local database.
+To use a central PostgreSQL server instead, set `COMPOSE_PROFILES=` and point `DATABASE_URL` at
+that server. The bundled `postgres` service is then not deployed, and the `POSTGRES_DB`,
+`POSTGRES_USER`, and `POSTGRES_PASSWORD` variables only matter if you enable the local PostgreSQL
+profile again. The app startup and migrations always wait on the configured `DATABASE_URL`.
 
 OwnTracks buffering is enabled by default. If PostgreSQL is unreachable when the container starts,
 the app starts in limp mode instead of exiting: browser pages show a single responsive database
@@ -429,6 +430,7 @@ container also runs the daily gas snapshot scheduler when `GAS_SNAPSHOT_ENABLED=
 Useful Docker environment options:
 
 ```env
+COMPOSE_PROFILES=local-postgres
 OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit

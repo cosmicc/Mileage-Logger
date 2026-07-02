@@ -11,6 +11,8 @@
 - Changed the PDF report title date to show the selected month name and year.
 - Added central PostgreSQL readiness by making app startup wait on the configured `DATABASE_URL`
   and exposing configurable PostgreSQL pool and timeout settings for network database deployments.
+- Added a default-on `local-postgres` Compose profile so installs can keep the bundled PostgreSQL
+  container or set `COMPOSE_PROFILES=` and use only a remote `DATABASE_URL`.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the
   configured PostgreSQL host is remote, plus primary and backup OwnTracks buffer availability with
   red/green status indicators.

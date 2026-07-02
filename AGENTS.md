@@ -399,20 +399,25 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
-- Uses `docker-compose.yml` with 4 services (postgres, app, nginx, cloudflared)
-- The bundled `postgres` service remains the default database target, but app startup and
-  migrations wait on the configured `DATABASE_URL` instead of depending on the bundled local
-  database container's health. This lets deployments point `DATABASE_URL` at a central network
-  PostgreSQL server while keeping the local service in the stack during transition.
+- Uses `docker-compose.yml` with app, nginx, cloudflared, and an optional default-on `postgres`
+  service behind the `local-postgres` Compose profile.
+- The bundled `postgres` service remains the default database target when
+  `COMPOSE_PROFILES=local-postgres`, but app startup and migrations wait on the configured
+  `DATABASE_URL` instead of depending on the bundled local database container's health. For a
+  central network PostgreSQL server, set `COMPOSE_PROFILES=` and point `DATABASE_URL` at that
+  server; `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` then only matter if the local
+  PostgreSQL profile is enabled again.
 - Runtime PostgreSQL connections use `pool_pre_ping` plus configurable pool size, overflow,
   timeout, recycle, and connect-timeout settings so remote database connections are reused and
   stale network connections are replaced safely.
 - Docker publishes the web service on `127.0.0.1:${HTTP_PORT:-80}`. The bundled `cloudflared` service uses
   host networking so Cloudflare Tunnel can target the loopback listener, such as
   `http://127.0.0.1:2082` when `HTTP_PORT=2082`.
-- PostgreSQL data is stored in the named `postgres_data` Docker volume and persists across normal
-  `docker compose up -d --build` rebuilds. Do not use `docker compose down -v`, prune volumes, or
-  change the Compose/Portainer stack name unless you have a verified backup and migration plan.
+- When `COMPOSE_PROFILES=local-postgres`, PostgreSQL data is stored in the named `postgres_data`
+  Docker volume and persists across normal `docker compose up -d --build` rebuilds. Do not use
+  `docker compose down -v`, prune volumes, or change the Compose/Portainer stack name unless you
+  have a verified backup and migration plan. Remote PostgreSQL deployments must be backed up and
+  maintained on the central database server.
 - Environment variables in `.env` control all configuration. Production Docker must have
   `SECRET_KEY`, `WEB_LOGIN_USERNAME`, and `WEB_LOGIN_PASSWORD` set; the app fails closed when
   production login credentials are missing or the session secret is still `change-me`. When web

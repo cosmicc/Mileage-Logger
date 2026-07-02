@@ -73,7 +73,7 @@ def downgrade() -> None:
 # Apply the migration
 docker compose run --rm app alembic upgrade head
 
-# Verify the field exists
+# Verify the field exists when using the bundled local PostgreSQL profile
 docker compose exec postgres psql -U mileage -d mileage_logger -c "\d trips"
 ```
 
@@ -209,7 +209,7 @@ def downgrade() -> None:
 
 ### View Table Structure
 
-Docker Compose PostgreSQL:
+Docker Compose PostgreSQL, when `COMPOSE_PROFILES=local-postgres` is enabled:
 ```bash
 # List all tables
 docker compose exec postgres psql -U mileage -d mileage_logger -c "\dt"
@@ -244,9 +244,10 @@ alembic upgrade head
 ```
 
 The entrypoint waits for the database configured by `DATABASE_URL`, not just the bundled Compose
-`postgres` container. The bundled PostgreSQL service is still the default deployment target, but a
-deployment can point `DATABASE_URL` at a central PostgreSQL server without removing the local
-service first. Runtime and startup checks share `mileage_logger.database_engine.database_engine_options()`
+`postgres` container. The bundled PostgreSQL service is still the default deployment target through
+`COMPOSE_PROFILES=local-postgres`, but a deployment can set `COMPOSE_PROFILES=` and point
+`DATABASE_URL` at a central PostgreSQL server so Compose does not deploy the local `postgres`
+service. Runtime and startup checks share `mileage_logger.database_engine.database_engine_options()`
 so PostgreSQL connections use `pool_pre_ping`, configurable pool size, overflow, pool timeout,
 pool recycle, connect timeout, and LIFO reuse for safer network database behavior.
 

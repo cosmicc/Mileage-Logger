@@ -2,7 +2,8 @@
 
 This app is intended to run as a Docker Compose stack on an Ubuntu server. The stack includes:
 
-- `postgres`: PostgreSQL database.
+- `postgres`: optional, default-on bundled PostgreSQL database through the `local-postgres`
+  Compose profile.
 - `app`: FastAPI mileage logger.
 - `nginx`: web service reverse proxy that serves the web app on HTTP port `80`.
 - `cloudflared`: Cloudflare Tunnel connector for public HTTPS access.
@@ -68,6 +69,10 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `POSTGRES_PASSWORD`
 - `OWNTRACKS_PASSWORD`
 - `OWNTRACKS_ENCRYPTION_KEY`
+
+The generated `.env` keeps `COMPOSE_PROFILES=local-postgres`, which deploys the bundled
+PostgreSQL container. For a central PostgreSQL server, set `COMPOSE_PROFILES=` and update
+`DATABASE_URL` before deploying.
 
 It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the web-login
 audit log file inside that directory, the persistent `HOST_OWNTRACKS_BUFFER_DIR`, and the optional
@@ -260,11 +265,11 @@ docker-compose.yml
 7. Change these required secret values before deploying:
    - `SECRET_KEY`
    - `WEB_API_KEY`
-   - `POSTGRES_PASSWORD`
    - `DATABASE_URL`
    - `OWNTRACKS_PASSWORD`
    - `OWNTRACKS_ENCRYPTION_KEY`
    - `CLOUDFLARED_TUNNEL_TOKEN`
+   - `POSTGRES_PASSWORD` when using the default bundled PostgreSQL profile
 8. Optional: set `WEB_ALLOWED_CIDRS` to restrict web UI access while keeping OwnTracks ingestion
    open.
 9. Deploy the stack.
@@ -276,15 +281,17 @@ POSTGRES_PASSWORD=your-db-password
 DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage_logger
 ```
 
-To use a central PostgreSQL server on your network later, leave the bundled `postgres` service in
-the stack until you are ready to remove it and change only `DATABASE_URL`, for example:
+To use a central PostgreSQL server on your network, set `COMPOSE_PROFILES=` so Compose skips the
+bundled `postgres` service, then point `DATABASE_URL` at the remote server:
 
 ```env
+COMPOSE_PROFILES=
 DATABASE_URL=postgresql+psycopg://mileage:your-db-password@central-db-host:5432/mileage_logger
 ```
 
-The app waits for and runs migrations against the configured `DATABASE_URL`. The bundled local
-PostgreSQL container can keep running unused during the transition. For a network database, tune
+The app waits for and runs migrations against the configured `DATABASE_URL`. When
+`COMPOSE_PROFILES=` is blank, `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` are ignored by
+Compose because the bundled PostgreSQL container is not deployed. For a network database, tune
 `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`,
 `DATABASE_POOL_RECYCLE_SECONDS`, `DATABASE_CONNECT_TIMEOUT_SECONDS`, and `DB_WAIT_TIMEOUT_SECONDS`
 only if the central server or network latency requires different limits.
@@ -734,7 +741,7 @@ View logs:
 ```bash
 docker compose logs -f app
 docker compose logs -f nginx
-docker compose logs -f postgres
+docker compose logs -f postgres  # only when COMPOSE_PROFILES=local-postgres
 ```
 
 Restart:
@@ -749,9 +756,10 @@ Stop:
 docker compose down
 ```
 
-`docker compose down` stops and removes containers but keeps the named PostgreSQL volume. Do not
-run `docker compose down -v` or Docker volume prune unless you have a verified full backup and
-intend to delete the database.
+`docker compose down` stops and removes containers but keeps named volumes. When
+`COMPOSE_PROFILES=local-postgres`, that includes the named PostgreSQL volume. Do not run
+`docker compose down -v` or Docker volume prune unless you have a verified full backup and intend
+to delete local persisted data.
 
 Update from GitHub:
 
@@ -760,10 +768,11 @@ git pull
 docker compose up -d --build
 ```
 
-Normal rebuilds keep database rows because PostgreSQL stores data in the named Docker volume
-`postgres_data` mounted at `/var/lib/postgresql/data`. In Portainer, keep the same stack name when
-redeploying; changing the Compose project or stack name can make Docker create a different
-`postgres_data` volume and look like a fresh install.
+With the default `local-postgres` profile, normal rebuilds keep database rows because PostgreSQL
+stores data in the named Docker volume `postgres_data` mounted at `/var/lib/postgresql/data`. In
+Portainer, keep the same stack name when redeploying; changing the Compose project or stack name
+can make Docker create a different `postgres_data` volume and look like a fresh install. Remote
+PostgreSQL deployments should back up and maintain the database on the central database server.
 
 ## Backups
 
@@ -781,14 +790,16 @@ backups, lists retained automatic backups, and can restore a selected file after
 `RESTORE`. Retention keeps the newest 4 recent automatic backups plus one daily backup for each of
 the prior 2 days.
 
-Back up PostgreSQL:
+Back up the bundled PostgreSQL container:
 
 ```bash
 docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > mileage_logger.sql
 ```
 
-The in-app backup is the preferred quick recovery file for this application. `pg_dump` remains
-useful for low-level PostgreSQL administration or migration outside the app.
+This command only applies when `COMPOSE_PROFILES=local-postgres`. For remote PostgreSQL,
+run `pg_dump` or your preferred backup process on the central database server. The in-app backup is
+the preferred quick recovery file for this application. `pg_dump` remains useful for low-level
+PostgreSQL administration or migration outside the app.
 
 Volume names may differ if your Compose project name is not `mileage-logger`. Check with:
 
