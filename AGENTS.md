@@ -326,7 +326,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   warning page instead of the loading shell. Content fetches such as `/dashboard/content` and
   `/trips/content` must return only the limp-mode panel fragment so the shell does not nest a
   second top bar. While the full limp-mode page is active, keep Home as the only clickable top
-  navigation control.
+  navigation control. The full outage page is end-user facing, uses the `Service Temporarily
+  Unavailable` heading, and refreshes automatically; fetched panel fragments must not include the
+  reload script.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs

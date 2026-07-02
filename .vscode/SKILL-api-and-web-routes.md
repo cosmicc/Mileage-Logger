@@ -133,7 +133,9 @@ limp-mode page instead of their normal loading shells during an outage. JavaScri
 must receive only `web/templates/_limp_mode_panel.html` so the fetched HTML can replace the shell
 without nesting another `layout.html` top bar. While `limp_mode_active` is set, the shared top
 navigation keeps Home clickable and renders Work Trips, Waypoints, Diagnostics, and Logout as
-disabled controls.
+disabled controls. The full outage page uses the end-user facing `Service Temporarily Unavailable`
+heading and a timed reload so it can reconnect automatically when the service returns; fragment
+responses must not include the reload script.
 OwnTracks ingestion remains the exception during limp mode: HTTP and MQTT payloads go through
 `ingest_or_buffer_owntracks_payload()`, which writes to the primary buffer or to the local fallback
 buffer if the primary path is unavailable. Do not write new OwnTracks ingestion routes directly to

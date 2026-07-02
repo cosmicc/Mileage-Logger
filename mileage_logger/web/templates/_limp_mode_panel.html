@@ -1,10 +1,10 @@
 <section class="limp-mode-shell" aria-labelledby="limp-mode-title">
   <div class="limp-mode-panel">
-    <span class="pill warning">Limp Mode</span>
-    <h1 id="limp-mode-title">Database Unreachable</h1>
+    <h1 id="limp-mode-title">Service Temporarily Unavailable</h1>
     <p>
-      Mileage Logger cannot reach the configured PostgreSQL database. Web data, reports, manual
-      changes, and diagnostics are paused until the database connection returns.
+      The application is currently offline. This page will refresh automatically and reconnect
+      when the service is available again. Web data, reports, manual changes, and diagnostics are
+      paused until the database connection returns.
     </p>
     <dl class="limp-mode-status">
       <div>
@@ -21,11 +21,11 @@
         <dt>OwnTracks Intake</dt>
         <dd>Accepting and buffering</dd>
       </div>
-      <div>
+      <div class="limp-mode-status-queued">
         <dt>Queued OwnTracks Payloads</dt>
         <dd>{{ buffer_stats.queued_count }}</dd>
       </div>
-      <div>
+      <div class="limp-mode-buffer-card">
         <dt>Primary Buffer</dt>
         <dd>
           {% if runtime_status.primary_buffer.available %}
@@ -42,7 +42,7 @@
           {% endif %}
         </dd>
       </div>
-      <div>
+      <div class="limp-mode-buffer-card">
         <dt>Backup Buffer</dt>
         <dd>
           {% if runtime_status.backup_buffer.available %}

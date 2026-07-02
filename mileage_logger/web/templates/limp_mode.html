@@ -1,4 +1,9 @@
 {% extends "layout.html" %}
 {% block content %}
 {% include "_limp_mode_panel.html" %}
+<script>
+  window.setTimeout(() => {
+    window.location.reload();
+  }, 30000);
+</script>
 {% endblock %}

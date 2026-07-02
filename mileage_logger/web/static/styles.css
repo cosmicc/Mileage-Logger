@@ -376,8 +376,11 @@ p {
 }
 
 .limp-mode-panel h1 {
-  margin-top: 12px;
+  margin-top: 0;
   margin-bottom: 10px;
+  font-size: clamp(16px, 5vw, 36px);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .limp-mode-status {
@@ -393,6 +396,10 @@ p {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(17, 16, 14, 0.32);
+}
+
+.limp-mode-status-queued {
+  grid-column: 1 / -1;
 }
 
 .limp-mode-status dt {
@@ -1664,10 +1671,17 @@ td input[type="text"] {
 
 @media (max-width: 560px) {
   .distance-grid,
-  .limp-mode-status,
   .stats-grid,
   .trips-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .limp-mode-panel {
+    padding: 18px 12px;
+  }
+
+  .limp-mode-status {
+    gap: 8px;
   }
 
   .form-row {

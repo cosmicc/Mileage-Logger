@@ -161,8 +161,13 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
 
         assert response.status_code == 200
         assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
-        assert "Limp Mode" in response.text
-        assert "Database Unreachable" in response.text
+        assert "Limp Mode" not in response.text
+        assert "Database Unreachable" not in response.text
+        assert "Service Temporarily Unavailable" in response.text
+        assert "The application is currently offline." in response.text
+        assert "This page will refresh automatically and reconnect" in response.text
+        assert "window.location.reload()" in response.text
+        assert "}, 30000);" in response.text
         assert response.text.count('<header class="topbar">') == 1
         assert "PostgreSQL Server" in response.text
         assert "Remote PostgreSQL - db.internal" in response.text
@@ -170,6 +175,10 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert "Queued OwnTracks Payloads" in response.text
         assert "Primary Buffer" in response.text
         assert "Backup Buffer" in response.text
+        assert 'class="limp-mode-status-queued"' in response.text
+        assert response.text.count('class="limp-mode-buffer-card"') == 2
+        assert "font-size: clamp(16px, 5vw, 36px);" in response.text
+        assert ".limp-mode-status-queued {\n  grid-column: 1 / -1;" in response.text
         assert "2 queued" in response.text
         assert "1 queued" in response.text
         assert "status-dot bad" in response.text
@@ -205,7 +214,11 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
 
         assert response.status_code == 200
         assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
-        assert "Database Unreachable" in response.text
+        assert "Service Temporarily Unavailable" in response.text
+        assert "The application is currently offline." in response.text
+        assert "Database Unreachable" not in response.text
+        assert "Limp Mode" not in response.text
+        assert "window.location.reload()" not in response.text
         assert '<header class="topbar">' not in response.text
         assert "<!doctype html>" not in response.text
         assert response.text.count('class="limp-mode-shell"') == 1
