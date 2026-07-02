@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="980" viewBox="0 0 1400 980" role="img" aria-labelledby="title desc">
+  <title id="title">Mileage Logger color palette samples</title>
+  <desc id="desc">Theme palette choices for Mileage Logger, including the current app palette and candidate alternatives.</desc>
+  <defs>
+    <style>
+      .page { fill: #f6f5f1; }
+      .title { fill: #151515; font: 800 36px Inter, Arial, sans-serif; }
+      .subtitle { fill: #50545a; font: 500 18px Inter, Arial, sans-serif; }
+      .card-title { fill: #151515; font: 800 23px Inter, Arial, sans-serif; }
+      .card-note { fill: #50545a; font: 500 14px Inter, Arial, sans-serif; }
+      .swatch-label { fill: #2d3137; font: 700 12px Inter, Arial, sans-serif; }
+      .swatch-hex { fill: #50545a; font: 500 12px Inter, Arial, sans-serif; }
+      .chip-text-light { fill: #ffffff; font: 800 13px Inter, Arial, sans-serif; }
+      .chip-text-dark { fill: #111827; font: 800 13px Inter, Arial, sans-serif; }
+      .card { fill: #ffffff; stroke: #d7d4ca; stroke-width: 1.2; }
+      .sample-label { font: 700 12px Inter, Arial, sans-serif; }
+    </style>
+  </defs>
+  <rect class="page" x="0" y="0" width="1400" height="980"/>
+  <text class="title" x="54" y="60">Mileage Logger Color Palette Samples</text>
+  <text class="subtitle" x="54" y="94">These are selection samples only. The active app palette is unchanged until one option is approved.</text>
+
+  <g transform="translate(54 130)">
+    <rect class="card" x="0" y="0" width="404" height="235" rx="8"/>
+    <text class="card-title" x="22" y="38">A. Current App Palette</text>
+    <text class="card-note" x="22" y="64">Warm dark neutral with blue actions and gold warning.</text>
+    <rect x="22" y="86" width="66" height="66" rx="6" fill="#11100e"/>
+    <rect x="94" y="86" width="66" height="66" rx="6" fill="#1f1d19"/>
+    <rect x="166" y="86" width="66" height="66" rx="6" fill="#3b352c"/>
+    <rect x="238" y="86" width="66" height="66" rx="6" fill="#3b82f6"/>
+    <rect x="310" y="86" width="66" height="66" rx="6" fill="#e2ad45"/>
+    <text class="swatch-label" x="22" y="171">Bg</text><text class="swatch-hex" x="22" y="189">#11100e</text>
+    <text class="swatch-label" x="94" y="171">Surface</text><text class="swatch-hex" x="94" y="189">#1f1d19</text>
+    <text class="swatch-label" x="166" y="171">Line</text><text class="swatch-hex" x="166" y="189">#3b352c</text>
+    <text class="swatch-label" x="238" y="171">Action</text><text class="swatch-hex" x="238" y="189">#3b82f6</text>
+    <text class="swatch-label" x="310" y="171">Warn</text><text class="swatch-hex" x="310" y="189">#e2ad45</text>
+    <rect x="22" y="204" width="150" height="18" rx="9" fill="#3b82f6"/><text class="chip-text-light" x="43" y="218">Primary action</text>
+    <rect x="190" y="204" width="150" height="18" rx="9" fill="#28241f"/><text class="chip-text-light" x="216" y="218">Panel surface</text>
+  </g>
+
+  <g transform="translate(498 130)">
+    <rect class="card" x="0" y="0" width="404" height="235" rx="8"/>
+    <text class="card-title" x="22" y="38">B. Night Dispatch</text>
+    <text class="card-note" x="22" y="64">Charcoal base with teal actions and amber status.</text>
+    <rect x="22" y="86" width="66" height="66" rx="6" fill="#101315"/>
+    <rect x="94" y="86" width="66" height="66" rx="6" fill="#1b2225"/>
+    <rect x="166" y="86" width="66" height="66" rx="6" fill="#334147"/>
+    <rect x="238" y="86" width="66" height="66" rx="6" fill="#2dd4bf"/>
+    <rect x="310" y="86" width="66" height="66" rx="6" fill="#f59e0b"/>
+    <text class="swatch-label" x="22" y="171">Bg</text><text class="swatch-hex" x="22" y="189">#101315</text>
+    <text class="swatch-label" x="94" y="171">Surface</text><text class="swatch-hex" x="94" y="189">#1b2225</text>
+    <text class="swatch-label" x="166" y="171">Line</text><text class="swatch-hex" x="166" y="189">#334147</text>
+    <text class="swatch-label" x="238" y="171">Action</text><text class="swatch-hex" x="238" y="189">#2dd4bf</text>
+    <text class="swatch-label" x="310" y="171">Warn</text><text class="swatch-hex" x="310" y="189">#f59e0b</text>
+    <rect x="22" y="204" width="150" height="18" rx="9" fill="#2dd4bf"/><text class="chip-text-dark" x="44" y="218">Primary action</text>
+    <rect x="190" y="204" width="150" height="18" rx="9" fill="#1b2225"/><text class="chip-text-light" x="216" y="218">Panel surface</text>
+  </g>
+
+  <g transform="translate(942 130)">
+    <rect class="card" x="0" y="0" width="404" height="235" rx="8"/>
+    <text class="card-title" x="22" y="38">C. Graphite Lime</text>
+    <text class="card-note" x="22" y="64">Neutral graphite with clear lime action controls.</text>
+    <rect x="22" y="86" width="66" height="66" rx="6" fill="#111315"/>
+    <rect x="94" y="86" width="66" height="66" rx="6" fill="#1c2024"/>
+    <rect x="166" y="86" width="66" height="66" rx="6" fill="#343a40"/>
+    <rect x="238" y="86" width="66" height="66" rx="6" fill="#84cc16"/>
+    <rect x="310" y="86" width="66" height="66" rx="6" fill="#fbbf24"/>
+    <text class="swatch-label" x="22" y="171">Bg</text><text class="swatch-hex" x="22" y="189">#111315</text>
+    <text class="swatch-label" x="94" y="171">Surface</text><text class="swatch-hex" x="94" y="189">#1c2024</text>
+    <text class="swatch-label" x="166" y="171">Line</text><text class="swatch-hex" x="166" y="189">#343a40</text>
+    <text class="swatch-label" x="238" y="171">Action</text><text class="swatch-hex" x="238" y="189">#84cc16</text>
+    <text class="swatch-label" x="310" y="171">Warn</text><text class="swatch-hex" x="310" y="189">#fbbf24</text>
+    <rect x="22" y="204" width="150" height="18" rx="9" fill="#84cc16"/><text class="chip-text-dark" x="44" y="218">Primary action</text>
+    <rect x="190" y="204" width="150" height="18" rx="9" fill="#1c2024"/><text class="chip-text-light" x="216" y="218">Panel surface</text>
+  </g>
+
+  <g transform="translate(54 405)">
+    <rect class="card" x="0" y="0" width="404" height="235" rx="8"/>
+    <text class="card-title" x="22" y="38">D. Forest Console</text>
+    <text class="card-note" x="22" y="64">Deep green-black interface with bright status colors.</text>
+    <rect x="22" y="86" width="66" height="66" rx="6" fill="#101412"/>
+    <rect x="94" y="86" width="66" height="66" rx="6" fill="#1a221e"/>
+    <rect x="166" y="86" width="66" height="66" rx="6" fill="#324238"/>
+    <rect x="238" y="86" width="66" height="66" rx="6" fill="#22c55e"/>
+    <rect x="310" y="86" width="66" height="66" rx="6" fill="#f59e0b"/>
+    <text class="swatch-label" x="22" y="171">Bg</text><text class="swatch-hex" x="22" y="189">#101412</text>
+    <text class="swatch-label" x="94" y="171">Surface</text><text class="swatch-hex" x="94" y="189">#1a221e</text>
+    <text class="swatch-label" x="166" y="171">Line</text><text class="swatch-hex" x="166" y="189">#324238</text>
+    <text class="swatch-label" x="238" y="171">Action</text><text class="swatch-hex" x="238" y="189">#22c55e</text>
+    <text class="swatch-label" x="310" y="171">Warn</text><text class="swatch-hex" x="310" y="189">#f59e0b</text>
+    <rect x="22" y="204" width="150" height="18" rx="9" fill="#22c55e"/><text class="chip-text-dark" x="44" y="218">Primary action</text>
+    <rect x="190" y="204" width="150" height="18" rx="9" fill="#1a221e"/><text class="chip-text-light" x="216" y="218">Panel surface</text>
+  </g>
+
+  <g transform="translate(498 405)">
+    <rect class="card" x="0" y="0" width="404" height="235" rx="8"/>
+    <text class="card-title" x="22" y="38">E. Light Operations</text>
+    <text class="card-note" x="22" y="64">Bright daylight option with blue actions and green success.</text>
+    <rect x="22" y="86" width="66" height="66" rx="6" fill="#f7f7f2"/>
+    <rect x="94" y="86" width="66" height="66" rx="6" fill="#ffffff"/>
+    <rect x="166" y="86" width="66" height="66" rx="6" fill="#d8d6cc"/>
+    <rect x="238" y="86" width="66" height="66" rx="6" fill="#2563eb"/>
+    <rect x="310" y="86" width="66" height="66" rx="6" fill="#b7791f"/>
+    <text class="swatch-label" x="22" y="171">Bg</text><text class="swatch-hex" x="22" y="189">#f7f7f2</text>
+    <text class="swatch-label" x="94" y="171">Surface</text><text class="swatch-hex" x="94" y="189">#ffffff</text>
+    <text class="swatch-label" x="166" y="171">Line</text><text class="swatch-hex" x="166" y="189">#d8d6cc</text>
+    <text class="swatch-label" x="238" y="171">Action</text><text class="swatch-hex" x="238" y="189">#2563eb</text>
+    <text class="swatch-label" x="310" y="171">Warn</text><text class="swatch-hex" x="310" y="189">#b7791f</text>
+    <rect x="22" y="204" width="150" height="18" rx="9" fill="#2563eb"/><text class="chip-text-light" x="44" y="218">Primary action</text>
+    <rect x="190" y="204" width="150" height="18" rx="9" fill="#ffffff" stroke="#d8d6cc"/><text class="chip-text-dark" x="216" y="218">Panel surface</text>
+  </g>
+
+  <g transform="translate(942 405)">
+    <rect class="card" x="0" y="0" width="404" height="235" rx="8"/>
+    <text class="card-title" x="22" y="38">F. Clean Industrial</text>
+    <text class="card-note" x="22" y="64">Dark neutral with cyan actions and coral danger states.</text>
+    <rect x="22" y="86" width="66" height="66" rx="6" fill="#121212"/>
+    <rect x="94" y="86" width="66" height="66" rx="6" fill="#202426"/>
+    <rect x="166" y="86" width="66" height="66" rx="6" fill="#3d474c"/>
+    <rect x="238" y="86" width="66" height="66" rx="6" fill="#06b6d4"/>
+    <rect x="310" y="86" width="66" height="66" rx="6" fill="#fb7185"/>
+    <text class="swatch-label" x="22" y="171">Bg</text><text class="swatch-hex" x="22" y="189">#121212</text>
+    <text class="swatch-label" x="94" y="171">Surface</text><text class="swatch-hex" x="94" y="189">#202426</text>
+    <text class="swatch-label" x="166" y="171">Line</text><text class="swatch-hex" x="166" y="189">#3d474c</text>
+    <text class="swatch-label" x="238" y="171">Action</text><text class="swatch-hex" x="238" y="189">#06b6d4</text>
+    <text class="swatch-label" x="310" y="171">Danger</text><text class="swatch-hex" x="310" y="189">#fb7185</text>
+    <rect x="22" y="204" width="150" height="18" rx="9" fill="#06b6d4"/><text class="chip-text-dark" x="44" y="218">Primary action</text>
+    <rect x="190" y="204" width="150" height="18" rx="9" fill="#202426"/><text class="chip-text-light" x="216" y="218">Panel surface</text>
+  </g>
+
+  <g transform="translate(54 710)">
+    <text class="card-title" x="0" y="0">Notes for implementation</text>
+    <text class="subtitle" x="0" y="34">Current palette variables live in mileage_logger/web/static/styles.css. Matching surfaces also exist in deploy/nginx/error-pages, the web manifest, and the app icon.</text>
+    <text class="subtitle" x="0" y="64">Pick one option before any CSS theme change. Keep contrast high for repeated operational use and preserve semantic warning, danger, and success states.</text>
+  </g>
+</svg>

@@ -25,6 +25,9 @@ PDF_REPORT_PAGE_SIZE = LETTER
 PDF_REPORT_HORIZONTAL_MARGIN = 0.35 * inch
 PDF_REPORT_VERTICAL_MARGIN = 0.35 * inch
 PDF_TRIP_TABLE_COLUMN_WIDTHS = [65, 145, 145, 75, 75, 50]
+PDF_TITLE_TO_IDENTITY_SPACER = 0
+PDF_IDENTITY_TO_TABLE_SPACER = 6
+PDF_TITLE_TO_TABLE_SPACER = 6
 
 
 @dataclass(frozen=True)
@@ -147,6 +150,12 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         fontSize=7,
         leading=8.5,
     )
+    report_title = ParagraphStyle(
+        "ReportTitle",
+        parent=styles["Title"],
+        spaceBefore=0,
+        spaceAfter=0,
+    )
     report_identity = ParagraphStyle(
         "ReportIdentity",
         parent=styles["BodyText"],
@@ -165,22 +174,22 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         bottomMargin=PDF_REPORT_VERTICAL_MARGIN,
     )
     story = [
-        Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
+        Paragraph(f"Mileage Log - {year}-{month:02d}", report_title),
     ]
     report_display_name = settings.report_display_name.strip()
     if report_display_name:
         story.extend(
             [
-                Spacer(1, 4),
+                Spacer(1, PDF_TITLE_TO_IDENTITY_SPACER),
                 Paragraph(
                     f"<b>Submitted by:</b> {_paragraph_text(report_display_name)}",
                     report_identity,
                 ),
-                Spacer(1, 12),
+                Spacer(1, PDF_IDENTITY_TO_TABLE_SPACER),
             ]
         )
     else:
-        story.append(Spacer(1, 16))
+        story.append(Spacer(1, PDF_TITLE_TO_TABLE_SPACER))
 
     trip_rows = [["Date", "From", "To", "Start Odometer", "End Odometer", "Trip Mi"]]
     for row in report_rows:

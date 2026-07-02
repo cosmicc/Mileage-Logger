@@ -250,6 +250,10 @@ curl -X POST http://localhost:8000/api/owntracks \
   login page free of shared top navigation, keep the mobile viewport non-edge-to-edge, and preserve
   the manifest browser fallback so phone system navigation remains visible. The brand icon/text is
   display-only and not a home link.
+- The active app color palette lives in `mileage_logger/web/static/styles.css`. Palette samples are
+  saved in `docs/design/color-palettes.svg`; Option A is the current palette. Do not apply a new
+  palette until the user chooses one. Palette changes must keep `styles.css`, nginx error pages,
+  `theme-color` metadata, `manifest.webmanifest`, and the app icon visually coordinated.
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.
@@ -584,7 +588,8 @@ Monthly PDF downloads use `REPORT_DISPLAY_NAME` only as an optional header ident
 download filename and out of reimbursement calculations.
 Keep generated PDF reports in portrait letter layout unless the user explicitly requests another
 page orientation. The portrait report uses condensed margins so the trip table has more usable
-width and height.
+width and height. Keep the title, optional submitted-by identity line, and trip table tightly
+stacked at the top of the report.
 
 ### Redirects
 

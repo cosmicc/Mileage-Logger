@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.2.4 - 2026-07-02
+## [1.2.5] - Unreleased
+
+- Bumped the Mileage Logger package version to 1.2.5.
+- Fixed changelog headings to use bracketed version labels and `MM.DD.YYYY` release dates.
+- Added a saved color palette sample sheet for choosing a future app theme.
+- Tightened the PDF report header spacing so the title starts directly below the top margin, the
+  submitted-by line sits closer to the title, and the trip table starts closer to the header.
+
+## [1.2.4] - 07.02.2026
 
 - Bumped the Mileage Logger package version to 1.2.4.
 - Removed the ID column from the Diagnostics Recent OwnTracks Entries table.
@@ -27,7 +35,7 @@
   rolling odometer checkpoint; only OwnTracks location processing and manual odometer entries move
   that checkpoint.
 
-## 1.2.3 - 2026-06-30
+## [1.2.3] - 06.30.2026
 
 - Bumped the Mileage Logger package version to 1.2.3.
 - Changed visible Trips labels to Work Trips and visible non-trip labels to Non-Work Trips.
@@ -56,7 +64,7 @@
 - Changed Dashboard top statistic and distance cards to use the same compact card sizing as the
   Work Trips selected-month cards on full-width layouts while preserving mobile card stacking.
 
-## 1.2.2 - 2026-06-29
+## [1.2.2] - 06.29.2026
 
 - Bumped the Mileage Logger package version to 1.2.2.
 - Changed the Dashboard home card order so Location State is the first card shown.
@@ -76,7 +84,7 @@
   desktop showing icons beside labels, mobile using compact icons, and unauthenticated login views
   keeping no top nav.
 
-## 1.2.1 - 2026-06-27
+## [1.2.1] - 06.27.2026
 
 - Bumped the Mileage Logger package version to 1.2.1.
 - Added a lightweight Dashboard loading shell so direct homepage loads show a loading message while
@@ -126,7 +134,7 @@
 - Changed CI Docker Compose validation to use `.env.docker.example` through `--env-file` with a
   dummy tunnel token instead of leaving a production `.env` file behind before tests.
 
-## 1.2.0 - 2026-06-24
+## [1.2.0] - 06.24.2026
 
 - Changed desktop navigation links to use the same boxed button treatment as Logout.
 - Changed the mobile web-app shell so the top navigation buttons span the full width, the mobile
@@ -141,7 +149,7 @@
   trip over older prior-trip odometers, then calculate the end odometer from that start plus the
   generated trip distance.
 
-## 1.1.4 - 2026-06-23
+## [1.1.4] - 06.23.2026
 
 - Changed Diagnostics hard drive space grouping to combine configured runtime paths only when exact
   used bytes and total bytes match.

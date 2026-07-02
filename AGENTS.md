@@ -131,6 +131,8 @@ docker compose up -d --build
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates portrait PDF with trip table and condensed margins for report content
+- Keeps the PDF title directly below the top margin with compact spacing between the title,
+  optional submitted-by line, and trip table
 - Adds optional `REPORT_DISPLAY_NAME` identification under the title as `Submitted by:` when the
   deployment setting is configured
 - Shows start/end odometers, miles, and location names
@@ -202,6 +204,22 @@ docker compose up -d --build
   `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `WEB_API_KEY`,
   `OWNTRACKS_ENCRYPTION_KEY`, `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
+
+### Visual Design and Color Palette
+- The active app palette is defined with CSS variables in
+  [styles.css](mileage_logger/web/static/styles.css).
+- Saved palette samples live in [docs/design/color-palettes.svg](docs/design/color-palettes.svg).
+  Option A is the current app palette; the other options are proposals only.
+- Do not change the active palette until the user chooses one. When a palette is applied, keep
+  `styles.css`, the bundled nginx error pages, `theme-color` metadata, `manifest.webmanifest`, and
+  the app icon visually coordinated.
+- Keep palette changes high contrast and operational: preserve readable body text, visible form
+  controls, and distinct warning, danger, success, and primary-action colors.
+
+### Changelog Format
+- `CHANGELOG.md` release headings use bracketed version labels and `MM.DD.YYYY` release dates,
+  such as `## [1.2.4] - 07.02.2026`.
+- Keep the active development section as `## [x.y.z] - Unreleased` until that version is released.
 
 ---
 
