@@ -327,8 +327,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   `/trips/content` must return only the limp-mode panel fragment so the shell does not nest a
   second top bar. While the full limp-mode page is active, keep Home as the only clickable top
   navigation control. The full outage page is end-user facing, uses the `Service Temporarily
-  Unavailable` heading, and refreshes automatically; fetched panel fragments must not include the
-  reload script.
+  Unavailable` heading, and keeps retrying `/login` so the login page appears when service returns;
+  fetched panel fragments must not include the retry script.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs

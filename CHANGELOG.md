@@ -24,7 +24,7 @@
   limp-mode warning panel instead of nesting a second top bar, and disabled non-Home navigation
   while the limp-mode page is active.
 - Changed the database-outage warning page to use a larger `Service Temporarily Unavailable`
-  heading, refreshed explanatory text, a 30-second automatic refresh, and side-by-side primary and
+  heading, refreshed explanatory text, a 30-second login-page retry, and side-by-side primary and
   backup buffer cards.
 - Expanded `.env.docker.example` comments so Docker and Portainer configuration variables are
   easier to understand before deployment.

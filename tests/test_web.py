@@ -165,8 +165,9 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert "Database Unreachable" not in response.text
         assert "Service Temporarily Unavailable" in response.text
         assert "The application is currently offline." in response.text
-        assert "This page will refresh automatically and reconnect" in response.text
-        assert "window.location.reload()" in response.text
+        assert "This page will keep trying the login page" in response.text
+        assert 'window.location.replace("/login")' in response.text
+        assert "window.location.reload()" not in response.text
         assert "}, 30000);" in response.text
         assert response.text.count('<header class="topbar">') == 1
         assert "PostgreSQL Server" in response.text
@@ -218,6 +219,7 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
         assert "The application is currently offline." in response.text
         assert "Database Unreachable" not in response.text
         assert "Limp Mode" not in response.text
+        assert 'window.location.replace("/login")' not in response.text
         assert "window.location.reload()" not in response.text
         assert '<header class="topbar">' not in response.text
         assert "<!doctype html>" not in response.text
