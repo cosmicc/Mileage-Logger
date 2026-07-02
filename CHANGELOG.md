@@ -20,6 +20,9 @@
 - Added Docker Swarm stack files for remote PostgreSQL and optional bundled PostgreSQL deployments.
 - Added an app healthcheck start period so Docker Swarm does not restart the app while startup is
   waiting for PostgreSQL before entering OwnTracks buffer limp mode.
+- Fixed database-outage web rendering so Dashboard and Work Trips content fetches receive only the
+  limp-mode warning panel instead of nesting a second top bar, and disabled non-Home navigation
+  while the limp-mode page is active.
 - Expanded `.env.docker.example` comments so Docker and Portainer configuration variables are
   easier to understand before deployment.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the

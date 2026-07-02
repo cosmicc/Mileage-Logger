@@ -28,6 +28,7 @@
         <span>Mileage Logger</span>
       </div>
       {% if request is defined and request_is_authenticated(request) %}
+      {% set nav_disabled = limp_mode_active | default(false) %}
       <div class="topbar-actions">
         <nav aria-label="Primary navigation">
           <a class="nav-link nav-link-home" href="/" aria-label="Home" title="Home">
@@ -38,6 +39,17 @@
             </svg>
             <span class="nav-label">Home</span>
           </a>
+          {% if nav_disabled %}
+          <span class="nav-link nav-link-trips nav-link-disabled" role="link" aria-disabled="true" aria-label="Work Trips unavailable" title="Work Trips unavailable while database is unreachable">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 17h12l-1.5-5h-9L6 17Z"></path>
+              <path d="M8 12l1.2-3h5.6L16 12"></path>
+              <circle cx="8" cy="18" r="1.6"></circle>
+              <circle cx="16" cy="18" r="1.6"></circle>
+            </svg>
+            <span class="nav-label">Work Trips</span>
+          </span>
+          {% else %}
           <a class="nav-link nav-link-trips" href="/trips" aria-label="Work Trips" title="Work Trips">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6 17h12l-1.5-5h-9L6 17Z"></path>
@@ -47,6 +59,16 @@
             </svg>
             <span class="nav-label">Work Trips</span>
           </a>
+          {% endif %}
+          {% if nav_disabled %}
+          <span class="nav-link nav-link-waypoints nav-link-disabled" role="link" aria-disabled="true" aria-label="Waypoints unavailable" title="Waypoints unavailable while database is unreachable">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 21s6-5.4 6-11a6 6 0 0 0-12 0c0 5.6 6 11 6 11Z"></path>
+              <circle cx="12" cy="10" r="2.2"></circle>
+            </svg>
+            <span class="nav-label">Waypoints</span>
+          </span>
+          {% else %}
           <a class="nav-link nav-link-waypoints" href="/waypoints" aria-label="Waypoints" title="Waypoints">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 21s6-5.4 6-11a6 6 0 0 0-12 0c0 5.6 6 11 6 11Z"></path>
@@ -54,13 +76,33 @@
             </svg>
             <span class="nav-label">Waypoints</span>
           </a>
+          {% endif %}
+          {% if nav_disabled %}
+          <span class="nav-link nav-link-diagnostics nav-link-disabled" role="link" aria-disabled="true" aria-label="Diagnostics unavailable" title="Diagnostics unavailable while database is unreachable">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 12h4l2-6 4 12 2-6h6"></path>
+            </svg>
+            <span class="nav-label">Diagnostics</span>
+          </span>
+          {% else %}
           <a class="nav-link nav-link-diagnostics" href="/diagnostics" aria-label="Diagnostics" title="Diagnostics">
             <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 12h4l2-6 4 12 2-6h6"></path>
             </svg>
             <span class="nav-label">Diagnostics</span>
           </a>
+          {% endif %}
           {% if web_login_enabled() %}
+          {% if nav_disabled %}
+          <span class="nav-logout nav-link-disabled" role="button" aria-disabled="true" aria-label="Logout unavailable" title="Logout unavailable while database is unreachable">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 17l5-5-5-5"></path>
+              <path d="M15 12H3"></path>
+              <path d="M21 19V5a2 2 0 0 0-2-2h-5"></path>
+            </svg>
+            <span class="nav-label">Logout</span>
+          </span>
+          {% else %}
           <form action="/logout" method="post" class="nav-form">
             <button type="submit" class="nav-logout" aria-label="Logout" title="Logout">
               <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -71,6 +113,7 @@
               <span class="nav-label">Logout</span>
             </button>
           </form>
+          {% endif %}
           {% endif %}
         </nav>
       </div>

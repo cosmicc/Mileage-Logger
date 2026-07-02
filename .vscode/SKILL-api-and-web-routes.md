@@ -128,6 +128,12 @@ and returns HTTP 200 with `X-Mileage-Logger-Limp-Mode: true` so nginx does not r
 generic 503 page. Non-OwnTracks API paths return 503 JSON during limp mode. The limp-mode page
 uses `mileage_logger.services.runtime_status.build_runtime_status()` so it can show PostgreSQL
 availability plus primary and backup buffer state/counts without querying PostgreSQL.
+Full-page Dashboard and Work Trips requests preflight PostgreSQL reachability and render the
+limp-mode page instead of their normal loading shells during an outage. JavaScript content fetches
+must receive only `web/templates/_limp_mode_panel.html` so the fetched HTML can replace the shell
+without nesting another `layout.html` top bar. While `limp_mode_active` is set, the shared top
+navigation keeps Home clickable and renders Work Trips, Waypoints, Diagnostics, and Logout as
+disabled controls.
 OwnTracks ingestion remains the exception during limp mode: HTTP and MQTT payloads go through
 `ingest_or_buffer_owntracks_payload()`, which writes to the primary buffer or to the local fallback
 buffer if the primary path is unavailable. Do not write new OwnTracks ingestion routes directly to

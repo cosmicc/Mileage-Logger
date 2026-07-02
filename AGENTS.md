@@ -322,6 +322,11 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - The Dashboard root route renders a lightweight loading shell first. The expensive Dashboard
   summary queries render through `/dashboard/content`, which is fetched by the shell so direct
   homepage loads show a loading message before calculations finish.
+- During PostgreSQL outages, full-page Dashboard and Work Trips loads should render the limp-mode
+  warning page instead of the loading shell. Content fetches such as `/dashboard/content` and
+  `/trips/content` must return only the limp-mode panel fragment so the shell does not nest a
+  second top bar. While the full limp-mode page is active, keep Home as the only clickable top
+  navigation control.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs

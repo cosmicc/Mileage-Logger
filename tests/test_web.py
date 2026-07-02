@@ -163,6 +163,7 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
         assert "Limp Mode" in response.text
         assert "Database Unreachable" in response.text
+        assert response.text.count('<header class="topbar">') == 1
         assert "PostgreSQL Server" in response.text
         assert "Remote PostgreSQL - db.internal" in response.text
         assert "Accepting and buffering" in response.text
@@ -175,6 +176,104 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert "status-dot good" in response.text
         assert "3" in response.text
     finally:
+        app.dependency_overrides.clear()
+
+
+def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
+        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
+    )
+
+    def offline_get_db():
+        raise OperationalError("SELECT 1", {}, Exception("database offline"))
+        yield
+
+    runtime_status = _runtime_status(database_available=False)
+    monkeypatch.setattr("mileage_logger.app.settings", settings)
+    monkeypatch.setattr(
+        "mileage_logger.app.build_runtime_status",
+        lambda _settings, *, database_available: runtime_status,
+    )
+    app.dependency_overrides[get_db] = offline_get_db
+    try:
+        response = TestClient(app).get(
+            "/dashboard/content",
+            headers={"X-Requested-With": "fetch"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
+        assert "Database Unreachable" in response.text
+        assert '<header class="topbar">' not in response.text
+        assert "<!doctype html>" not in response.text
+        assert response.text.count('class="limp-mode-shell"') == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_database_outage_limp_mode_nav_disables_non_home_links(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    FAILED_LOGIN_ATTEMPTS.clear()
+    login_failure_log_path = tmp_path / "login-failures.log"
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+        login_failure_log_path=str(login_failure_log_path),
+        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
+        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
+    )
+    runtime_status = _runtime_status(database_available=False)
+    monkeypatch.setattr("mileage_logger.app.settings", settings)
+    monkeypatch.setattr(
+        "mileage_logger.app.build_runtime_status",
+        lambda _settings, *, database_available: runtime_status,
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+
+    def offline_get_db():
+        raise OperationalError("SELECT 1", {}, Exception("database offline"))
+        yield
+
+    client, _ = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "next_url": "/",
+            },
+            follow_redirects=False,
+        )
+        app.dependency_overrides[get_db] = offline_get_db
+        response = client.get("/")
+
+        assert login_response.status_code == 303
+        assert response.status_code == 200
+        assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
+        assert response.text.count('<header class="topbar">') == 1
+        assert (
+            '<a class="nav-link nav-link-home" href="/" aria-label="Home" title="Home">'
+            in response.text
+        )
+        assert 'href="/trips"' not in response.text
+        assert 'href="/waypoints"' not in response.text
+        assert 'href="/diagnostics"' not in response.text
+        assert 'action="/logout"' not in response.text
+        assert '<span class="nav-link nav-link-trips nav-link-disabled"' in response.text
+        assert '<span class="nav-link nav-link-waypoints nav-link-disabled"' in response.text
+        assert '<span class="nav-link nav-link-diagnostics nav-link-disabled"' in response.text
+        assert '<span class="nav-logout nav-link-disabled"' in response.text
+        assert 'aria-disabled="true"' in response.text
+    finally:
+        FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 

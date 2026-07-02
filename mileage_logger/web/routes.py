@@ -1600,8 +1600,15 @@ def _dashboard_template_context(db: Session) -> dict:
     }
 
 
+def _assert_shell_database_available(db: Session) -> None:
+    """Force lightweight shell routes to fail into limp mode when PostgreSQL is offline."""
+
+    db.execute(text("SELECT 1"))
+
+
 @router.get("/", response_class=HTMLResponse)
-def dashboard(request: Request) -> HTMLResponse:
+def dashboard(request: Request, db: Session = Depends(get_db)) -> HTMLResponse:
+    _assert_shell_database_available(db)
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -1624,7 +1631,9 @@ def trips(
     year: int | None = None,
     month: int | None = None,
     selected_month: str | None = Query(default=None),
+    db: Session = Depends(get_db),
 ) -> HTMLResponse:
+    _assert_shell_database_available(db)
     year, month = _resolve_selected_trips_month(
         year=year,
         month=month,

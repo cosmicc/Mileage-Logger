@@ -80,6 +80,30 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 
+def _is_limp_mode_fragment_request(request: Request) -> bool:
+    """Return true when JavaScript content loaders expect an HTML fragment."""
+
+    return request.headers.get("x-requested-with", "").casefold() == "fetch"
+
+
+def _limp_mode_template_response(request: Request, *, fragment: bool):
+    """Build a database-outage response without querying PostgreSQL."""
+
+    runtime_status = build_runtime_status(settings, database_available=False)
+    template_name = "_limp_mode_panel.html" if fragment else "limp_mode.html"
+    return templates.TemplateResponse(
+        request,
+        template_name,
+        {
+            "settings": settings,
+            "buffer_stats": runtime_status.buffer_stats,
+            "runtime_status": runtime_status,
+            "limp_mode_active": True,
+        },
+        headers={"X-Mileage-Logger-Limp-Mode": "true"},
+    )
+
+
 @app.middleware("http")
 async def database_limp_mode(request: Request, call_next):
     try:
@@ -99,16 +123,9 @@ async def database_limp_mode(request: Request, call_next):
                 status_code=503,
                 headers={"X-Mileage-Logger-Limp-Mode": "true"},
             )
-        runtime_status = build_runtime_status(settings, database_available=False)
-        return templates.TemplateResponse(
+        return _limp_mode_template_response(
             request,
-            "limp_mode.html",
-            {
-                "settings": settings,
-                "buffer_stats": runtime_status.buffer_stats,
-                "runtime_status": runtime_status,
-            },
-            headers={"X-Mileage-Logger-Limp-Mode": "true"},
+            fragment=_is_limp_mode_fragment_request(request),
         )
 
 

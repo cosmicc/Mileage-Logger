@@ -105,7 +105,7 @@ nav {
   gap: 8px;
 }
 
-nav a {
+nav .nav-link {
   --nav-mobile-bg: linear-gradient(180deg, #3b82f6, #1d4ed8);
   --nav-mobile-border: rgba(147, 197, 253, 0.62);
   --nav-mobile-color: #f8fbff;
@@ -173,7 +173,7 @@ nav a {
   stroke-width: 2;
 }
 
-nav a:hover {
+nav .nav-link:not(.nav-link-disabled):hover {
   border-color: var(--nav-mobile-border);
   background: var(--nav-mobile-bg);
   color: var(--nav-mobile-color);
@@ -181,7 +181,7 @@ nav a:hover {
   transform: translateY(-1px);
 }
 
-nav a:active {
+nav .nav-link:not(.nav-link-disabled):active {
   box-shadow:
     0 2px 0 var(--nav-mobile-press-shadow),
     0 6px 16px var(--nav-mobile-shadow);
@@ -242,6 +242,13 @@ nav a:active {
     0 6px 16px var(--nav-mobile-shadow);
   filter: brightness(1.08);
   transform: translateY(3px);
+}
+
+.nav-link-disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+  opacity: 0.46;
+  pointer-events: none;
 }
 
 .page {
@@ -1543,8 +1550,9 @@ td input[type="text"] {
     padding: 0;
   }
 
-  nav a,
-  .nav-form {
+  nav .nav-link,
+  .nav-form,
+  .nav-logout.nav-link-disabled {
     flex: 0 1 clamp(46px, 14vw, 58px);
     min-width: 0;
   }
@@ -1553,7 +1561,7 @@ td input[type="text"] {
     display: flex;
   }
 
-  nav a,
+  nav .nav-link,
   .nav-logout {
     display: inline-flex;
     position: relative;
@@ -1575,8 +1583,8 @@ td input[type="text"] {
     white-space: nowrap;
   }
 
-  nav a:hover,
-  .nav-logout:hover {
+  nav .nav-link:not(.nav-link-disabled):hover,
+  .nav-logout:not(.nav-link-disabled):hover {
     border-color: var(--nav-mobile-border);
     background: var(--nav-mobile-bg);
     color: var(--nav-mobile-color);
