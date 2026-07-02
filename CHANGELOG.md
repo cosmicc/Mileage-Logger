@@ -13,6 +13,8 @@
   and exposing configurable PostgreSQL pool and timeout settings for network database deployments.
 - Added a default-on `local-postgres` Compose profile so installs can keep the bundled PostgreSQL
   container or set `COMPOSE_PROFILES=` and use only a remote `DATABASE_URL`.
+- Fixed malformed `DATABASE_URL` startup handling so the app can still enter OwnTracks buffer limp
+  mode instead of crashing during import, and documented URL-encoding database passwords.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the
   configured PostgreSQL host is remote, plus primary and backup OwnTracks buffer availability with
   red/green status indicators.

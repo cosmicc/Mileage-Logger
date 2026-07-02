@@ -295,6 +295,9 @@ Compose because the bundled PostgreSQL container is not deployed. For a network 
 `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`,
 `DATABASE_POOL_RECYCLE_SECONDS`, `DATABASE_CONNECT_TIMEOUT_SECONDS`, and `DB_WAIT_TIMEOUT_SECONDS`
 only if the central server or network latency requires different limits.
+If the database password contains URL-reserved characters, encode it before adding it to
+`DATABASE_URL`; for example, `@` becomes `%40`, `:` becomes `%3A`, `/` becomes `%2F`, and `%`
+becomes `%25`.
 
 OwnTracks outage buffering is enabled by default. If the configured database is unreachable at
 startup, Docker starts the app in limp mode instead of stopping the container. Browser pages show a
@@ -851,3 +854,17 @@ docker compose up -d
 If the web UI returns `403 Forbidden`, your client IP does not match `WEB_ALLOWED_CIDRS`.
 OwnTracks ingestion endpoints should still be reachable; other public `/api/` routes are
 intentionally blocked by the web service.
+
+If app logs show `Could not parse SQLAlchemy URL from given URL string`, the `DATABASE_URL` value
+is malformed. Check that it uses the SQLAlchemy PostgreSQL form and that the password is
+URL-encoded:
+
+```env
+DATABASE_URL=postgresql+psycopg://db_user:url_encoded_password@db-host:5432/database_name
+```
+
+You can encode a password without printing any other secrets:
+
+```bash
+python3 -c 'from urllib.parse import quote; import getpass; print(quote(getpass.getpass(), safe=""))'
+```

@@ -1,4 +1,13 @@
+from sqlalchemy import text
+from sqlalchemy.orm import sessionmaker
+
 from mileage_logger.config import Settings
+from mileage_logger.database import (
+    DatabaseConfigurationError,
+    UnavailableDatabaseEngine,
+    create_configured_engine,
+    is_database_unavailable_error,
+)
 from mileage_logger.database_engine import database_engine_options
 
 
@@ -34,3 +43,32 @@ def test_sqlite_engine_options_skip_postgresql_pool_arguments() -> None:
     )
 
     assert database_engine_options(settings) == {"pool_pre_ping": True}
+
+
+def test_invalid_database_url_creates_unavailable_engine() -> None:
+    settings = Settings(database_url="not a url")
+
+    engine = create_configured_engine(settings)
+
+    assert isinstance(engine, UnavailableDatabaseEngine)
+    try:
+        engine.connect()
+    except DatabaseConfigurationError as exc:
+        assert is_database_unavailable_error(exc)
+        assert "Invalid DATABASE_URL configuration" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("Invalid DATABASE_URL should not create a live engine")
+
+
+def test_invalid_database_url_session_error_is_classified_unavailable() -> None:
+    settings = Settings(database_url="not a url")
+    engine = create_configured_engine(settings)
+    session_factory = sessionmaker(bind=engine)
+
+    try:
+        with session_factory() as db:
+            db.execute(text("SELECT 1"))
+    except DatabaseConfigurationError as exc:
+        assert is_database_unavailable_error(exc)
+    else:  # pragma: no cover
+        raise AssertionError("Invalid DATABASE_URL session should fail as unavailable")

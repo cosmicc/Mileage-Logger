@@ -250,6 +250,10 @@ The entrypoint waits for the database configured by `DATABASE_URL`, not just the
 service. Runtime and startup checks share `mileage_logger.database_engine.database_engine_options()`
 so PostgreSQL connections use `pool_pre_ping`, configurable pool size, overflow, pool timeout,
 pool recycle, connect timeout, and LIFO reuse for safer network database behavior.
+Malformed `DATABASE_URL` values should be treated as database unavailable instead of crashing app
+import, so OwnTracks buffer limp mode can still start. When documenting or testing remote database
+setup, remind operators to URL-encode passwords that contain reserved characters such as `@`, `:`,
+`/`, or `%`.
 
 If the database is unavailable at startup and `OWNTRACKS_BUFFER_ENABLED=true`, the entrypoint
 starts the app in OwnTracks buffer limp mode instead of exiting. This is intentional so the app can

@@ -8,6 +8,7 @@ import sys
 import time
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import ArgumentError
 
 from mileage_logger.config import Settings
 from mileage_logger.database_engine import database_engine_options
@@ -23,6 +24,8 @@ while time.time() < deadline:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         raise SystemExit(0)
+    except ArgumentError as exc:
+        raise SystemExit(f"Database URL is invalid: {exc}") from exc
     except Exception as exc:
         last_error = exc
         time.sleep(2)

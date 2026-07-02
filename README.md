@@ -120,7 +120,9 @@ you have a verified backup and intend to move or recreate the local database.
 To use a central PostgreSQL server instead, set `COMPOSE_PROFILES=` and point `DATABASE_URL` at
 that server. The bundled `postgres` service is then not deployed, and the `POSTGRES_DB`,
 `POSTGRES_USER`, and `POSTGRES_PASSWORD` variables only matter if you enable the local PostgreSQL
-profile again. The app startup and migrations always wait on the configured `DATABASE_URL`.
+profile again. The app startup and migrations always wait on the configured `DATABASE_URL`. If the
+database password contains URL-reserved characters, encode it before adding it to `DATABASE_URL`.
+For example, `@` becomes `%40`.
 
 OwnTracks buffering is enabled by default. If PostgreSQL is unreachable when the container starts,
 the app starts in limp mode instead of exiting: browser pages show a single responsive database
@@ -134,7 +136,9 @@ still down only when the app observed the primary buffer fail before the databas
 the app waits for both queues so payloads replay in receive order. Automatic trip processing, gas
 snapshots, and automatic backups pause their database-writing passes while PostgreSQL is
 unreachable. The limp-mode warning page shows PostgreSQL status plus the primary and backup buffer
-state and queued-payload totals.
+state and queued-payload totals. A malformed `DATABASE_URL` is treated as database unavailable so
+the app can still start in limp mode and accept buffered OwnTracks payloads while the environment
+value is corrected.
 
 OwnTracks HTTP mode should point at:
 

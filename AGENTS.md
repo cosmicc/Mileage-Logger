@@ -406,7 +406,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   `DATABASE_URL` instead of depending on the bundled local database container's health. For a
   central network PostgreSQL server, set `COMPOSE_PROFILES=` and point `DATABASE_URL` at that
   server; `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` then only matter if the local
-  PostgreSQL profile is enabled again.
+  PostgreSQL profile is enabled again. Invalid or unparseable `DATABASE_URL` values must not crash
+  app import; they should be classified as database unavailable so OwnTracks buffer limp mode can
+  start while the environment value is corrected.
 - Runtime PostgreSQL connections use `pool_pre_ping` plus configurable pool size, overflow,
   timeout, recycle, and connect-timeout settings so remote database connections are reused and
   stale network connections are replaced safely.
@@ -475,6 +477,10 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 6. **Buffer Ordering**: When any OwnTracks payload is buffered, later OwnTracks HTTP or MQTT
    payloads must keep entering the persistent buffer until replay drains it. This prevents newer
    points from being stored before older outage-time points.
+
+7. **Remote Database URLs**: SQLAlchemy database URLs require URL-encoded passwords when reserved
+   characters are present. For example, encode `@` as `%40`, `:` as `%3A`, `/` as `%2F`, and `%` as
+   `%25` before placing the password in `DATABASE_URL`.
 
 ---
 
