@@ -285,7 +285,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   `Showing June 2026 (06/2026)` style text under the Work Trips title.
 - The Work Trips page shows compact selected-month summary cards between the month selector line
   and Add Work Trip. Keep the cards scoped to the selected month: work trips plus non-work trips,
-  work trips only, OwnTracks events, work trip count, reimbursement, and monthly average gas.
+  work trips only, OwnTracks events, work trip count, reimbursement, and monthly average gas. Use
+  comma thousands separators for large displayed summary totals while keeping form input values
+  unformatted.
 - The Trips root route renders a lightweight loading shell first. The selected-month cards,
   Add Work Trip form, work trip rows, and deleted-trip rows render through `/trips/content`, which
   is fetched by the shell so direct Work Trips loads show a loading message before month
@@ -303,7 +305,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   The month starts at midnight on the first day in `LOCAL_TIMEZONE` (default America/Detroit), and
   month rollover must not delete prior-month trips, OwnTracks rows, gas price records, or derived
   app data. Monthly OwnTracks summary rollups preserve selected-month web totals and event counts
-  after raw OwnTracks location/event rows are purged.
+  after raw OwnTracks location/event rows are purged. Dashboard summary cards use comma thousands
+  separators for large displayed totals.
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
   Display the card's reimbursement gallons at one decimal place.
@@ -371,11 +374,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    Space. Keep the group at three cards per row on desktop and one card per row on mobile. The
    System Status card shows PostgreSQL availability plus local/remote placement and primary/backup
    OwnTracks buffer availability with red/green indicator dots. The Data card shows raw record
-   counts plus lowest, current, current-month average, and highest gas price readings; keep the
-   low/high values based on raw gas price snapshots and the monthly average based on the current
-   app-local month. The detailed OwnTracks state-change log and recent OwnTracks database entries
-   are paginated in compact 10-row pages with the same mobile full-width pagination row used by the
-   login and Cloudflare block lists.
+   counts plus lowest, current, current-month average, and highest gas price readings; format large
+   displayed counts with comma thousands separators, keep the low/high values based on raw gas
+   price snapshots, and keep the monthly average based on the current app-local month. The detailed
+   OwnTracks state-change log and recent OwnTracks database entries are paginated in compact 10-row
+   pages with the same mobile full-width pagination row used by the login and Cloudflare block
+   lists.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
    readable event labels instead of the database row ID, raw receive timestamps, battery level, or
    MQTT topic details.

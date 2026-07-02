@@ -20,20 +20,20 @@
   </div>
   <div class="stat">
     <span>OwnTracks Events</span>
-    <strong>{{ location_count }}</strong>
+    <strong>{{ location_count|comma_number }}</strong>
   </div>
   <div class="stat">
     <span>Work Trips</span>
-    <strong>{{ trip_count }}</strong>
+    <strong>{{ trip_count|comma_number }}</strong>
   </div>
   <div class="stat">
     <span>Month Reimbursement</span>
-    <strong>{% if reimbursement_summary.total is not none %}${{ "%.2f"|format(reimbursement_summary.total) }}{% else %}N/A{% endif %}</strong>
-    <small>{{ reimbursement_summary.reimbursement_gallons_display }} reimbursement gallons</small>
+    <strong>{% if reimbursement_summary.total is not none %}${{ reimbursement_summary.total|comma_number(2) }}{% else %}N/A{% endif %}</strong>
+    <small>{{ reimbursement_summary.reimbursement_gallons_display|comma_number(1) }} reimbursement gallons</small>
   </div>
   <div class="stat">
     <span>MI Monthly Avg Gas</span>
-    <strong>{% if monthly_gas %}${{ "%.3f"|format(monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
+    <strong>{% if monthly_gas %}${{ monthly_gas.average_price_per_gallon|comma_number(3) }}{% else %}N/A{% endif %}</strong>
   </div>
   <div class="stat">
     <span>Last Odometer</span>
@@ -54,7 +54,7 @@
   <div class="distance-card distance-card-primary">
     <div>
       <span>Today</span>
-      <strong>{{ "%.1f"|format(distance_summary.today_total) }}</strong>
+      <strong>{{ distance_summary.today_total|comma_number(1) }}</strong>
       <small>Work Trips + Non-Work Trips</small>
     </div>
     <span class="distance-unit">mi</span>
@@ -62,7 +62,7 @@
   <div class="distance-card">
     <div>
       <span>Today</span>
-      <strong>{{ "%.1f"|format(distance_summary.today_trips) }}</strong>
+      <strong>{{ distance_summary.today_trips|comma_number(1) }}</strong>
       <small>Work Trips only</small>
     </div>
     <span class="distance-unit">mi</span>
@@ -70,7 +70,7 @@
   <div class="distance-card distance-card-primary">
     <div>
       <span>This Month</span>
-      <strong>{{ "%.1f"|format(distance_summary.month_total) }}</strong>
+      <strong>{{ distance_summary.month_total|comma_number(1) }}</strong>
       <small>Work Trips + Non-Work Trips</small>
     </div>
     <span class="distance-unit">mi</span>
@@ -78,7 +78,7 @@
   <div class="distance-card">
     <div>
       <span>This Month</span>
-      <strong>{{ "%.1f"|format(distance_summary.month_trips) }}</strong>
+      <strong>{{ distance_summary.month_trips|comma_number(1) }}</strong>
       <small>Work Trips only</small>
     </div>
     <span class="distance-unit">mi</span>
@@ -112,7 +112,7 @@
           <span>{{ trip.end_odometer_miles|odometer }}</span>
           <small>{% if trip.end_odometer_miles is not none %}{{ (trip.end_odometer_source or trip.mileage_source)|odometer_source }}{% else %}-{% endif %}</small>
         </td>
-        <td>{{ "%.1f"|format(trip.miles) }}</td>
+        <td>{{ trip.miles|comma_number(1) }}</td>
       </tr>
       {% else %}
       <tr><td colspan="6">No work trips generated yet.</td></tr>

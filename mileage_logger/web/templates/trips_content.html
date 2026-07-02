@@ -28,32 +28,32 @@
 <section class="trips-summary-grid" aria-label="Selected month summary">
   <div class="trip-summary-card trip-summary-card-primary">
     <span>Month Work Trips + Non-Work Trips</span>
-    <strong>{{ "%.1f"|format(trips_summary.month_total) }}</strong>
+    <strong>{{ trips_summary.month_total|comma_number(1) }}</strong>
     <small>mi selected month</small>
   </div>
   <div class="trip-summary-card">
     <span>Month Work Trips Only</span>
-    <strong>{{ "%.1f"|format(trips_summary.month_trips) }}</strong>
+    <strong>{{ trips_summary.month_trips|comma_number(1) }}</strong>
     <small>mi reviewed work trips</small>
   </div>
   <div class="trip-summary-card">
     <span>OwnTracks Events</span>
-    <strong>{{ trips_summary.owntracks_event_count }}</strong>
+    <strong>{{ trips_summary.owntracks_event_count|comma_number }}</strong>
     <small>captured this month</small>
   </div>
   <div class="trip-summary-card">
     <span>Work Trips</span>
-    <strong>{{ trips_summary.trip_count }}</strong>
+    <strong>{{ trips_summary.trip_count|comma_number }}</strong>
     <small>shown below</small>
   </div>
   <div class="trip-summary-card">
     <span>Month Reimbursement</span>
-    <strong>{% if trips_summary.reimbursement.total is not none %}${{ "%.2f"|format(trips_summary.reimbursement.total) }}{% else %}N/A{% endif %}</strong>
-    <small>{{ trips_summary.reimbursement.reimbursement_gallons_display }} reimbursement gallons</small>
+    <strong>{% if trips_summary.reimbursement.total is not none %}${{ trips_summary.reimbursement.total|comma_number(2) }}{% else %}N/A{% endif %}</strong>
+    <small>{{ trips_summary.reimbursement.reimbursement_gallons_display|comma_number(1) }} reimbursement gallons</small>
   </div>
   <div class="trip-summary-card">
     <span>Monthly Avg Gas</span>
-    <strong>{% if trips_summary.monthly_gas %}${{ "%.3f"|format(trips_summary.monthly_gas.average_price_per_gallon) }}{% else %}N/A{% endif %}</strong>
+    <strong>{% if trips_summary.monthly_gas %}${{ trips_summary.monthly_gas.average_price_per_gallon|comma_number(3) }}{% else %}N/A{% endif %}</strong>
     <small>{% if trips_summary.monthly_gas %}{{ trips_summary.monthly_gas.state }} regular{% else %}{{ trips_summary.monthly_gas_message }}{% endif %}</small>
   </div>
 </section>
@@ -182,7 +182,7 @@
         <td>{{ suppressed_trip.destination_name or "-" }}</td>
         <td>{{ suppressed_trip.started_at|local_datetime }}</td>
         <td>{{ suppressed_trip.ended_at|local_datetime }}</td>
-        <td>{% if suppressed_trip.miles is not none %}{{ "%.1f"|format(suppressed_trip.miles) }}{% else %}-{% endif %}</td>
+        <td>{% if suppressed_trip.miles is not none %}{{ suppressed_trip.miles|comma_number(1) }}{% else %}-{% endif %}</td>
         <td>{{ suppressed_trip.deleted_at|local_datetime }}</td>
         <td>
           <form action="/trips/suppression/{{ suppressed_trip.id }}/delete" method="post">

@@ -144,7 +144,21 @@ def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
 def _format_odometer(value) -> str:
     if value is None:
         return "-"
-    return f"{Decimal(value):.1f}"
+    return f"{Decimal(value):,.1f}"
+
+
+def _format_comma_number(value, decimal_places: int | None = None) -> str:
+    """Return a display-only number with thousands separators."""
+
+    if value is None:
+        return "-"
+    numeric_value = Decimal(str(value))
+    if decimal_places is None:
+        if numeric_value == numeric_value.to_integral_value():
+            return f"{int(numeric_value):,}"
+        return f"{numeric_value:,}"
+    places = max(int(decimal_places), 0)
+    return f"{numeric_value:,.{places}f}"
 
 
 def _format_truncated_one_decimal(value: Decimal) -> str:
@@ -172,6 +186,7 @@ def _format_odometer_source(value) -> str:
 
 templates.env.filters["local_datetime"] = _format_local_datetime
 templates.env.filters["odometer"] = _format_odometer
+templates.env.filters["comma_number"] = _format_comma_number
 templates.env.filters["odometer_source"] = _format_odometer_source
 templates.env.filters["owntracks_entry_event_label"] = owntracks_entry_event_label
 templates.env.filters["owntracks_entry_received_delay"] = owntracks_entry_received_delay_display
@@ -904,7 +919,9 @@ def _diagnostic_database_summary(
 def _format_gas_price(price_per_gallon: Decimal | None) -> str:
     """Format an optional per-gallon gas price for Diagnostics display."""
 
-    return f"${price_per_gallon:.3f}" if price_per_gallon is not None else "None"
+    if price_per_gallon is None:
+        return "None"
+    return f"${_format_comma_number(price_per_gallon, 3)}"
 
 
 def _diagnostic_gas_price_extremes(db: Session) -> DiagnosticGasPriceExtremes:

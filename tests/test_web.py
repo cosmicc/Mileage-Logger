@@ -63,6 +63,7 @@ from mileage_logger.web.routes import (
     _diagnostic_database_summary,
     _diagnostic_disk_usages,
     _diagnostic_gas_price_extremes,
+    _format_comma_number,
     _human_duration_since,
     templates,
 )
@@ -370,6 +371,16 @@ def _html_section(html: str, start_marker: str, end_marker: str | None = None) -
         return html[start:]
     end = html.index(end_marker, start)
     return html[start:end]
+
+
+def test_comma_number_filter_formats_large_display_values() -> None:
+    assert _format_comma_number(999) == "999"
+    assert _format_comma_number(1_000) == "1,000"
+    assert _format_comma_number(10_000) == "10,000"
+    assert _format_comma_number(100_000) == "100,000"
+    assert _format_comma_number(1_000_000) == "1,000,000"
+    assert _format_comma_number(Decimal("12345.678"), 1) == "12,345.7"
+    assert _format_comma_number(Decimal("12345.678"), 2) == "12,345.68"
 
 
 def _location(
@@ -1487,6 +1498,75 @@ def test_dashboard_count_cards_reset_at_detroit_month_boundary(monkeypatch) -> N
         ) in stats_section
     finally:
         app.dependency_overrides.clear()
+
+
+def test_dashboard_top_cards_format_large_numbers_with_commas() -> None:
+    rendered = templates.env.get_template("dashboard_content.html").render(
+        {
+            "year": 2026,
+            "month": 6,
+            "location_count": 12_345,
+            "trip_count": 1_234,
+            "distance_summary": {
+                "today_total": Decimal("10001.2"),
+                "today_trips": Decimal("9999.9"),
+                "today_non_trips": Decimal("1.3"),
+                "month_total": Decimal("123456.7"),
+                "month_trips": Decimal("23456.7"),
+                "month_non_trips": Decimal("100000.0"),
+            },
+            "reimbursement_summary": {
+                "total": Decimal("12345.67"),
+                "total_miles": Decimal("98765.4"),
+                "reimbursement_gallons": Decimal("1234.56"),
+                "reimbursement_gallons_display": "1234.5",
+            },
+            "location_state": {
+                "state": "travel",
+                "label": "Driving",
+                "detail": "Last movement 1.0 miles",
+            },
+            "latest_odometer": {
+                "value": Decimal("12345.6"),
+                "source": "owntracks_estimate",
+                "position": "Rolling",
+                "recorded_at": datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+            },
+            "recent_trips": [],
+            "monthly_gas": SimpleNamespace(average_price_per_gallon=Decimal("1234.567")),
+            "app_local_datetime": datetime(
+                2026,
+                6,
+                16,
+                9,
+                30,
+                tzinfo=ZoneInfo("America/Detroit"),
+            ),
+            "app_timezone": "America/Detroit",
+            "app_timezone_abbr": "EDT",
+        }
+    )
+
+    stats_section = _html_section(
+        rendered,
+        '<section class="stats-grid">',
+        '<section class="distance-grid"',
+    )
+    distance_section = _html_section(
+        rendered,
+        '<section class="distance-grid"',
+        '<section class="panel">',
+    )
+    assert "<strong>12,345</strong>" in stats_section
+    assert "<strong>1,234</strong>" in stats_section
+    assert "$12,345.67" in stats_section
+    assert "1,234.5 reimbursement gallons" in stats_section
+    assert "$1,234.567" in stats_section
+    assert "12,345.6" in stats_section
+    assert "<strong>10,001.2</strong>" in distance_section
+    assert "<strong>9,999.9</strong>" in distance_section
+    assert "<strong>123,456.7</strong>" in distance_section
+    assert "<strong>23,456.7</strong>" in distance_section
 
 
 def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch) -> None:
@@ -3709,8 +3789,8 @@ def test_diagnostics_shows_travel_state_change_outside_waypoints(monkeypatch) ->
         assert "Movement threshold" in state_section
         assert "2 min" in state_section
         assert "3 min" in state_section
-        assert "1000.2 miles" in state_section
-        assert "1001.3 miles" in state_section
+        assert "1,000.2 miles" in state_section
+        assert "1,001.3 miles" in state_section
     finally:
         app.dependency_overrides.clear()
 
@@ -3979,6 +4059,53 @@ def test_trips_page_shows_selected_month_summary_cards() -> None:
         assert "MI regular" in summary_section
     finally:
         app.dependency_overrides.clear()
+
+
+def test_trips_top_cards_format_large_numbers_with_commas() -> None:
+    rendered = templates.env.get_template("trips_content.html").render(
+        {
+            "selected_month_display": "Showing June 2026 (06/2026)",
+            "selected_month_value": "2026-06",
+            "year": 2026,
+            "month": 6,
+            "today": date(2026, 6, 16),
+            "trips_summary": {
+                "month_total": Decimal("123456.7"),
+                "month_trips": Decimal("23456.7"),
+                "month_non_trips": Decimal("100000.0"),
+                "owntracks_event_count": 12_345,
+                "trip_count": 1_234,
+                "reimbursement": {
+                    "total": Decimal("12345.67"),
+                    "total_miles": Decimal("98765.4"),
+                    "reimbursement_gallons": Decimal("1234.56"),
+                    "reimbursement_gallons_display": "1234.5",
+                },
+                "monthly_gas": SimpleNamespace(
+                    state="MI",
+                    average_price_per_gallon=Decimal("1234.567"),
+                ),
+                "monthly_gas_message": "",
+            },
+            "waypoints": [],
+            "waypoint_names": [],
+            "trips": [],
+            "suppressed_trips": [],
+        }
+    )
+
+    summary_section = _html_section(
+        rendered,
+        '<section class="trips-summary-grid"',
+        '<section class="panel">',
+    )
+    assert "<strong>123,456.7</strong>" in summary_section
+    assert "<strong>23,456.7</strong>" in summary_section
+    assert "<strong>12,345</strong>" in summary_section
+    assert "<strong>1,234</strong>" in summary_section
+    assert "$12,345.67" in summary_section
+    assert "1,234.5 reimbursement gallons" in summary_section
+    assert "$1,234.567" in summary_section
 
 
 def test_trips_page_uses_owntracks_monthly_summary_after_raw_rows_are_purged() -> None:
@@ -4340,7 +4467,7 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
         assert response.status_code == 200
         assert "Manual Odometer" in response.text
         assert "Pass" in response.text
-        assert "12345.7 miles" in response.text
+        assert "12,345.7 miles" in response.text
         assert "Manual" in response.text
         with session_factory() as db:
             checkpoint = db.scalar(
@@ -4362,10 +4489,10 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "app_version": __version__,
             "database_url": "sqlite://",
             "runtime_status": _runtime_status(),
-            "location_count": 0,
-            "site_count": 0,
-            "trip_count": 0,
-            "gas_snapshot_count": 0,
+            "location_count": 1_234,
+            "site_count": 10_000,
+            "trip_count": 100_000,
+            "gas_snapshot_count": 1_000_000,
             "gas_price_extremes": SimpleNamespace(
                 lowest_display="None",
                 current_display="None",
@@ -4479,7 +4606,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     manual_card_end = rendered.index("<h2>EIA API</h2>")
     manual_card = rendered[manual_card_start:manual_card_end]
     assert "Current Odometer" in manual_card
-    assert "43210.4 miles" in manual_card
+    assert "43,210.4 miles" in manual_card
     assert "OwnTracks estimate" in manual_card
     assert "Rolling" in manual_card
 
@@ -4519,6 +4646,10 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "status-dot good" in status_card
     assert "Data" in api_tests_section
     data_card = rendered[data_card_start:latest_records_start]
+    assert "1,234" in data_card
+    assert "10,000" in data_card
+    assert "100,000" in data_card
+    assert "1,000,000" in data_card
     assert "Lowest Queried Gas Price" not in data_card
     assert "Highest Queried Gas Price" not in data_card
     assert "Lowest Gas Price" in data_card

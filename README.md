@@ -385,7 +385,8 @@ The Dashboard current-month reimbursement card uses the same trip-mile total, re
 gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
 displayed gallons limited to one decimal place. Dashboard top statistic and distance cards use the
 same compact sizing as the Work Trips selected-month cards on full-width layouts, while mobile
-keeps each card on its own row.
+keeps each card on its own row. Dashboard and Work Trips summary cards use comma thousands
+separators for large displayed totals.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. The top Diagnostics cards are
 grouped together in this order: Application, System Status, Data, Latest Records, OwnTracks State,
@@ -393,9 +394,10 @@ Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop th
 cards per row. The System Status card shows PostgreSQL reachability, whether the configured
 PostgreSQL host is remote, and primary/backup OwnTracks buffer availability with red/green
 indicator dots. The Data card includes lowest, current, current-month average, and highest gas
-price readings. Diagnostics also shows hard drive space for key runtime paths with
-used-space bars, combining paths into one row when their exact used space and total capacity
-match, and includes current database size plus total app record count at the bottom of the card.
+price readings and comma-formatted large record counts. Diagnostics also shows hard drive space
+for key runtime paths with used-space bars, combining paths into one row when their exact used
+space and total capacity match, and includes current database size plus total app record count at
+the bottom of the card.
 Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
