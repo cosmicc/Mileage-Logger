@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     eia_api_key: str = ""
     eia_series_id: str = ""
     vehicle_mpg: Decimal = Field(default=Decimal("25.0"), gt=Decimal("0"))
+    report_display_name: str = Field(default="", max_length=160)
     gas_snapshot_enabled: bool = False
     gas_snapshot_interval_seconds: int = Field(default=86400, ge=60)
     gas_snapshot_run_on_startup: bool = True
@@ -122,6 +123,13 @@ class Settings(BaseSettings):
     @classmethod
     def strip_secret_text(cls, value: object) -> str:
         """Normalize optional shared-secret settings without logging or deriving them."""
+
+        return str(value or "").strip()
+
+    @field_validator("report_display_name", mode="before")
+    @classmethod
+    def normalize_report_display_name(cls, value: object) -> str:
+        """Normalize the optional human-readable PDF report submitter name."""
 
         return str(value or "").strip()
 

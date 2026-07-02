@@ -579,6 +579,10 @@ def export_pdf(db: Session = Depends(get_db)) -> Response:
     )
 ```
 
+Monthly PDF downloads use `REPORT_DISPLAY_NAME` only as an optional header identity line. When set,
+`generate_monthly_pdf()` renders it under the title as `Submitted by:`. Keep this value out of the
+download filename and out of reimbursement calculations.
+
 ### Redirects
 
 ```python

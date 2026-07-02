@@ -128,6 +128,7 @@ MAX_BACKUP_RESTORE_BYTES=262144000
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
 VEHICLE_MPG=25.0
+REPORT_DISPLAY_NAME=
 GAS_SNAPSHOT_ENABLED=true
 GAS_SNAPSHOT_INTERVAL_SECONDS=86400
 GAS_SNAPSHOT_RUN_ON_STARTUP=true
@@ -549,6 +550,8 @@ http://127.0.0.1:${HTTP_PORT:-80}/diagnostics
 The PDF can be generated for any retained month that has trips and a saved monthly gas price or
 daily gas snapshots for that month. The automatic OwnTracks purge removes only processed raw
 OwnTracks rows after the retention window and keeps generated trips locked in.
+Set `REPORT_DISPLAY_NAME` in `.env` when the downloaded PDF should identify the report submitter;
+when set, the name appears under the PDF title as `Submitted by:`.
 
 Reimbursement is calculated as:
 

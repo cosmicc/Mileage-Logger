@@ -21,6 +21,12 @@ def test_log_level_rejects_error_as_configured_level() -> None:
         Settings(log_level="error")
 
 
+def test_report_display_name_trims_whitespace() -> None:
+    settings = Settings(report_display_name="  Jane Technician  ")
+
+    assert settings.report_display_name == "Jane Technician"
+
+
 def test_web_login_requires_complete_credentials() -> None:
     with pytest.raises(ValidationError, match="WEB_LOGIN_USERNAME and WEB_LOGIN_PASSWORD"):
         Settings(web_login_username="admin")

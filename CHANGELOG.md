@@ -17,6 +17,8 @@
   prior-month OwnTracks and gas snapshot rows at rollover.
 - Added monthly OwnTracks summary rollups so selected-month web totals and event counts remain
   stable after old raw OwnTracks location/event rows are purged.
+- Added optional `REPORT_DISPLAY_NAME` Docker configuration so downloaded PDF reports can identify
+  the report submitter under the title.
 - Changed OwnTracks raw location/event retention to a minimum of 90 days and kept automatic
   cleanup limited to raw OwnTracks rows only.
 - Changed trip deletion and trip odometer resequencing so trip rows no longer update the master

@@ -444,6 +444,7 @@ HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/logs/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
+REPORT_DISPLAY_NAME=
 GAS_SNAPSHOT_ENABLED=true
 GAS_SNAPSHOT_INTERVAL_SECONDS=86400
 GAS_SNAPSHOT_RUN_ON_STARTUP=true
@@ -506,6 +507,8 @@ Set `GAS_SNAPSHOT_ENABLED=false` to disable the in-app scheduler. The manual com
 available, so a host systemd timer can run `docker compose exec -T app mileage-logger gas-snapshot`
 on a schedule without cron if you prefer host-managed timing. The Docker image itself does not run
 systemd inside the container.
+Set `REPORT_DISPLAY_NAME` when downloaded PDF reports should identify who submitted the report; the
+name appears under the report title as `Submitted by:`.
 
 ## Workflow
 

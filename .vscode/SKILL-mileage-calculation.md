@@ -431,6 +431,8 @@ Dashboard reimbursement summaries should reuse this same PDF-report calculation 
 miles from `monthly_miles()`, reimbursement gallons from `calculate_reimbursement_gallons()`, the
 current saved monthly gas price, and `VEHICLE_MPG`. Display the Dashboard reimbursement gallons at
 one decimal place.
+`REPORT_DISPLAY_NAME` is only an optional PDF header identity value and must not affect mileage,
+gas, reimbursement, dashboard totals, or report filenames.
 
 ---
 

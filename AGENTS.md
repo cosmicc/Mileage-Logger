@@ -131,9 +131,11 @@ docker compose up -d --build
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates landscape PDF with trip table
+- Adds optional `REPORT_DISPLAY_NAME` identification under the title as `Submitted by:` when the
+  deployment setting is configured
 - Shows start/end odometers, miles, and location names
 - Escapes trip and waypoint names before passing them to ReportLab `Paragraph` so user-managed
-  names render as text rather than PDF markup.
+  names, including the optional report display name, render as text rather than PDF markup.
 - Calculates total miles and total reimbursement amount
 
 **[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
@@ -191,7 +193,8 @@ docker compose up -d --build
 
 ### Configuration
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
-- **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
+- **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `REPORT_DISPLAY_NAME`,
+  `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
   `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,

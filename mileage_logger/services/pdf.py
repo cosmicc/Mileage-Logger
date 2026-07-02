@@ -6,6 +6,7 @@ from html import escape
 from io import BytesIO
 
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import LETTER, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
@@ -141,6 +142,14 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         fontSize=7,
         leading=8.5,
     )
+    report_identity = ParagraphStyle(
+        "ReportIdentity",
+        parent=styles["BodyText"],
+        alignment=TA_CENTER,
+        fontName="Helvetica",
+        fontSize=10,
+        leading=12,
+    )
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -152,8 +161,21 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
     )
     story = [
         Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
-        Spacer(1, 16),
     ]
+    report_display_name = settings.report_display_name.strip()
+    if report_display_name:
+        story.extend(
+            [
+                Spacer(1, 4),
+                Paragraph(
+                    f"<b>Submitted by:</b> {_paragraph_text(report_display_name)}",
+                    report_identity,
+                ),
+                Spacer(1, 12),
+            ]
+        )
+    else:
+        story.append(Spacer(1, 16))
 
     trip_rows = [["Date", "From", "To", "Start Odometer", "End Odometer", "Trip Mi"]]
     for row in report_rows:

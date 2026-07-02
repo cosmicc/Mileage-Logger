@@ -1,11 +1,14 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+from reportlab.platypus import Paragraph as ReportLabParagraph
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from mileage_logger.config import Settings
 from mileage_logger.models import Base, MonthlyGasPrice, Site, Trip
+from mileage_logger.services import pdf as pdf_service
 from mileage_logger.services.pdf import (
     calculate_reimbursement,
     calculate_reimbursement_gallons,
@@ -189,3 +192,49 @@ def test_generate_monthly_pdf_escapes_location_markup() -> None:
     assert report.filename == "mileage-2026-06.pdf"
     assert report.content.startswith(b"%PDF")
     assert report.total_miles == Decimal("12.5")
+
+
+def test_generate_monthly_pdf_adds_configured_report_display_name(monkeypatch) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    rendered_paragraphs: list[str] = []
+
+    def record_paragraph(text, style, *args, **kwargs):
+        rendered_paragraphs.append(str(text))
+        return ReportLabParagraph(text, style, *args, **kwargs)
+
+    monkeypatch.setattr(
+        pdf_service,
+        "get_settings",
+        lambda: Settings(
+            database_url="sqlite://",
+            report_display_name=" Jane <Tech> & Co ",
+        ),
+    )
+    monkeypatch.setattr(pdf_service, "Paragraph", record_paragraph)
+
+    with session_factory() as db:
+        db.add(
+            MonthlyGasPrice(
+                year=2026,
+                month=7,
+                state="MI",
+                average_price_per_gallon=Decimal("3.500"),
+                buffer_per_gallon=Decimal("0.50"),
+                effective_rate=Decimal("4.000"),
+                source="manual",
+                source_detail="test",
+            )
+        )
+        db.commit()
+
+        report = generate_monthly_pdf(db, 2026, 7)
+
+    assert report.filename == "mileage-2026-07.pdf"
+    assert report.content.startswith(b"%PDF")
+    assert "<b>Submitted by:</b> Jane &lt;Tech&gt; &amp; Co" in rendered_paragraphs
