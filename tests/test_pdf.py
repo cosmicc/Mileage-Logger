@@ -17,6 +17,7 @@ from mileage_logger.services.pdf import (
     PDF_TITLE_TO_IDENTITY_SPACER,
     PDF_TITLE_TO_TABLE_SPACER,
     PDF_TRIP_TABLE_COLUMN_WIDTHS,
+    _report_month_title,
     calculate_reimbursement,
     calculate_reimbursement_gallons,
     generate_monthly_pdf,
@@ -42,6 +43,10 @@ def test_pdf_report_layout_uses_portrait_letter_width() -> None:
     assert PDF_TITLE_TO_IDENTITY_SPACER == 0
     assert PDF_IDENTITY_TO_TABLE_SPACER == 6
     assert PDF_TITLE_TO_TABLE_SPACER <= 8
+
+
+def test_pdf_report_month_title_uses_month_name_and_year() -> None:
+    assert _report_month_title(2026, 6) == "June 2026"
 
 
 def test_trip_report_rows_include_trip_mileage() -> None:
@@ -255,4 +260,6 @@ def test_generate_monthly_pdf_adds_configured_report_display_name(monkeypatch) -
 
     assert report.filename == "mileage-2026-07.pdf"
     assert report.content.startswith(b"%PDF")
+    assert "Mileage Log - July 2026" in rendered_paragraphs
+    assert "Mileage Log - 2026-07" not in rendered_paragraphs
     assert "<b>Submitted by:</b> Jane &lt;Tech&gt; &amp; Co" in rendered_paragraphs

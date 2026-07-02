@@ -1,4 +1,5 @@
 import logging
+from calendar import month_name
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -71,6 +72,12 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     start = date(year, month, 1)
     end = date(year + int(month == 12), 1 if month == 12 else month + 1, 1)
     return start, end
+
+
+def _report_month_title(year: int, month: int) -> str:
+    """Return the human-readable PDF report month label."""
+
+    return f"{month_name[month]} {year}"
 
 
 def trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
@@ -174,7 +181,7 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         bottomMargin=PDF_REPORT_VERTICAL_MARGIN,
     )
     story = [
-        Paragraph(f"Mileage Log - {year}-{month:02d}", report_title),
+        Paragraph(f"Mileage Log - {_report_month_title(year, month)}", report_title),
     ]
     report_display_name = settings.report_display_name.strip()
     if report_display_name:

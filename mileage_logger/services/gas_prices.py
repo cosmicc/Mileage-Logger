@@ -364,6 +364,9 @@ async def _run_scheduled_gas_snapshot() -> None:
     """Run one scheduled gas snapshot without stopping the web app on failure."""
 
     try:
+        if not await asyncio.to_thread(database.database_is_reachable):
+            logger.info("Scheduled gas snapshot paused because database is unavailable")
+            return
         await asyncio.to_thread(run_gas_snapshot_once)
     except asyncio.CancelledError:
         raise

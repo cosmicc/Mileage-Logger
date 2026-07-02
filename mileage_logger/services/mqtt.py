@@ -4,12 +4,12 @@ from threading import Event, Thread
 import paho.mqtt.client as mqtt
 
 from mileage_logger.config import get_settings
-from mileage_logger.database import SessionLocal
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     UnsupportedOwnTracksType,
-    process_owntracks_payload,
+    validate_owntracks_payload_for_ingest,
 )
+from mileage_logger.services.owntracks_buffer import ingest_or_buffer_owntracks_payload
 
 logger = logging.getLogger(__name__)
 
@@ -73,18 +73,18 @@ class MqttOwnTracksWorker:
             msg.topic,
             len(msg.payload),
         )
-        with SessionLocal() as db:
-            try:
-                process_owntracks_payload(db, msg.payload, topic=msg.topic)
-            except EmptyOwnTracksPayload:
-                logger.debug("Ignored empty MQTT OwnTracks message topic=%s", msg.topic)
-                return
-            except UnsupportedOwnTracksType as exc:
-                logger.debug(
-                    "Ignored unsupported MQTT OwnTracks message topic=%s error=%s",
-                    msg.topic,
-                    exc,
-                )
-                return
-            except Exception:
-                logger.exception("Could not process MQTT OwnTracks message on %s", msg.topic)
+        try:
+            validate_owntracks_payload_for_ingest(msg.payload, topic=msg.topic)
+            ingest_or_buffer_owntracks_payload(msg.payload, topic=msg.topic, source="mqtt")
+        except EmptyOwnTracksPayload:
+            logger.debug("Ignored empty MQTT OwnTracks message topic=%s", msg.topic)
+            return
+        except UnsupportedOwnTracksType as exc:
+            logger.debug(
+                "Ignored unsupported MQTT OwnTracks message topic=%s error=%s",
+                msg.topic,
+                exc,
+            )
+            return
+        except Exception:
+            logger.exception("Could not process MQTT OwnTracks message on %s", msg.topic)

@@ -351,6 +351,62 @@ p {
   }
 }
 
+.limp-mode-shell {
+  display: grid;
+  min-height: min(620px, calc(100dvh - 150px));
+  place-items: center;
+}
+
+.limp-mode-panel {
+  width: min(680px, 100%);
+  padding: clamp(22px, 5vw, 34px);
+  border: 1px solid rgba(226, 173, 69, 0.44);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(226, 173, 69, 0.12), transparent 54%),
+    linear-gradient(180deg, var(--surface), var(--surface-soft));
+  box-shadow: var(--shadow);
+}
+
+.limp-mode-panel h1 {
+  margin-top: 12px;
+  margin-bottom: 10px;
+}
+
+.limp-mode-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 22px 0;
+}
+
+.limp-mode-status div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(17, 16, 14, 0.32);
+}
+
+.limp-mode-status dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.limp-mode-status dd {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.limp-mode-note {
+  margin-bottom: 0;
+  color: var(--text-soft);
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1570,6 +1626,7 @@ td input[type="text"] {
 
 @media (max-width: 560px) {
   .distance-grid,
+  .limp-mode-status,
   .stats-grid,
   .trips-summary-grid {
     grid-template-columns: 1fr;

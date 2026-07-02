@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
 
+from mileage_logger.api.routes import get_owntracks_session_factory
 from mileage_logger.app import app
 from mileage_logger.config import Settings
 from mileage_logger.database import get_db
 from mileage_logger.models import Base, OwnTracksLocation
+from mileage_logger.services.owntracks_buffer import OwnTracksIngestOutcome
 
 
 def _test_client_session() -> tuple[TestClient, sessionmaker[Session]]:
@@ -34,6 +36,7 @@ def _test_client_session() -> tuple[TestClient, sessionmaker[Session]]:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_owntracks_session_factory] = lambda: session_factory
     return TestClient(app), session_factory
 
 
@@ -44,6 +47,7 @@ def _patch_settings(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None
         "mileage_logger.app",
         "mileage_logger.services.mileage",
         "mileage_logger.services.owntracks",
+        "mileage_logger.services.owntracks_buffer",
         "mileage_logger.services.trip_processor",
         "mileage_logger.web.auth",
     ):
@@ -71,6 +75,7 @@ def test_owntracks_endpoint_requires_basic_auth_and_encrypted_payload(monkeypatc
         owntracks_username="owntracks",
         owntracks_password="owntracks-password",
         owntracks_encryption_key="owntracks-secret",
+        owntracks_buffer_enabled=False,
         automatic_trip_processing_enabled=False,
     )
     _patch_settings(monkeypatch, settings)
@@ -133,6 +138,78 @@ def test_owntracks_endpoint_fails_closed_without_encryption_key(monkeypatch) -> 
 
         assert response.status_code == 503
         assert response.json() == {"detail": "OWNTRACKS_ENCRYPTION_KEY is not configured"}
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_owntracks_endpoint_buffers_without_database_dependency(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        owntracks_username="owntracks",
+        owntracks_password="owntracks-password",
+        owntracks_encryption_key="owntracks-secret",
+        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
+        automatic_trip_processing_enabled=False,
+    )
+    _patch_settings(monkeypatch, settings)
+    captured_ingest: dict[str, object] = {}
+
+    def fail_get_db():
+        raise AssertionError("OwnTracks endpoint should not open the normal DB dependency")
+
+    def fake_ingest(
+        body,
+        *,
+        topic=None,
+        user=None,
+        device=None,
+        source="http",
+        session_factory=None,
+    ):
+        captured_ingest.update(
+            {
+                "body": body,
+                "topic": topic,
+                "user": user,
+                "device": device,
+                "source": source,
+                "session_factory": session_factory,
+            }
+        )
+        return OwnTracksIngestOutcome(
+            buffered=True,
+            queue_id=1,
+            reason="database_unavailable",
+        )
+
+    monkeypatch.setattr("mileage_logger.api.routes.ingest_or_buffer_owntracks_payload", fake_ingest)
+    app.dependency_overrides[get_db] = fail_get_db
+    client = TestClient(app)
+    payload = {
+        "_type": "location",
+        "lat": 42.3314,
+        "lon": -83.0458,
+        "tst": int(datetime(2026, 6, 30, 12, 0, tzinfo=UTC).timestamp()),
+        "tid": "IP",
+        "topic": "owntracks/ian/phone",
+    }
+    encrypted_payload = _encrypted_owntracks_payload(payload, settings.owntracks_encryption_key)
+    try:
+        response = client.post(
+            "/api/owntracks",
+            json=encrypted_payload,
+            auth=("owntracks", "owntracks-password"),
+        )
+
+        assert response.status_code == 200
+        assert response.headers["X-Mileage-Logger-OwnTracks-Buffered"] == "true"
+        assert response.headers["X-Mileage-Logger-OwnTracks-Buffer-Reason"] == (
+            "database_unavailable"
+        )
+        assert captured_ingest["source"] == "http"
+        decoded_payload = json.loads(captured_ingest["body"])
+        assert decoded_payload["_decrypted"] is True
+        assert decoded_payload["lat"] == 42.3314
     finally:
         app.dependency_overrides.clear()
 

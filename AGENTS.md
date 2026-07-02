@@ -93,9 +93,20 @@ docker compose up -d --build
   both decryptable OwnTracks payloads and matching HTTP Basic Auth.
 - Non-OwnTracks API routes require `Authorization: Bearer <WEB_API_KEY>` except `/api/health`,
   which stays unauthenticated for internal container health checks.
-- Public web service exposes only `POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub`;
-  other API routes stay internal to the app container and Docker network, and still require
-  `WEB_API_KEY` when called internally.
+- Public web service exposes only `POST /api/owntracks`, `POST /api/owntracks/`, `POST /api/pub`,
+  and `POST /api/pub/`; other API routes stay internal to the app container and Docker network,
+  and still require `WEB_API_KEY` when called internally.
+
+**[owntracks_buffer.py](mileage_logger/services/owntracks_buffer.py)** — Database-outage ingest buffer
+- Default-on persistent SQLite FIFO queue for OwnTracks HTTP and MQTT payloads when PostgreSQL is
+  unreachable or when earlier OwnTracks payloads are already queued
+- Keeps OwnTracks ingestion available during database outages while normal web pages, API routes,
+  and scheduled DB-writing jobs are paused behind the limp-mode warning page, API 503 response, or
+  scheduler skip
+- Replays buffered payloads in receive order after PostgreSQL returns, optionally verifying
+  Alembic migrations on reconnect before draining the queue
+- Docker stores the queue under `/data/owntracks-buffer`, backed by `HOST_OWNTRACKS_BUFFER_DIR`,
+  so buffered OwnTracks data survives image rebuilds and container replacement
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
 - Writes structured JSON-lines records for successful and failed web UI login attempts
@@ -131,6 +142,8 @@ docker compose up -d --build
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates portrait PDF with trip table and condensed margins for report content
+- Formats the PDF title with the selected report month name and year, such as `Mileage Log - June
+  2026`
 - Keeps the PDF title directly below the top margin with compact spacing between the title,
   optional submitted-by line, and trip table
 - Adds optional `REPORT_DISPLAY_NAME` identification under the title as `Submitted by:` when the
@@ -195,14 +208,19 @@ docker compose up -d --build
 
 ### Configuration
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
-- **Key Variables**: `LOCAL_TIMEZONE`, `VEHICLE_MPG`, `REPORT_DISPLAY_NAME`,
+- **Key Variables**: `LOCAL_TIMEZONE`, `DATABASE_URL`, `DATABASE_POOL_SIZE`,
+  `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`, `DATABASE_POOL_RECYCLE_SECONDS`,
+  `DATABASE_CONNECT_TIMEOUT_SECONDS`, `DATABASE_RUN_MIGRATIONS_ON_RECONNECT`, `VEHICLE_MPG`,
+  `REPORT_DISPLAY_NAME`,
   `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
   `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
   `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `WEB_API_KEY`,
-  `OWNTRACKS_ENCRYPTION_KEY`, `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
+  `OWNTRACKS_ENCRYPTION_KEY`, `OWNTRACKS_BUFFER_ENABLED`, `OWNTRACKS_BUFFER_PATH`,
+  `OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS`, `OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE`,
+  `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ### Visual Design and Color Palette
@@ -238,6 +256,20 @@ docker compose up -d --build
    the explicit exemption list in [api/deps.py](mileage_logger/api/deps.py) only for intentional
    health-check or OwnTracks-ingestion endpoints.
 4. Return JSON or raise `HTTPException`
+
+### OwnTracks Ingestion During Database Outages
+- OwnTracks HTTP and MQTT ingestion must go through
+  `ingest_or_buffer_owntracks_payload()` after payload decryption and validation. Do not add a
+  normal `Depends(get_db)` dependency to OwnTracks routes, because the route must remain available
+  when PostgreSQL is offline.
+- When the queue already contains payloads, new OwnTracks payloads must be appended to the queue
+  instead of written directly so replay order is preserved.
+- The limp-mode page is the only browser-facing database-outage page. It is intentionally
+  responsive for desktop and mobile and returns HTTP 200 so the bundled nginx browser error pages
+  do not replace it. Non-OwnTracks API routes should return a 503 JSON response while the database
+  is unavailable.
+- The persistent buffer contains sensitive location history. Keep its Docker host path mounted,
+  access-restricted, and separate from cleanup routines that purge old OwnTracks database rows.
 
 ### Adding a Web Page
 1. Create Jinja2 template in `web/templates/`
@@ -327,9 +359,11 @@ docker compose up -d --build
    can be restored after typed `RESTORE` confirmation.
 8. Diagnostics groups the top cards together in this order: Application, Data, Latest Records,
    OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. Keep the
-   group at three cards per row on desktop and one card per row on mobile. The detailed OwnTracks
-   state-change log and recent OwnTracks database entries are paginated in compact 10-row pages
-   with the same mobile full-width pagination row used by the login and Cloudflare block lists.
+   group at three cards per row on desktop and one card per row on mobile. The Data card shows
+   raw record counts plus the lowest and highest queried gas price snapshot readings; do not use
+   monthly gas averages for those high/low values. The detailed OwnTracks state-change log and
+   recent OwnTracks database entries are paginated in compact 10-row pages with the same mobile
+   full-width pagination row used by the login and Cloudflare block lists.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
    readable event labels instead of the database row ID, raw receive timestamps, battery level, or
    MQTT topic details.
@@ -365,6 +399,13 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
 - Uses `docker-compose.yml` with 4 services (postgres, app, nginx, cloudflared)
+- The bundled `postgres` service remains the default database target, but app startup and
+  migrations wait on the configured `DATABASE_URL` instead of depending on the bundled local
+  database container's health. This lets deployments point `DATABASE_URL` at a central network
+  PostgreSQL server while keeping the local service in the stack during transition.
+- Runtime PostgreSQL connections use `pool_pre_ping` plus configurable pool size, overflow,
+  timeout, recycle, and connect-timeout settings so remote database connections are reused and
+  stale network connections are replaced safely.
 - Docker publishes the web service on `127.0.0.1:${HTTP_PORT:-80}`. The bundled `cloudflared` service uses
   host networking so Cloudflare Tunnel can target the loopback listener, such as
   `http://127.0.0.1:2082` when `HTTP_PORT=2082`.
@@ -376,6 +417,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   production login credentials are missing or the session secret is still `change-me`. When web
   login is enabled in any environment, change `SECRET_KEY` from the default.
 - Migrations run automatically on app startup
+- If PostgreSQL is unavailable at startup and `OWNTRACKS_BUFFER_ENABLED=true`, Docker starts the
+  app in OwnTracks buffer limp mode instead of exiting. Web pages show the limp-mode warning, and
+  buffered OwnTracks payloads replay after the configured database returns.
 - Daily gas snapshots run as an app-container background scheduler; there is no separate
   `gas-snapshot` Compose service.
 - Diagnostics page available at `http://server/diagnostics`
@@ -399,6 +443,8 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Runtime app logs and web-login audit records are host bind-mounted through `HOST_LOG_DIR`.
   Do not bind-mount the login audit log as an individual file; use the host symlink documented in
   `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.
+- The OwnTracks buffer is host bind-mounted through `HOST_OWNTRACKS_BUFFER_DIR`; treat it as
+  sensitive location data and keep it across normal rebuilds until buffered rows have replayed.
 
 ---
 
@@ -416,6 +462,10 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
    after at least 90 days even when `OWNTRACKS_LOCATION_RETENTION_DAYS` is set lower. Trips,
    odometers, reports, gas prices, monthly OwnTracks summary rollups, backups, and other derived
    app data are kept. Set `OWNTRACKS_PURGE_ENABLED=false` to disable raw OwnTracks cleanup.
+
+6. **Buffer Ordering**: When any OwnTracks payload is buffered, later OwnTracks HTTP or MQTT
+   payloads must keep entering the persistent buffer until replay drains it. This prevents newer
+   points from being stored before older outage-time points.
 
 ---
 

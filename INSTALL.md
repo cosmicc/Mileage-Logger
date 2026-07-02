@@ -70,11 +70,13 @@ This creates `.env` from `.env.docker.example` and generates values for:
 - `OWNTRACKS_ENCRYPTION_KEY`
 
 It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the web-login
-audit log file inside that directory, and the optional `HOST_LOGIN_FAILURE_LOG_PATH` symlink on the
-Docker host. If your user cannot write to `/var/log`, create them before starting Docker:
+audit log file inside that directory, the persistent `HOST_OWNTRACKS_BUFFER_DIR`, and the optional
+`HOST_LOGIN_FAILURE_LOG_PATH` symlink on the Docker host. If your user cannot write to `/var/log`
+or `/var/lib`, create them before starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/log/mileage-logger
+sudo install -d -m 0750 /var/lib/mileage-logger/owntracks-buffer
 sudo install -m 0640 /dev/null /var/log/mileage-logger/mileage-logger-login-failures.log
 sudo ln -sfn /var/log/mileage-logger/mileage-logger-login-failures.log /var/log/mileage-logger-login-failures.log
 ```
@@ -119,9 +121,14 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
+OWNTRACKS_BUFFER_ENABLED=true
+OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
+OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
+OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 LOG_DIR=/data/logs
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/logs/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
@@ -159,6 +166,7 @@ forwards these API requests:
 - `POST /api/owntracks`
 - `POST /api/owntracks/`
 - `POST /api/pub`
+- `POST /api/pub/`
 
 All other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` return `404` through the web service.
 Internal app health checks still call `/api/health` directly inside the app container. Non-OwnTracks
@@ -267,6 +275,29 @@ POSTGRES_PASSWORD=your-db-password
 DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage_logger
 ```
 
+To use a central PostgreSQL server on your network later, leave the bundled `postgres` service in
+the stack until you are ready to remove it and change only `DATABASE_URL`, for example:
+
+```env
+DATABASE_URL=postgresql+psycopg://mileage:your-db-password@central-db-host:5432/mileage_logger
+```
+
+The app waits for and runs migrations against the configured `DATABASE_URL`. The bundled local
+PostgreSQL container can keep running unused during the transition. For a network database, tune
+`DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`,
+`DATABASE_POOL_RECYCLE_SECONDS`, `DATABASE_CONNECT_TIMEOUT_SECONDS`, and `DB_WAIT_TIMEOUT_SECONDS`
+only if the central server or network latency requires different limits.
+
+OwnTracks outage buffering is enabled by default. If the configured database is unreachable at
+startup, Docker starts the app in limp mode instead of stopping the container. Browser pages show a
+single responsive database warning page, non-OwnTracks API routes return 503 JSON, and OwnTracks
+HTTP/MQTT payloads are validated then written to the local FIFO buffer. The buffer is stored at
+`OWNTRACKS_BUFFER_PATH` inside the app container and should be backed by
+`HOST_OWNTRACKS_BUFFER_DIR` so it survives rebuilds. When PostgreSQL is reachable again, the app
+can run migrations on reconnect when `DATABASE_RUN_MIGRATIONS_ON_RECONNECT=true`, then replay
+buffered payloads in receive order. Automatic trip processing, gas snapshots, and automatic
+backups pause their database-writing passes while PostgreSQL is unreachable.
+
 The app will receive configuration from the environment variables imported into the Portainer
 stack.
 
@@ -316,7 +347,7 @@ You can also use the Recorder-compatible endpoint:
 http://your-server/api/pub
 ```
 
-The app supports both `/api/owntracks` and `/api/pub`.
+The app supports both `/api/owntracks` and `/api/pub`, including their trailing-slash aliases.
 
 ## Waypoint Trip Detection
 
@@ -424,6 +455,10 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
+OWNTRACKS_BUFFER_ENABLED=true
+OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
+OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
+OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
@@ -440,6 +475,7 @@ CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
 HTTP_PORT=80
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/logs/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
@@ -552,6 +588,12 @@ daily gas snapshots for that month. The automatic OwnTracks purge removes only p
 OwnTracks rows after the retention window and keeps generated trips locked in.
 Set `REPORT_DISPLAY_NAME` in `.env` when the downloaded PDF should identify the report submitter;
 when set, the name appears under the PDF title as `Submitted by:`.
+The PDF report title shows the selected report month as a month name and year, such as
+`Mileage Log - June 2026`.
+
+The OwnTracks outage buffer can contain unreplayed location history while the database is down.
+Keep `HOST_OWNTRACKS_BUFFER_DIR` mounted and access-restricted, and do not delete it during normal
+container rebuilds unless Diagnostics or logs confirm the queue is empty.
 
 Reimbursement is calculated as:
 

@@ -299,6 +299,22 @@ class DiagnosticDatabaseSummary:
     total_records_display: str
 
 
+@dataclass(frozen=True)
+class DiagnosticGasPriceExtremes:
+    """Lowest and highest queried gas price snapshot readings for Diagnostics."""
+
+    lowest_price_per_gallon: Decimal | None
+    highest_price_per_gallon: Decimal | None
+
+    @property
+    def lowest_display(self) -> str:
+        return _format_gas_price(self.lowest_price_per_gallon)
+
+    @property
+    def highest_display(self) -> str:
+        return _format_gas_price(self.highest_price_per_gallon)
+
+
 def _current_year_month() -> tuple[int, int]:
     today = local_today()
     return _year_month_for_local_date(today)
@@ -871,6 +887,27 @@ def _diagnostic_database_summary(
         size_display=_format_storage_size(size_bytes) if size_bytes is not None else "Unavailable",
         total_records=total_records,
         total_records_display=_format_record_count(total_records),
+    )
+
+
+def _format_gas_price(price_per_gallon: Decimal | None) -> str:
+    """Format an optional per-gallon gas price for Diagnostics display."""
+
+    return f"${price_per_gallon:.3f}" if price_per_gallon is not None else "None"
+
+
+def _diagnostic_gas_price_extremes(db: Session) -> DiagnosticGasPriceExtremes:
+    """Return lowest and highest prices from raw gas price snapshot queries."""
+
+    lowest_price, highest_price = db.execute(
+        select(
+            func.min(GasPriceSnapshot.price_per_gallon),
+            func.max(GasPriceSnapshot.price_per_gallon),
+        )
+    ).one()
+    return DiagnosticGasPriceExtremes(
+        lowest_price_per_gallon=lowest_price,
+        highest_price_per_gallon=highest_price,
     )
 
 
@@ -1932,6 +1969,7 @@ def diagnostics(
     backup_restore_enabled = web_login_enabled(settings)
     disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
     database_summary = _diagnostic_database_summary(db, settings.database_url)
+    gas_price_extremes = _diagnostic_gas_price_extremes(db)
     hidden_login_failure_ids = set(db.scalars(select(HiddenLoginFailure.entry_id)))
     login_failure_entries = tail_login_failure_entries(
         login_failure_log_path,
@@ -1991,6 +2029,7 @@ def diagnostics(
             "site_count": db.scalar(select(func.count(Site.id))) or 0,
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,
             "gas_snapshot_count": db.scalar(select(func.count(GasPriceSnapshot.id))) or 0,
+            "gas_price_extremes": gas_price_extremes,
             "latest_location": latest_location,
             "last_owntracks_received_at": (
                 latest_received_location.received_at if latest_received_location else None

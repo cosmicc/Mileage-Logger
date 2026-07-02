@@ -85,15 +85,20 @@ container health checks. Do not reuse `OWNTRACKS_ENCRYPTION_KEY` as `WEB_API_KEY
 
 ```python
 from mileage_logger.api.deps import verify_owntracks_auth
+from mileage_logger.services.owntracks_buffer import ingest_or_buffer_owntracks_payload
 
 @router.post("/owntracks")
-async def owntracks_http(
-    request: Request,
-    db: Session = Depends(get_db),
-) -> JSONResponse:
+async def owntracks_http(request: Request) -> JSONResponse:
     verify_owntracks_auth(request)  # Raises HTTPException(401) if Basic Auth fails
-    # decrypt encrypted OwnTracks payload, then process it
+    # decrypt and validate the encrypted OwnTracks payload
+    outcome = ingest_or_buffer_owntracks_payload(body, source="http")
 ```
+
+Do not add a normal `Depends(get_db)` dependency to OwnTracks ingestion routes. HTTP and MQTT
+OwnTracks ingest must remain available during a PostgreSQL outage, so accepted payloads go through
+`ingest_or_buffer_owntracks_payload()`. When the persistent queue already has entries, new
+OwnTracks payloads are appended to the queue instead of written directly so receive order is
+preserved.
 
 The `/api/health` endpoint is unauthenticated inside the app for container health checks;
 `/api/owntracks` requires authentication.
@@ -103,6 +108,7 @@ In Docker deployment, the public web service only forwards OwnTracks ingestion e
 - `POST /api/owntracks`
 - `POST /api/owntracks/`
 - `POST /api/pub`
+- `POST /api/pub/`
 
 Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` remain reachable only inside the app
 container or Docker network unless a future change explicitly reopens them at the web service. Non-OwnTracks
@@ -115,6 +121,11 @@ unbranded, and written for end users. Browser/static proxy locations should inte
 errors so missing public page URLs render those custom pages. Do not enable interception on the
 OwnTracks API proxy locations unless API clients are intentionally allowed to receive HTML instead
 of app JSON errors.
+
+Database-outage web handling is different from normal HTTP errors. The app-level limp-mode
+middleware renders `web/templates/limp_mode.html` for browser paths when PostgreSQL is unreachable
+and returns HTTP 200 with `X-Mileage-Logger-Limp-Mode: true` so nginx does not replace it with the
+generic 503 page. Non-OwnTracks API paths return 503 JSON during limp mode.
 
 ### Credentials Configuration
 
@@ -265,6 +276,9 @@ curl -X POST http://localhost:8000/api/owntracks \
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
   also shows the source-controlled app version from `mileage_logger.__version__`.
+- The Diagnostics Data card shows record counts and the lowest/highest queried gas price readings
+  from `gas_price_snapshots.price_per_gallon`. Do not use `MonthlyGasPrice` averages for these
+  high/low values.
 
 ### Basic Pattern
 
@@ -588,8 +602,9 @@ Monthly PDF downloads use `REPORT_DISPLAY_NAME` only as an optional header ident
 download filename and out of reimbursement calculations.
 Keep generated PDF reports in portrait letter layout unless the user explicitly requests another
 page orientation. The portrait report uses condensed margins so the trip table has more usable
-width and height. Keep the title, optional submitted-by identity line, and trip table tightly
-stacked at the top of the report.
+width and height. Keep the title using the selected report month name and year, such as
+`Mileage Log - June 2026`. Keep the title, optional submitted-by identity line, and trip table
+tightly stacked at the top of the report.
 
 ### Redirects
 

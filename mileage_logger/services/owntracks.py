@@ -191,6 +191,21 @@ def parse_owntracks_location(
     )
 
 
+def validate_owntracks_payload_for_ingest(
+    body: bytes,
+    *,
+    topic: str | None = None,
+    user: str | None = None,
+    device: str | None = None,
+) -> None:
+    """Validate that an OwnTracks payload is safe to process directly or buffer."""
+
+    payload = _decode_payload(body)
+    if payload.get("_type") == "waypoint":
+        return
+    _location_message_from_payload(payload, topic=topic, user=user, device=device)
+
+
 def _first_region_name(payload: dict) -> str | None:
     description = payload.get("desc")
     if description:

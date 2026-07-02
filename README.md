@@ -13,6 +13,8 @@ monthly reimbursement PDF logs.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
   are available.
+- Default-on persistent OwnTracks buffer that keeps accepting HTTP and MQTT payloads during
+  PostgreSQL outages and replays them in receive order after the database returns.
 - OwnTracks waypoint transition model used to turn leave/enter events into work trips, with
   location updates between those events used as the primary trip distance.
 - Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
@@ -67,6 +69,8 @@ Docker Compose is the preferred deployment path. It runs the complete stack:
 - Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and host bind mounts for runtime logs.
+- Persistent host bind mount for the local OwnTracks outage buffer so accepted phone data survives
+  image rebuilds and container replacement.
 - In-app diagnostics page for app logs, trip calculation logs, successful and failed web-login
   audit records, and OwnTracks state in the configured local timezone. The top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
@@ -94,12 +98,14 @@ start the stack:
 docker compose up -d --build
 ```
 
-`scripts/init_docker_env.sh` tries to create the host log directory, web-login audit log file, and
-the short `/var/log/mileage-logger-login-failures.log` symlink. If your user cannot write to
-`/var/log`, create them before starting Docker:
+`scripts/init_docker_env.sh` tries to create the host log directory, host OwnTracks buffer
+directory, web-login audit log file, and the short `/var/log/mileage-logger-login-failures.log`
+symlink. If your user cannot write to `/var/log` or `/var/lib`, create them before starting
+Docker:
 
 ```bash
 sudo install -d -m 0750 /var/log/mileage-logger
+sudo install -d -m 0750 /var/lib/mileage-logger/owntracks-buffer
 sudo install -m 0640 /dev/null /var/log/mileage-logger/mileage-logger-login-failures.log
 sudo ln -sfn /var/log/mileage-logger/mileage-logger-login-failures.log /var/log/mileage-logger-login-failures.log
 ```
@@ -125,6 +131,19 @@ Database rows live in the Docker named volume `postgres_data`, mounted at
 `docker compose up -d --build` keep that volume. Do not use `docker compose down -v`, Docker volume
 prune, or a different Compose/Portainer stack name unless you have a verified backup and intend to
 move or recreate the database.
+The bundled PostgreSQL service remains the default database target. To use a central PostgreSQL
+server later, point `DATABASE_URL` at that server; the app startup and migrations wait on the
+configured URL instead of requiring the bundled local database container.
+
+OwnTracks buffering is enabled by default. If PostgreSQL is unreachable when the container starts,
+the app starts in limp mode instead of exiting: browser pages show a single responsive database
+warning page, non-OwnTracks API routes return 503 JSON, and OwnTracks HTTP/MQTT payloads are
+validated then written to the local FIFO buffer. Docker stores that buffer at
+`/data/owntracks-buffer/owntracks-buffer.sqlite3`, backed by
+`HOST_OWNTRACKS_BUFFER_DIR` on the host. When PostgreSQL returns, the app verifies migrations if
+configured and replays buffered payloads in the order received. Automatic trip processing, gas
+snapshots, and automatic backups pause their database-writing passes while PostgreSQL is
+unreachable.
 
 OwnTracks HTTP mode should point at:
 
@@ -161,10 +180,10 @@ WEB_ALLOWED_CIDRS=192.168.1.0/24,10.8.0.0/24,203.0.113.44/32
 ```
 
 When this is blank, the web UI is open to all clients. When set, only
-`POST /api/owntracks`, `POST /api/owntracks/`, and `POST /api/pub` stay reachable from any IP for
-OwnTracks. Pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`, and `/static/` require a
-matching client IP. Other `/api/` routes, `/docs`, `/redoc`, and `/openapi.json` are blocked at
-the public web service reverse proxy.
+`POST /api/owntracks`, `POST /api/owntracks/`, `POST /api/pub`, and `POST /api/pub/` stay
+reachable from any IP for OwnTracks. Pages such as `/`, `/trips`, `/waypoints`, `/diagnostics`,
+and `/static/` require a matching client IP. Other `/api/` routes, `/docs`, `/redoc`, and
+`/openapi.json` are blocked at the public web service reverse proxy.
 
 The web service serves matching, end-user-focused error pages for common browser and gateway errors: 400,
 401, 403, 404, 405, 408, 413, 429, 500, 502, 503, and 504. Each page explains the error and links
@@ -228,7 +247,7 @@ configured, plaintext OwnTracks HTTP payloads are rejected.
 `OWNTRACKS_ENCRYPTION_KEY` must be 32 UTF-8 bytes or fewer. The app pads shorter keys to
 libsodium's 32-byte SecretBox key size, matching OwnTracks Recorder behavior.
 
-The `/api/pub` alias is also available for Recorder-style setups.
+The `/api/pub` alias, including `/api/pub/`, is also available for Recorder-style setups.
 
 OwnTracks waypoints are saved as read-only work waypoints. When `OWNTRACKS_SYNC_WAYPOINTS=true`,
 published OwnTracks waypoint payloads create or update matching app waypoints. The web app can
@@ -293,7 +312,9 @@ The app generates work trips directly from OwnTracks waypoint transitions:
 
 Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
 stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
-`LOCAL_TIMEZONE` day. When the app sees a qualifying trip, it writes the generated row to `trips`.
+`LOCAL_TIMEZONE` day when PostgreSQL is reachable. During a database outage, the payload is stored
+in the persistent OwnTracks buffer first, then replayed later through the same processing path.
+When the app sees a qualifying trip, it writes the generated row to `trips`.
 OwnTracks `tst` event time is the authoritative timestamp for trip dates and ordering; the server
 receive time is kept separately for diagnostics because phone data can be buffered.
 The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
@@ -362,9 +383,10 @@ The Diagnostics Manual Odometer card shows the current reading and its source ne
 the existing checkpoint can be checked before entering a correction. The top Diagnostics cards are
 grouped together in this order: Application, Data, Latest Records, OwnTracks State, Manual
 Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three cards per
-row. Diagnostics also shows hard drive space for key runtime paths with used-space bars, combining
-paths into one row when their exact used space and total capacity match, and includes current
-database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
+row. The Data card includes the lowest and highest queried gas price readings from saved gas price
+snapshots. Diagnostics also shows hard drive space for key runtime paths with used-space bars,
+combining paths into one row when their exact used space and total capacity match, and includes
+current database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
 full-width row and the page count shown as text below. Recent OwnTracks entries show original event
@@ -417,12 +439,24 @@ Useful Docker environment options:
 OWNTRACKS_SYNC_WAYPOINTS=true
 OWNTRACKS_DEFAULT_SITE_RADIUS_M=150
 LOCAL_TIMEZONE=America/Detroit
+DATABASE_URL=postgresql+psycopg://mileage:change-postgres-password@postgres:5432/mileage_logger
+DATABASE_POOL_SIZE=5
+DATABASE_MAX_OVERFLOW=10
+DATABASE_POOL_TIMEOUT_SECONDS=30
+DATABASE_POOL_RECYCLE_SECONDS=1800
+DATABASE_CONNECT_TIMEOUT_SECONDS=10
+DATABASE_RUN_MIGRATIONS_ON_RECONNECT=true
+DB_WAIT_TIMEOUT_SECONDS=60
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
+OWNTRACKS_BUFFER_ENABLED=true
+OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
+OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
+OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 OWNTRACKS_ENCRYPTION_KEY=change-owntracks-encryption-key
 WEB_API_KEY=change-web-api-key
 WEB_LOGIN_USERNAME=admin
@@ -441,6 +475,7 @@ CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
 HTTP_PORT=80
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/logs/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
@@ -478,6 +513,10 @@ Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log
 mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH` is only a host-side symlink alias for the
 shorter `/var/log/mileage-logger-login-failures.log` path. Successful and failed login entries are
 shown separately in Diagnostics.
+Docker also binds `/data/owntracks-buffer` to `HOST_OWNTRACKS_BUFFER_DIR`. Keep this directory
+mounted and access-restricted because it can contain buffered location history while PostgreSQL is
+offline. Do not delete it during rebuilds unless you have confirmed the buffer is empty or you are
+intentionally discarding unreplayed OwnTracks payloads.
 Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
 mount, and are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
 are truncated in the Diagnostics table but remain visible on hover and available to download.

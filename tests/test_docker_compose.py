@@ -51,3 +51,29 @@ def test_app_container_requires_production_web_login_secrets() -> None:
     assert 'PASSKEY_RP_NAME: "${PASSKEY_RP_NAME:-Mileage Logger}"' in app_block
     assert 'PASSKEY_RP_ID: "${PASSKEY_RP_ID:-}"' in app_block
     assert 'PASSKEY_ORIGIN: "${PASSKEY_ORIGIN:-}"' in app_block
+
+
+def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:
+    compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+    app_block = _service_block(compose_text, "app")
+    expected_buffer_path = (
+        'OWNTRACKS_BUFFER_PATH: "${OWNTRACKS_BUFFER_PATH:-'
+        '/data/owntracks-buffer/owntracks-buffer.sqlite3}"'
+    )
+    expected_replay_interval = (
+        'OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS: '
+        '"${OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS:-15}"'
+    )
+    expected_buffer_mount = (
+        "${HOST_OWNTRACKS_BUFFER_DIR:-/var/lib/mileage-logger/owntracks-buffer}:"
+        "/data/owntracks-buffer"
+    )
+
+    assert 'OWNTRACKS_BUFFER_ENABLED: "${OWNTRACKS_BUFFER_ENABLED:-true}"' in app_block
+    assert expected_buffer_path in app_block
+    assert expected_replay_interval in app_block
+    assert (
+        'OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE: "${OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE:-100}"'
+        in app_block
+    )
+    assert expected_buffer_mount in app_block

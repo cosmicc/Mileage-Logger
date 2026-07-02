@@ -5,6 +5,13 @@
 - Bumped the Mileage Logger package version to 1.2.5.
 - Fixed changelog headings to use bracketed version labels and `MM.DD.YYYY` release dates.
 - Added a saved color palette sample sheet for choosing a future app theme.
+- Added the highest and lowest queried gas price readings to the Diagnostics Data card.
+- Changed the PDF report title date to show the selected month name and year.
+- Added central PostgreSQL readiness by making app startup wait on the configured `DATABASE_URL`
+  and exposing configurable PostgreSQL pool and timeout settings for network database deployments.
+- Added default-on OwnTracks limp-mode buffering so the app can keep accepting OwnTracks HTTP and
+  MQTT payloads into a persistent local queue when PostgreSQL is unreachable, then replay them in
+  receive order after the database returns.
 - Tightened the PDF report header spacing so the title starts directly below the top margin, the
   submitted-by line sits closer to the title, and the trip table starts closer to the header.
 

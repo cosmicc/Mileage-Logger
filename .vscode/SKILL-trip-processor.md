@@ -11,6 +11,12 @@ The trip processor (`mileage_logger/services/trip_processor.py`) is the core eng
 4. Maintains a rolling odometer checkpoint
 5. Purges only old raw OwnTracks location/event records after the 90-day minimum retention window
 
+OwnTracks HTTP and MQTT ingestion first goes through
+`mileage_logger.services.owntracks_buffer.ingest_or_buffer_owntracks_payload()`. When PostgreSQL is
+unreachable, or when earlier payloads are already queued, payloads are stored in the persistent
+local FIFO buffer and replayed later through the normal OwnTracks processing path. Do not bypass
+that buffer-aware entry point when changing ingestion behavior.
+
 ---
 
 ## Trip Generation Logic
@@ -226,6 +232,10 @@ Key settings for trip processing:
 | `OWNTRACKS_WAYPOINT_DWELL_MINUTES` | `5` | Minimum time inside destination before trip confirmed |
 | `OWNTRACKS_LOCATION_RETENTION_DAYS` | `90` | Days to keep raw OwnTracks location/event records before purging; values below 90 are treated as 90 |
 | `OWNTRACKS_PURGE_ENABLED` | `true` | Enable/disable automatic purge |
+| `OWNTRACKS_BUFFER_ENABLED` | `true` | Keep OwnTracks HTTP/MQTT ingest available during database outages by buffering payloads locally |
+| `OWNTRACKS_BUFFER_PATH` | `data/owntracks-buffer.sqlite3` locally, `/data/owntracks-buffer/owntracks-buffer.sqlite3` in Docker | Persistent SQLite FIFO queue for outage-time OwnTracks payloads |
+| `OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS` | `15` | How often the replay worker checks for queued payloads |
+| `OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE` | `100` | Maximum queued payloads replayed per worker pass |
 | `LOCAL_TIMEZONE` | `America/Detroit` | Timezone for trip date selection |
 
 ---

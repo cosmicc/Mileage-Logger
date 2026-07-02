@@ -290,6 +290,13 @@ async def automatic_backup_scheduler(application_settings: "Settings") -> None:
     backup_reason = "startup"
     while True:
         try:
+            if not await asyncio.to_thread(database.database_is_reachable):
+                logger.info(
+                    "Automatic Mileage Logger backup paused because database is unavailable"
+                )
+                backup_reason = "scheduled"
+                await asyncio.sleep(AUTOMATIC_BACKUP_INTERVAL_SECONDS)
+                continue
             await asyncio.to_thread(
                 run_automatic_backup_once,
                 application_settings,

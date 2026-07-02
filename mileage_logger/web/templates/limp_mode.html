@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+{% block content %}
+<section class="limp-mode-shell" aria-labelledby="limp-mode-title">
+  <div class="limp-mode-panel">
+    <span class="pill warning">Limp Mode</span>
+    <h1 id="limp-mode-title">Database Unreachable</h1>
+    <p>
+      Mileage Logger cannot reach the configured PostgreSQL database. Web data, reports, manual
+      changes, and diagnostics are paused until the database connection returns.
+    </p>
+    <dl class="limp-mode-status">
+      <div>
+        <dt>OwnTracks Intake</dt>
+        <dd>Accepting and buffering</dd>
+      </div>
+      <div>
+        <dt>Queued OwnTracks Payloads</dt>
+        <dd>{{ buffer_stats.queued_count }}</dd>
+      </div>
+      {% if buffer_stats.oldest_received_at %}
+      <div>
+        <dt>Oldest Queued Payload</dt>
+        <dd>{{ buffer_stats.oldest_received_at }}</dd>
+      </div>
+      {% endif %}
+      {% if buffer_stats.last_error %}
+      <div>
+        <dt>Last Replay Error</dt>
+        <dd>{{ buffer_stats.last_error }}</dd>
+      </div>
+      {% endif %}
+    </dl>
+    <p class="limp-mode-note">
+      Buffered OwnTracks data is stored locally and will replay in the order received after the
+      database is reachable again.
+    </p>
+  </div>
+</section>
+{% endblock %}

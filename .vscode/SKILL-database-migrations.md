@@ -243,6 +243,20 @@ Migrations run automatically on container startup via the app's `docker-entrypoi
 alembic upgrade head
 ```
 
+The entrypoint waits for the database configured by `DATABASE_URL`, not just the bundled Compose
+`postgres` container. The bundled PostgreSQL service is still the default deployment target, but a
+deployment can point `DATABASE_URL` at a central PostgreSQL server without removing the local
+service first. Runtime and startup checks share `mileage_logger.database_engine.database_engine_options()`
+so PostgreSQL connections use `pool_pre_ping`, configurable pool size, overflow, pool timeout,
+pool recycle, connect timeout, and LIFO reuse for safer network database behavior.
+
+If the database is unavailable at startup and `OWNTRACKS_BUFFER_ENABLED=true`, the entrypoint
+starts the app in OwnTracks buffer limp mode instead of exiting. This is intentional so the app can
+keep accepting OwnTracks data. Do not put schema changes in code paths that assume startup
+migrations already ran while the app is in limp mode. When buffered OwnTracks payloads are waiting
+and PostgreSQL returns, `mileage_logger.database_migrations.run_migrations_once_on_reconnect()`
+can run `alembic upgrade head` once before the replay worker drains the local queue.
+
 **To add a new migration for deployment**:
 1. Create migration locally
 2. Test with `alembic upgrade head` / `downgrade -1`

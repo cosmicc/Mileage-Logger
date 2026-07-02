@@ -61,6 +61,7 @@ PY
 chmod 0600 "${target}"
 
 host_log_dir="$(get_env_value HOST_LOG_DIR)"
+host_owntracks_buffer_dir="$(get_env_value HOST_OWNTRACKS_BUFFER_DIR)"
 host_login_failure_log_path="$(get_env_value HOST_LOGIN_FAILURE_LOG_PATH)"
 login_failure_log_filename="mileage-logger-login-failures.log"
 
@@ -74,6 +75,16 @@ if [[ -n "${host_log_dir}" ]]; then
     echo "Could not create host app log directory: ${host_log_dir}" >&2
     echo "Create it before starting Docker, for example:" >&2
     echo "  sudo install -d -m 0750 ${host_log_dir}" >&2
+  fi
+fi
+
+if [[ -n "${host_owntracks_buffer_dir}" ]]; then
+  if mkdir -p "${host_owntracks_buffer_dir}" 2>/dev/null; then
+    echo "Prepared host OwnTracks buffer directory: ${host_owntracks_buffer_dir}"
+  else
+    echo "Could not create host OwnTracks buffer directory: ${host_owntracks_buffer_dir}" >&2
+    echo "Create it before starting Docker, for example:" >&2
+    echo "  sudo install -d -m 0750 ${host_owntracks_buffer_dir}" >&2
   fi
 fi
 

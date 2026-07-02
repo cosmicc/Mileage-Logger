@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
@@ -53,6 +54,7 @@ from mileage_logger.web.routes import (
     _dashboard_reimbursement_summary,
     _diagnostic_database_summary,
     _diagnostic_disk_usages,
+    _diagnostic_gas_price_extremes,
     _human_duration_since,
     templates,
 )
@@ -87,6 +89,42 @@ def _test_client_session(
 
     app.dependency_overrides[get_db] = override_get_db
     return TestClient(app, client=(client_host, 50000)), session_factory
+
+
+def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
+    )
+
+    def offline_get_db():
+        raise OperationalError("SELECT 1", {}, Exception("database offline"))
+        yield
+
+    monkeypatch.setattr("mileage_logger.app.settings", settings)
+    monkeypatch.setattr(
+        "mileage_logger.app.owntracks_buffer_stats",
+        lambda _settings: SimpleNamespace(
+            queued_count=3,
+            oldest_received_at="2026-07-01T12:00:00+00:00",
+            newest_received_at="2026-07-01T12:05:00+00:00",
+            last_error="database offline",
+        ),
+    )
+    app.dependency_overrides[get_db] = offline_get_db
+    try:
+        response = TestClient(app).get("/diagnostics")
+
+        assert response.status_code == 200
+        assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
+        assert "Limp Mode" in response.text
+        assert "Database Unreachable" in response.text
+        assert "Accepting and buffering" in response.text
+        assert "Queued OwnTracks Payloads" in response.text
+        assert "3" in response.text
+        assert "database offline" in response.text
+    finally:
+        app.dependency_overrides.clear()
 
 
 def _html_section(html: str, start_marker: str, end_marker: str | None = None) -> str:
@@ -4081,6 +4119,10 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "site_count": 0,
             "trip_count": 0,
             "gas_snapshot_count": 0,
+            "gas_price_extremes": SimpleNamespace(
+                lowest_display="None",
+                highest_display="None",
+            ),
             "latest_location": None,
             "last_owntracks_received_at": None,
             "last_owntracks_received_age": "Never",
@@ -4218,6 +4260,9 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert api_tests_section.count('class="panel"') == 8
     assert "Application" in api_tests_section
     assert "Data" in api_tests_section
+    data_card = rendered[data_card_start:latest_records_start]
+    assert "Lowest Queried Gas Price" in data_card
+    assert "Highest Queried Gas Price" in data_card
     assert "Latest Records" in api_tests_section
     assert "OwnTracks State" in api_tests_section
     assert "Manual Odometer" in api_tests_section
@@ -4304,6 +4349,54 @@ def test_diagnostics_database_summary_counts_all_app_records() -> None:
     assert summary.size_bytes is not None
     assert summary.size_bytes > 0
     assert summary.size_display.endswith(("B", "KB", "MB"))
+
+
+def test_diagnostics_gas_price_extremes_use_snapshot_queries_not_monthly_average() -> None:
+    db = _session()
+
+    empty_extremes = _diagnostic_gas_price_extremes(db)
+    assert empty_extremes.lowest_price_per_gallon is None
+    assert empty_extremes.highest_price_per_gallon is None
+    assert empty_extremes.lowest_display == "None"
+    assert empty_extremes.highest_display == "None"
+
+    db.add_all(
+        [
+            GasPriceSnapshot(
+                observed_on=date(2026, 6, 1),
+                state="MI",
+                grade="regular",
+                price_per_gallon=Decimal("4.299"),
+                source="test",
+                source_detail="high queried price",
+            ),
+            GasPriceSnapshot(
+                observed_on=date(2026, 6, 2),
+                state="MI",
+                grade="regular",
+                price_per_gallon=Decimal("2.999"),
+                source="test",
+                source_detail="low queried price",
+            ),
+            MonthlyGasPrice(
+                year=2026,
+                month=6,
+                state="MI",
+                average_price_per_gallon=Decimal("9.999"),
+                buffer_per_gallon=Decimal("0.500"),
+                effective_rate=Decimal("10.499"),
+                source="test",
+                source_detail="monthly average must not affect extrema",
+            ),
+        ]
+    )
+
+    extremes = _diagnostic_gas_price_extremes(db)
+
+    assert extremes.lowest_price_per_gallon == Decimal("2.999")
+    assert extremes.highest_price_per_gallon == Decimal("4.299")
+    assert extremes.lowest_display == "$2.999"
+    assert extremes.highest_display == "$4.299"
 
 
 def test_diagnostics_manual_odometer_form_rejects_nonpositive_reading() -> None:

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mileage_logger.config import get_settings
-from mileage_logger.database import SessionLocal
+from mileage_logger.database import SessionLocal, database_is_reachable
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     OwnTracksLocation,
@@ -385,6 +385,9 @@ class AutomaticTripProcessor:
             self._process_once()
 
     def _process_once(self) -> None:
+        if not database_is_reachable():
+            logger.info("Automatic trip processing paused because database is unavailable")
+            return
         with SessionLocal() as db:
             try:
                 result = run_automatic_trip_processing(db)
