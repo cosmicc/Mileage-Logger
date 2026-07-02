@@ -26,6 +26,10 @@
 - Changed the database-outage warning page to use a larger `Service Temporarily Unavailable`
   heading, refreshed explanatory text, a 30-second login-page retry, and side-by-side primary and
   backup buffer cards.
+- Removed shared app chrome, navigation, connection details, OwnTracks-specific labels, intake
+  status, replay errors, and bottom explanatory text from the database-outage warning page.
+- Changed the database-outage page queue status labels to generic primary/backup queues and showed
+  the oldest queued payload as an elapsed age instead of a timestamp.
 - Expanded `.env.docker.example` comments so Docker and Portainer configuration variables are
   easier to understand before deployment.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the

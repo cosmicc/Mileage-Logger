@@ -8,25 +8,20 @@
     </p>
     <dl class="limp-mode-status">
       <div>
-        <dt>PostgreSQL Server</dt>
+        <dt>Database</dt>
         <dd>
           <span class="status-indicator-line">
             <span class="status-dot {{ runtime_status.database.indicator_class }}" aria-hidden="true"></span>
             {{ runtime_status.database.state_label }}
           </span>
-          <span class="diagnostic-value">{{ runtime_status.database.detail_label }}</span>
         </dd>
       </div>
-      <div>
-        <dt>OwnTracks Intake</dt>
-        <dd>Accepting and buffering</dd>
-      </div>
       <div class="limp-mode-status-queued">
-        <dt>Queued OwnTracks Payloads</dt>
+        <dt>Queued Payloads</dt>
         <dd>{{ buffer_stats.queued_count }}</dd>
       </div>
       <div class="limp-mode-buffer-card">
-        <dt>Primary Buffer</dt>
+        <dt>Primary Queue</dt>
         <dd>
           {% if runtime_status.primary_buffer.available %}
             <span class="status-indicator-line">
@@ -43,7 +38,7 @@
         </dd>
       </div>
       <div class="limp-mode-buffer-card">
-        <dt>Backup Buffer</dt>
+        <dt>Backup Queue</dt>
         <dd>
           {% if runtime_status.backup_buffer.available %}
             <span class="status-indicator-line">
@@ -62,25 +57,15 @@
       {% if buffer_stats.replay_waiting_for_primary %}
       <div>
         <dt>Replay Status</dt>
-        <dd>Waiting for primary buffer</dd>
+        <dd>Waiting for primary queue</dd>
       </div>
       {% endif %}
-      {% if buffer_stats.oldest_received_at %}
+      {% if oldest_queued_payload_age %}
       <div>
         <dt>Oldest Queued Payload</dt>
-        <dd>{{ buffer_stats.oldest_received_at }}</dd>
-      </div>
-      {% endif %}
-      {% if buffer_stats.last_error %}
-      <div>
-        <dt>Last Replay Error</dt>
-        <dd>{{ buffer_stats.last_error }}</dd>
+        <dd>{{ oldest_queued_payload_age }}</dd>
       </div>
       {% endif %}
     </dl>
-    <p class="limp-mode-note">
-      Buffered OwnTracks data is stored locally and will replay in the order received after the
-      database is reachable again.
-    </p>
   </div>
 </section>

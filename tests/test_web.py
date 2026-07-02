@@ -76,9 +76,13 @@ def _runtime_status(
     backup_available: bool = True,
     primary_count: int = 0,
     backup_count: int = 0,
+    oldest_received_at: str | None = None,
+    last_error: str | None = None,
 ) -> RuntimeStatus:
     buffer_stats = OwnTracksBufferStats(
         queued_count=primary_count + backup_count,
+        oldest_received_at=oldest_received_at,
+        last_error=last_error,
         primary_queued_count=primary_count,
         fallback_queued_count=backup_count,
         primary_available=primary_available,
@@ -149,6 +153,8 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         database_available=False,
         primary_count=2,
         backup_count=1,
+        oldest_received_at=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
+        last_error="could not connect to 192.168.1.20:5432",
     )
     monkeypatch.setattr("mileage_logger.app.settings", settings)
     monkeypatch.setattr(
@@ -169,13 +175,31 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert 'window.location.replace("/login")' in response.text
         assert "window.location.reload()" not in response.text
         assert "}, 30000);" in response.text
-        assert response.text.count('<header class="topbar">') == 1
-        assert "PostgreSQL Server" in response.text
-        assert "Remote PostgreSQL - db.internal" in response.text
-        assert "Accepting and buffering" in response.text
-        assert "Queued OwnTracks Payloads" in response.text
-        assert "Primary Buffer" in response.text
-        assert "Backup Buffer" in response.text
+        assert '<header class="topbar">' not in response.text
+        assert '<div class="brand"' not in response.text
+        assert '<nav aria-label="Primary navigation">' not in response.text
+        assert "/static/icons/mileage-logger-icon.svg" not in response.text
+        assert 'rel="manifest" href="/manifest.webmanifest"' not in response.text
+        assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' not in response.text
+        assert 'navigator.serviceWorker.register("/service-worker.js"' not in response.text
+        assert "<title>Service Temporarily Unavailable</title>" in response.text
+        assert "PostgreSQL Server" not in response.text
+        assert "Remote PostgreSQL - db.internal" not in response.text
+        assert "db.internal" not in response.text
+        assert "192.168.1.20" not in response.text
+        assert "connect to" not in response.text
+        assert "OwnTracks Intake" not in response.text
+        assert "Accepting and buffering" not in response.text
+        assert "Queued OwnTracks Payloads" not in response.text
+        assert "Queued Payloads" in response.text
+        assert "Primary Buffer" not in response.text
+        assert "Backup Buffer" not in response.text
+        assert "Primary Queue" in response.text
+        assert "Backup Queue" in response.text
+        assert "Last Replay Error" not in response.text
+        assert "Buffered OwnTracks data" not in response.text
+        assert "Oldest Queued Payload" in response.text
+        assert "2 hours ago" in response.text
         assert 'class="limp-mode-status-queued"' in response.text
         assert response.text.count('class="limp-mode-buffer-card"') == 2
         assert "font-size: clamp(16px, 5vw, 36px);" in response.text
@@ -219,6 +243,12 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
         assert "The application is currently offline." in response.text
         assert "Database Unreachable" not in response.text
         assert "Limp Mode" not in response.text
+        assert "Queued OwnTracks Payloads" not in response.text
+        assert "Queued Payloads" in response.text
+        assert "Primary Queue" in response.text
+        assert "Backup Queue" in response.text
+        assert "Last Replay Error" not in response.text
+        assert "Buffered OwnTracks data" not in response.text
         assert 'window.location.replace("/login")' not in response.text
         assert "window.location.reload()" not in response.text
         assert '<header class="topbar">' not in response.text
@@ -228,7 +258,7 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
         app.dependency_overrides.clear()
 
 
-def test_database_outage_limp_mode_nav_disables_non_home_links(
+def test_database_outage_limp_mode_hides_top_navigation(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -273,20 +303,15 @@ def test_database_outage_limp_mode_nav_disables_non_home_links(
         assert login_response.status_code == 303
         assert response.status_code == 200
         assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
-        assert response.text.count('<header class="topbar">') == 1
-        assert (
-            '<a class="nav-link nav-link-home" href="/" aria-label="Home" title="Home">'
-            in response.text
-        )
+        assert '<header class="topbar">' not in response.text
+        assert '<div class="brand"' not in response.text
+        assert '<nav aria-label="Primary navigation">' not in response.text
+        assert '<a class="nav-link nav-link-home"' not in response.text
         assert 'href="/trips"' not in response.text
         assert 'href="/waypoints"' not in response.text
         assert 'href="/diagnostics"' not in response.text
         assert 'action="/logout"' not in response.text
-        assert '<span class="nav-link nav-link-trips nav-link-disabled"' in response.text
-        assert '<span class="nav-link nav-link-waypoints nav-link-disabled"' in response.text
-        assert '<span class="nav-link nav-link-diagnostics nav-link-disabled"' in response.text
-        assert '<span class="nav-logout nav-link-disabled"' in response.text
-        assert 'aria-disabled="true"' in response.text
+        assert 'aria-disabled="true"' not in response.text
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -1080,6 +1105,8 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
             in response.text
         )
         assert 'data-dashboard-content-url="/dashboard/content"' in response.text
+        assert 'response.headers.get("X-Mileage-Logger-Limp-Mode") === "true"' in response.text
+        assert 'window.location.replace("/login")' in response.text
         assert (
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             in response.text
@@ -1177,6 +1204,8 @@ def test_trips_page_renders_loading_shell() -> None:
         assert response.status_code == 200
         assert "Loading selected-month cards and work trip records." in response.text
         assert 'data-trips-content-url="/trips/content?year=2026&amp;month=6"' in response.text
+        assert 'response.headers.get("X-Mileage-Logger-Limp-Mode") === "true"' in response.text
+        assert 'window.location.replace("/login")' in response.text
         assert "Monthly Work Trips" not in response.text
     finally:
         app.dependency_overrides.clear()

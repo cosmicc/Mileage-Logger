@@ -325,10 +325,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - During PostgreSQL outages, full-page Dashboard and Work Trips loads should render the limp-mode
   warning page instead of the loading shell. Content fetches such as `/dashboard/content` and
   `/trips/content` must return only the limp-mode panel fragment so the shell does not nest a
-  second top bar. While the full limp-mode page is active, keep Home as the only clickable top
-  navigation control. The full outage page is end-user facing, uses the `Service Temporarily
-  Unavailable` heading, and keeps retrying `/login` so the login page appears when service returns;
-  fetched panel fragments must not include the retry script.
+  second top bar; shell JavaScript should redirect to `/login` when a limp-mode fragment is
+  detected so already-loaded pages do not keep stale navigation visible. The full outage page is
+  end-user facing, uses the `Service Temporarily Unavailable` heading, hides all shared app chrome
+  and navigation, avoids host/IP/connection-string details, and keeps retrying `/login` so the
+  login page appears when service returns. Fetched panel fragments must not include the retry
+  script.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs

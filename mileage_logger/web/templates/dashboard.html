@@ -41,12 +41,19 @@
       cache: "no-store",
     })
       .then((response) => {
+        if (response.headers.get("X-Mileage-Logger-Limp-Mode") === "true") {
+          window.location.replace("/login");
+          return "";
+        }
         if (!response.ok) {
           throw new Error(`Dashboard content request failed: ${response.status}`);
         }
         return response.text();
       })
       .then((html) => {
+        if (!html) {
+          return;
+        }
         shell.setAttribute("aria-busy", "false");
         shell.outerHTML = html;
       })

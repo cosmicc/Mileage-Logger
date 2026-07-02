@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+  {% set hide_app_chrome = limp_mode_active | default(false) %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,16 +11,19 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Mileage Logger">
     <meta name="application-name" content="Mileage Logger">
+    {% if not hide_app_chrome %}
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/static/icons/mileage-logger-icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-    <title>Mileage Logger</title>
+    {% endif %}
+    <title>{% if hide_app_chrome %}Service Temporarily Unavailable{% else %}Mileage Logger{% endif %}</title>
     <style>
       {% include "styles.css" %}
     </style>
   </head>
   <body>
+    {% if not hide_app_chrome %}
     <header class="topbar">
       <div class="brand" aria-label="Mileage Logger">
         <span class="brand-mark" aria-hidden="true">
@@ -119,9 +123,11 @@
       </div>
       {% endif %}
     </header>
+    {% endif %}
     <main class="page">
       {% block content %}{% endblock %}
     </main>
+    {% if not hide_app_chrome %}
     <script>
       if ("serviceWorker" in navigator && window.isSecureContext) {
         window.addEventListener("load", () => {
@@ -130,5 +136,6 @@
       }
 
     </script>
+    {% endif %}
   </body>
 </html>

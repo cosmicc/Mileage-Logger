@@ -3,6 +3,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -86,6 +87,33 @@ def _is_limp_mode_fragment_request(request: Request) -> bool:
     return request.headers.get("x-requested-with", "").casefold() == "fetch"
 
 
+def _elapsed_since_iso(value: str | None) -> str:
+    """Return a generic elapsed-time label for a stored UTC ISO timestamp."""
+
+    if not value:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    elapsed_seconds = max(0, int((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()))
+    if elapsed_seconds <= 5:
+        return "just now"
+    units = (
+        ("day", 86_400),
+        ("hour", 3_600),
+        ("minute", 60),
+    )
+    for label, unit_seconds in units:
+        count = elapsed_seconds // unit_seconds
+        if count >= 1:
+            suffix = "" if count == 1 else "s"
+            return f"{count} {label}{suffix} ago"
+    return f"{elapsed_seconds} seconds ago"
+
+
 def _limp_mode_template_response(request: Request, *, fragment: bool):
     """Build a database-outage response without querying PostgreSQL."""
 
@@ -99,6 +127,9 @@ def _limp_mode_template_response(request: Request, *, fragment: bool):
             "buffer_stats": runtime_status.buffer_stats,
             "runtime_status": runtime_status,
             "limp_mode_active": True,
+            "oldest_queued_payload_age": _elapsed_since_iso(
+                runtime_status.buffer_stats.oldest_received_at
+            ),
         },
         headers={"X-Mileage-Logger-Limp-Mode": "true"},
     )
