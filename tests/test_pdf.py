@@ -10,6 +10,10 @@ from mileage_logger.config import Settings
 from mileage_logger.models import Base, MonthlyGasPrice, Site, Trip
 from mileage_logger.services import pdf as pdf_service
 from mileage_logger.services.pdf import (
+    PDF_REPORT_HORIZONTAL_MARGIN,
+    PDF_REPORT_PAGE_SIZE,
+    PDF_REPORT_VERTICAL_MARGIN,
+    PDF_TRIP_TABLE_COLUMN_WIDTHS,
     calculate_reimbursement,
     calculate_reimbursement_gallons,
     generate_monthly_pdf,
@@ -24,6 +28,14 @@ def test_calculate_reimbursement_uses_requested_formula() -> None:
         Decimal("4.250"),
         Decimal("25.0"),
     ) == Decimal("20.49")
+
+
+def test_pdf_report_layout_uses_portrait_letter_width() -> None:
+    available_width = PDF_REPORT_PAGE_SIZE[0] - (PDF_REPORT_HORIZONTAL_MARGIN * 2)
+
+    assert PDF_REPORT_PAGE_SIZE[0] < PDF_REPORT_PAGE_SIZE[1]
+    assert PDF_REPORT_HORIZONTAL_MARGIN == PDF_REPORT_VERTICAL_MARGIN
+    assert sum(PDF_TRIP_TABLE_COLUMN_WIDTHS) <= available_width
 
 
 def test_trip_report_rows_include_trip_mileage() -> None:

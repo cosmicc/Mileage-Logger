@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.4 - Unreleased
+## 1.2.4 - 2026-07-02
 
 - Bumped the Mileage Logger package version to 1.2.4.
 - Removed the ID column from the Diagnostics Recent OwnTracks Entries table.
@@ -19,6 +19,8 @@
   stable after old raw OwnTracks location/event rows are purged.
 - Added optional `REPORT_DISPLAY_NAME` Docker configuration so downloaded PDF reports can identify
   the report submitter under the title.
+- Changed downloaded PDF reports from landscape to portrait layout.
+- Tightened downloaded PDF report margins and widened the From and To columns.
 - Changed OwnTracks raw location/event retention to a minimum of 90 days and kept automatic
   cleanup limited to raw OwnTracks rows only.
 - Changed trip deletion and trip odometer resequencing so trip rows no longer update the master

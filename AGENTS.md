@@ -130,7 +130,7 @@ docker compose up -d --build
   records the block reason and manual/automatic source shown on Diagnostics
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
-- Generates landscape PDF with trip table
+- Generates portrait PDF with trip table and condensed margins for report content
 - Adds optional `REPORT_DISPLAY_NAME` identification under the title as `Submitted by:` when the
   deployment setting is configured
 - Shows start/end odometers, miles, and location names

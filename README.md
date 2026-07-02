@@ -522,7 +522,7 @@ name appears under the report title as `Submitted by:`.
    month's work trip plus non-work trip miles, work-trip-only miles, OwnTracks events, work trip
    count, reimbursement, and monthly average gas price.
 6. Add or fetch a monthly gas price for that report month.
-7. Download the monthly PDF report from the `Work Trips` page.
+7. Download the portrait monthly PDF report from the `Work Trips` page.
 
 ## Project Commands
 

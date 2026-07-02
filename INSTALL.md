@@ -560,8 +560,8 @@ total trip miles / VEHICLE_MPG = reimbursement gallons
 reimbursement gallons * Michigan monthly average gas price = total reimbursement
 ```
 
-PDF reports are generated only when you click `Download PDF Report`; they are streamed to the
-browser and are not saved on the server.
+PDF reports use a portrait page layout and are generated only when you click `Download PDF Report`;
+they are streamed to the browser and are not saved on the server.
 
 Runtime logs are written to `/data/logs` inside the app container, and Docker binds that directory
 to `HOST_LOG_DIR` on the server. The web-login audit file is stored in the same mounted directory

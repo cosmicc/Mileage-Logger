@@ -7,7 +7,7 @@ from io import BytesIO
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.pagesizes import LETTER, landscape
+from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -20,6 +20,11 @@ from mileage_logger.services.gas_prices import get_or_create_monthly_price
 from mileage_logger.services.mileage import monthly_miles
 
 logger = logging.getLogger(__name__)
+
+PDF_REPORT_PAGE_SIZE = LETTER
+PDF_REPORT_HORIZONTAL_MARGIN = 0.35 * inch
+PDF_REPORT_VERTICAL_MARGIN = 0.35 * inch
+PDF_TRIP_TABLE_COLUMN_WIDTHS = [65, 145, 145, 75, 75, 50]
 
 
 @dataclass(frozen=True)
@@ -153,11 +158,11 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
-        pagesize=landscape(LETTER),
-        leftMargin=0.45 * inch,
-        rightMargin=0.45 * inch,
-        topMargin=0.45 * inch,
-        bottomMargin=0.45 * inch,
+        pagesize=PDF_REPORT_PAGE_SIZE,
+        leftMargin=PDF_REPORT_HORIZONTAL_MARGIN,
+        rightMargin=PDF_REPORT_HORIZONTAL_MARGIN,
+        topMargin=PDF_REPORT_VERTICAL_MARGIN,
+        bottomMargin=PDF_REPORT_VERTICAL_MARGIN,
     )
     story = [
         Paragraph(f"Mileage Log - {year}-{month:02d}", styles["Title"]),
@@ -193,7 +198,7 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
     if len(trip_rows) == 1:
         trip_rows.append(["", "No trips", "", "", "", "0.0"])
 
-    table = Table(trip_rows, repeatRows=1, colWidths=[70, 180, 180, 90, 90, 70])
+    table = Table(trip_rows, repeatRows=1, colWidths=PDF_TRIP_TABLE_COLUMN_WIDTHS)
     table.setStyle(
         TableStyle(
             [
