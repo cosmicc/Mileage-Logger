@@ -18,17 +18,6 @@ This document helps AI coding agents understand the Mileage Logger codebase and 
 
 ## Quick Start
 
-### Local Development
-```bash
-cp .env.example .env
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-docker compose up -d postgres
-alembic upgrade head
-uvicorn mileage_logger.app:app --reload
-```
-
 ### Tests & Linting
 ```bash
 pytest           # Run tests
@@ -36,12 +25,14 @@ ruff check .     # Lint
 CLOUDFLARED_TUNNEL_TOKEN=dummy-token docker compose --env-file .env.docker.example config
 ```
 
-### Docker Deployment
+### Docker Deployment / App Runtime
 ```bash
 ./scripts/init_docker_env.sh  # Generate .env with secrets
 # Set CLOUDFLARED_TUNNEL_TOKEN in .env
 docker compose up -d --build
 ```
+
+The application is Docker-only. Do not add or document a non-Docker app runtime path.
 
 ---
 
@@ -105,8 +96,13 @@ docker compose up -d --build
   scheduler skip
 - Replays buffered payloads in receive order after PostgreSQL returns, optionally verifying
   Alembic migrations on reconnect before draining the queue
-- Docker stores the queue under `/data/owntracks-buffer`, backed by `HOST_OWNTRACKS_BUFFER_DIR`,
-  so buffered OwnTracks data survives image rebuilds and container replacement
+- Docker stores the primary queue under `/data/owntracks-buffer`, backed by
+  `HOST_OWNTRACKS_BUFFER_DIR`. If that primary buffer is unavailable, the app uses the local
+  Docker named-volume fallback queue at `OWNTRACKS_BUFFER_FALLBACK_PATH`.
+- Fallback replay runs immediately while the primary buffer remains unavailable only when the app
+  observed the primary buffer fail before the database outage. If the primary buffer had older
+  queued entries first, fallback replay waits until both queues are readable so payloads drain in
+  receive order.
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
 - Writes structured JSON-lines records for successful and failed web UI login attempts
@@ -148,6 +144,7 @@ docker compose up -d --build
   optional submitted-by line, and trip table
 - Adds optional `REPORT_DISPLAY_NAME` identification under the title as `Submitted by:` when the
   deployment setting is configured
+- Highlights the total reimbursement dollar amount value cell with a soft yellow background
 - Shows start/end odometers, miles, and location names
 - Escapes trip and waypoint names before passing them to ReportLab `Paragraph` so user-managed
   names, including the optional report display name, render as text rather than PDF markup.
@@ -156,9 +153,9 @@ docker compose up -d --build
 **[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
 - Creates a gzip-compressed JSON backup of every SQLAlchemy app table plus OwnTracks waypoint export
 - Restores validated backup files transactionally by replacing current app table rows
-- Creates a startup automatic backup followed by hourly automatic full-data backups when
+- Creates a startup automatic backup followed by 6-hour automatic full-data backups when
   `AUTOMATIC_BACKUPS_ENABLED=true`, stores them in `AUTOMATIC_BACKUP_DIR`, and prunes to the
-  newest 6 hourly backups plus one daily backup for today and each of the prior 2 days
+  newest 4 recent automatic backups plus one daily backup for each of the prior 2 days
 - Backs Diagnostics full backup/restore controls, retained automatic-backup downloads, and retained
   automatic-backup restore; backup download and restore require web login, restore also requires
   typed confirmation, and startup-created backup rows are labeled as Startup
@@ -219,8 +216,8 @@ docker compose up -d --build
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
   `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `WEB_API_KEY`,
   `OWNTRACKS_ENCRYPTION_KEY`, `OWNTRACKS_BUFFER_ENABLED`, `OWNTRACKS_BUFFER_PATH`,
-  `OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS`, `OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE`,
-  `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
+  `OWNTRACKS_BUFFER_FALLBACK_PATH`, `OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS`,
+  `OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE`, `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ### Visual Design and Color Palette
@@ -244,9 +241,11 @@ docker compose up -d --build
 ## Common Tasks
 
 ### Adding a New Database Field
-1. Create migration in `alembic/versions/` with timestamp: `alembic revision -m "description"`
+1. Create migration in `alembic/versions/` with timestamp:
+   `docker compose run --rm app alembic revision -m "description"`
 2. Update SQLAlchemy model in [models.py](mileage_logger/models.py)
-3. Run `alembic upgrade head` to apply locally
+3. Validate through the Docker app image, for example
+   `docker compose run --rm app alembic upgrade head`
 4. Migration auto-runs on Docker container startup
 
 ### Adding an API Endpoint
@@ -357,13 +356,15 @@ docker compose up -d --build
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
    backup can be downloaded individually, startup-created files are labeled, and the selected file
    can be restored after typed `RESTORE` confirmation.
-8. Diagnostics groups the top cards together in this order: Application, Data, Latest Records,
-   OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. Keep the
-   group at three cards per row on desktop and one card per row on mobile. The Data card shows
-   raw record counts plus the lowest and highest queried gas price snapshot readings; do not use
-   monthly gas averages for those high/low values. The detailed OwnTracks state-change log and
-   recent OwnTracks database entries are paginated in compact 10-row pages with the same mobile
-   full-width pagination row used by the login and Cloudflare block lists.
+8. Diagnostics groups the top cards together in this order: Application, System Status, Data,
+   Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive
+   Space. Keep the group at three cards per row on desktop and one card per row on mobile. The
+   System Status card shows PostgreSQL availability plus local/remote placement and primary/backup
+   OwnTracks buffer availability with red/green indicator dots. The Data card shows raw record
+   counts plus the lowest and highest queried gas price snapshot readings; do not use monthly gas
+   averages for those high/low values. The detailed OwnTracks state-change log and recent OwnTracks
+   database entries are paginated in compact 10-row pages with the same mobile full-width
+   pagination row used by the login and Cloudflare block lists.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
    readable event labels instead of the database row ID, raw receive timestamps, battery level, or
    MQTT topic details.
@@ -419,7 +420,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Migrations run automatically on app startup
 - If PostgreSQL is unavailable at startup and `OWNTRACKS_BUFFER_ENABLED=true`, Docker starts the
   app in OwnTracks buffer limp mode instead of exiting. Web pages show the limp-mode warning, and
-  buffered OwnTracks payloads replay after the configured database returns.
+  buffered OwnTracks payloads replay after the configured database returns. If the primary
+  OwnTracks buffer mount is unavailable, the fallback queue persists in the
+  `owntracks_buffer_fallback` Docker named volume.
 - Daily gas snapshots run as an app-container background scheduler; there is no separate
   `gas-snapshot` Compose service.
 - Diagnostics page available at `http://server/diagnostics`
@@ -436,15 +439,16 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   trusted reverse-proxy scheme/host headers. For public Cloudflare Tunnel deployments, verify the
   browser origin is the public HTTPS URL or set `PASSKEY_ORIGIN` and `PASSKEY_RP_ID` explicitly.
 - Diagnostics includes authenticated full data backup and restore controls for app database rows
-  and saved OwnTracks waypoint export. Automatic hourly backups are stored under
+  and saved OwnTracks waypoint export. Automatic 6-hour backups are stored under
   `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups`; treat backup files as sensitive location
   history. Retained automatic backups can be downloaded individually from Diagnostics after web
   login.
 - Runtime app logs and web-login audit records are host bind-mounted through `HOST_LOG_DIR`.
   Do not bind-mount the login audit log as an individual file; use the host symlink documented in
   `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.
-- The OwnTracks buffer is host bind-mounted through `HOST_OWNTRACKS_BUFFER_DIR`; treat it as
-  sensitive location data and keep it across normal rebuilds until buffered rows have replayed.
+- The OwnTracks primary buffer is host bind-mounted through `HOST_OWNTRACKS_BUFFER_DIR`; treat it
+  as sensitive location data and keep it across normal rebuilds until buffered rows have replayed.
+  The fallback buffer is a local Docker named volume and should also be retained during rebuilds.
 
 ---
 

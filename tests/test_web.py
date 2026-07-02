@@ -48,6 +48,13 @@ from mileage_logger.services.login_failures import (
     tail_login_success_entries,
 )
 from mileage_logger.services.mileage import haversine_miles
+from mileage_logger.services.owntracks_buffer import OwnTracksBufferStats
+from mileage_logger.services.runtime_status import (
+    RuntimeBufferStatus,
+    RuntimeDatabaseStatus,
+    RuntimeStatus,
+    build_runtime_status,
+)
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import (
     _dashboard_distance_summary,
@@ -60,6 +67,42 @@ from mileage_logger.web.routes import (
 )
 
 TEST_SECRET_KEY = "test-secret-key-for-web-session-signing"
+
+
+def _runtime_status(
+    *,
+    database_available: bool = True,
+    primary_available: bool = True,
+    backup_available: bool = True,
+    primary_count: int = 0,
+    backup_count: int = 0,
+) -> RuntimeStatus:
+    buffer_stats = OwnTracksBufferStats(
+        queued_count=primary_count + backup_count,
+        primary_queued_count=primary_count,
+        fallback_queued_count=backup_count,
+        primary_available=primary_available,
+        fallback_available=backup_available,
+    )
+    return RuntimeStatus(
+        database=RuntimeDatabaseStatus(
+            available=database_available,
+            engine_label="PostgreSQL",
+            placement_label="Remote PostgreSQL",
+            host_label="db.internal",
+        ),
+        primary_buffer=RuntimeBufferStatus(
+            label="Primary Buffer",
+            available=primary_available,
+            queued_count=primary_count,
+        ),
+        backup_buffer=RuntimeBufferStatus(
+            label="Backup Buffer",
+            available=backup_available,
+            queued_count=backup_count,
+        ),
+        buffer_stats=buffer_stats,
+    )
 
 
 def _session() -> Session:
@@ -95,21 +138,22 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
     settings = Settings(
         database_url="sqlite://",
         owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
+        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
     )
 
     def offline_get_db():
         raise OperationalError("SELECT 1", {}, Exception("database offline"))
         yield
 
+    runtime_status = _runtime_status(
+        database_available=False,
+        primary_count=2,
+        backup_count=1,
+    )
     monkeypatch.setattr("mileage_logger.app.settings", settings)
     monkeypatch.setattr(
-        "mileage_logger.app.owntracks_buffer_stats",
-        lambda _settings: SimpleNamespace(
-            queued_count=3,
-            oldest_received_at="2026-07-01T12:00:00+00:00",
-            newest_received_at="2026-07-01T12:05:00+00:00",
-            last_error="database offline",
-        ),
+        "mileage_logger.app.build_runtime_status",
+        lambda _settings, *, database_available: runtime_status,
     )
     app.dependency_overrides[get_db] = offline_get_db
     try:
@@ -119,12 +163,57 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert response.headers["X-Mileage-Logger-Limp-Mode"] == "true"
         assert "Limp Mode" in response.text
         assert "Database Unreachable" in response.text
+        assert "PostgreSQL Server" in response.text
+        assert "Remote PostgreSQL - db.internal" in response.text
         assert "Accepting and buffering" in response.text
         assert "Queued OwnTracks Payloads" in response.text
+        assert "Primary Buffer" in response.text
+        assert "Backup Buffer" in response.text
+        assert "2 queued" in response.text
+        assert "1 queued" in response.text
+        assert "status-dot bad" in response.text
+        assert "status-dot good" in response.text
         assert "3" in response.text
-        assert "database offline" in response.text
     finally:
         app.dependency_overrides.clear()
+
+
+def test_runtime_status_classifies_postgresql_remote_and_local(monkeypatch, tmp_path) -> None:
+    buffer_stats = OwnTracksBufferStats(
+        queued_count=5,
+        primary_queued_count=2,
+        fallback_queued_count=3,
+        primary_available=True,
+        fallback_available=True,
+    )
+    monkeypatch.setattr(
+        "mileage_logger.services.runtime_status._read_runtime_buffer_stats",
+        lambda _settings: buffer_stats,
+    )
+
+    remote_status = build_runtime_status(
+        Settings(
+            database_url="postgresql+psycopg://mileage:secret@db.internal:5432/mileage_logger",
+            owntracks_buffer_path=str(tmp_path / "primary.sqlite3"),
+            owntracks_buffer_fallback_path=str(tmp_path / "backup.sqlite3"),
+        ),
+        database_available=True,
+    )
+    local_status = build_runtime_status(
+        Settings(
+            database_url="postgresql+psycopg://mileage:secret@postgres:5432/mileage_logger",
+            owntracks_buffer_path=str(tmp_path / "primary.sqlite3"),
+            owntracks_buffer_fallback_path=str(tmp_path / "backup.sqlite3"),
+        ),
+        database_available=False,
+    )
+
+    assert remote_status.database.state_label == "Reachable"
+    assert remote_status.database.detail_label == "Remote PostgreSQL - db.internal"
+    assert remote_status.primary_buffer.queued_label == "2 queued"
+    assert remote_status.backup_buffer.queued_label == "3 queued"
+    assert local_status.database.state_label == "Unavailable"
+    assert local_status.database.detail_label == "Local/Bundled PostgreSQL - postgres"
 
 
 def _html_section(html: str, start_marker: str, end_marker: str | None = None) -> str:
@@ -3082,18 +3171,22 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
         app.dependency_overrides.clear()
 
 
-def test_automatic_backup_retention_keeps_hourly_and_recent_daily(tmp_path) -> None:
+def test_automatic_backup_retention_keeps_one_day_of_six_hour_and_prior_daily(
+    tmp_path,
+) -> None:
     db = _session()
     _seed_full_backup_data(db)
     backup_dir = tmp_path / "backups"
     backup_times = [
-        datetime(2026, 6, 17, 12, 0, tzinfo=UTC),
-        datetime(2026, 6, 18, 12, 0, tzinfo=UTC),
-        datetime(2026, 6, 19, 12, 0, tzinfo=UTC),
-        *[
-            datetime(2026, 6, 20, hour, 0, tzinfo=UTC)
-            for hour in range(3, 13)
-        ],
+        datetime(2026, 6, 17, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 18, 10, 0, tzinfo=UTC),
+        datetime(2026, 6, 18, 22, 0, tzinfo=UTC),
+        datetime(2026, 6, 19, 10, 0, tzinfo=UTC),
+        datetime(2026, 6, 19, 22, 0, tzinfo=UTC),
+        datetime(2026, 6, 20, 4, 0, tzinfo=UTC),
+        datetime(2026, 6, 20, 10, 0, tzinfo=UTC),
+        datetime(2026, 6, 20, 16, 0, tzinfo=UTC),
+        datetime(2026, 6, 20, 22, 0, tzinfo=UTC),
     ]
     for backup_time in backup_times:
         create_automatic_backup(db, backup_dir, now=backup_time)
@@ -3101,12 +3194,13 @@ def test_automatic_backup_retention_keeps_hourly_and_recent_daily(tmp_path) -> N
     retained_backups = list_automatic_backup_files(backup_dir)
     retained_filenames = {backup.filename for backup in retained_backups}
 
-    assert len(retained_backups) == 8
-    assert "mileage-logger-auto-backup-20260617-120000Z.json.gz" not in retained_filenames
-    assert "mileage-logger-auto-backup-20260618-120000Z.json.gz" in retained_filenames
-    assert "mileage-logger-auto-backup-20260619-120000Z.json.gz" not in retained_filenames
-    assert "mileage-logger-auto-backup-20260620-030000Z.json.gz" in retained_filenames
-    for hour in range(7, 13):
+    assert len(retained_backups) == 6
+    assert "mileage-logger-auto-backup-20260617-160000Z.json.gz" not in retained_filenames
+    assert "mileage-logger-auto-backup-20260618-100000Z.json.gz" not in retained_filenames
+    assert "mileage-logger-auto-backup-20260618-220000Z.json.gz" in retained_filenames
+    assert "mileage-logger-auto-backup-20260619-100000Z.json.gz" not in retained_filenames
+    assert "mileage-logger-auto-backup-20260619-220000Z.json.gz" in retained_filenames
+    for hour in (4, 10, 16, 22):
         assert f"mileage-logger-auto-backup-20260620-{hour:02d}0000Z.json.gz" in retained_filenames
 
 
@@ -4115,6 +4209,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "settings": Settings(database_url="sqlite://"),
             "app_version": __version__,
             "database_url": "sqlite://",
+            "runtime_status": _runtime_status(),
             "location_count": 0,
             "site_count": 0,
             "trip_count": 0,
@@ -4236,6 +4331,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
 
     api_tests_start = rendered.index('<section id="api-tests" class="diagnostics-grid">')
     app_card_start = rendered.index("<h2>Application</h2>")
+    status_card_start = rendered.index("<h2>System Status</h2>")
     data_card_start = rendered.index("<h2>Data</h2>")
     latest_records_start = rendered.index("<h2>Latest Records</h2>")
     owntracks_card_start = rendered.index('<div id="owntracks-current-state" class="panel">')
@@ -4247,6 +4343,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert (
         api_tests_start
         < app_card_start
+        < status_card_start
         < data_card_start
         < latest_records_start
         < owntracks_card_start
@@ -4257,8 +4354,15 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
         < state_log_start
     )
     assert manual_card_end == eia_card_start
-    assert api_tests_section.count('class="panel"') == 8
+    assert api_tests_section.count('class="panel"') == 9
     assert "Application" in api_tests_section
+    assert "System Status" in api_tests_section
+    status_card = rendered[status_card_start:data_card_start]
+    assert "PostgreSQL Server" in status_card
+    assert "Remote PostgreSQL - db.internal" in status_card
+    assert "Primary Buffer" in status_card
+    assert "Backup Buffer" in status_card
+    assert "status-dot good" in status_card
     assert "Data" in api_tests_section
     data_card = rendered[data_card_start:latest_records_start]
     assert "Lowest Queried Gas Price" in data_card
@@ -4305,6 +4409,8 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".trip-summary-card strong" in stylesheet
     assert ".waypoint-pagination" in stylesheet
     assert ".diagnostics-pagination" in stylesheet
+    assert ".status-dot.good" in stylesheet
+    assert ".status-dot.bad" in stylesheet
     assert ".panel-toolbar .pagination-controls" in stylesheet
     assert ".pagination-button-row .button-link" in stylesheet
     assert "flex: 1 1 0;" in stylesheet

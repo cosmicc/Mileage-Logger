@@ -45,23 +45,9 @@ Set `VEHICLE_MPG` to the fuel economy that should be used for reimbursement calc
 EIA support is scaffolded because the official API requires an API key and the exact series should
 be configured with `EIA_SERIES_ID` once the preferred Michigan data series is selected.
 
-## Local Development
-
-```bash
-cp .env.example .env
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-docker compose up -d postgres
-alembic upgrade head
-uvicorn mileage_logger.app:app --reload
-```
-
-Open `http://localhost:8000`.
-
 ## Docker Deployment
 
-Docker Compose is the preferred deployment path. It runs the complete stack:
+Mileage Logger is intended to run as a Docker Compose stack. It runs the complete stack:
 
 - PostgreSQL database.
 - FastAPI mileage app.
@@ -140,10 +126,14 @@ the app starts in limp mode instead of exiting: browser pages show a single resp
 warning page, non-OwnTracks API routes return 503 JSON, and OwnTracks HTTP/MQTT payloads are
 validated then written to the local FIFO buffer. Docker stores that buffer at
 `/data/owntracks-buffer/owntracks-buffer.sqlite3`, backed by
-`HOST_OWNTRACKS_BUFFER_DIR` on the host. When PostgreSQL returns, the app verifies migrations if
-configured and replays buffered payloads in the order received. Automatic trip processing, gas
+`HOST_OWNTRACKS_BUFFER_DIR` on the host. If the primary buffer mount is unavailable, Docker keeps
+accepting outage payloads in the local named-volume fallback buffer configured by
+`OWNTRACKS_BUFFER_FALLBACK_PATH`. Fallback entries replay immediately while the primary buffer is
+still down only when the app observed the primary buffer fail before the database outage; otherwise
+the app waits for both queues so payloads replay in receive order. Automatic trip processing, gas
 snapshots, and automatic backups pause their database-writing passes while PostgreSQL is
-unreachable.
+unreachable. The limp-mode warning page shows PostgreSQL status plus the primary and backup buffer
+state and queued-payload totals.
 
 OwnTracks HTTP mode should point at:
 
@@ -261,11 +251,11 @@ App Log when `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. The m
 file containing all Mileage Logger database tables plus an OwnTracks waypoint export. Treat this
 file as sensitive location history.
 
-The app also creates automatic full-data backups every hour when
+The app also creates automatic full-data backups every 6 hours when
 `AUTOMATIC_BACKUPS_ENABLED=true`, which is the default. Automatic backups are stored in
 `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups` such as `/data/logs/backups` in Docker.
 Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
-retention policy keeps the newest 6 hourly backups plus one daily backup for today and each of the
+retention policy keeps the newest 4 recent automatic backups plus one daily backup for each of the
 prior 2 days. Startup-created automatic backups are labeled in the table. Each listed automatic
 backup also has its own download button. Backup downloads use `Cache-Control: no-store` and
 require the same web login as restore because the files contain location history.
@@ -381,12 +371,15 @@ same compact sizing as the Work Trips selected-month cards on full-width layouts
 keeps each card on its own row.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
 the existing checkpoint can be checked before entering a correction. The top Diagnostics cards are
-grouped together in this order: Application, Data, Latest Records, OwnTracks State, Manual
-Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three cards per
-row. The Data card includes the lowest and highest queried gas price readings from saved gas price
-snapshots. Diagnostics also shows hard drive space for key runtime paths with used-space bars,
-combining paths into one row when their exact used space and total capacity match, and includes
-current database size plus total app record count at the bottom of the card. Recent OwnTracks entries,
+grouped together in this order: Application, System Status, Data, Latest Records, OwnTracks State,
+Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three
+cards per row. The System Status card shows PostgreSQL reachability, whether the configured
+PostgreSQL host is remote, and primary/backup OwnTracks buffer availability with red/green
+indicator dots. The Data card includes the lowest and highest queried gas price readings from
+saved gas price snapshots. Diagnostics also shows hard drive space for key runtime paths with
+used-space bars, combining paths into one row when their exact used space and total capacity
+match, and includes current database size plus total app record count at the bottom of the card.
+Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
 full-width row and the page count shown as text below. Recent OwnTracks entries show original event
@@ -455,6 +448,7 @@ OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
 OWNTRACKS_BUFFER_ENABLED=true
 OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
+OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
 OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
 OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 OWNTRACKS_ENCRYPTION_KEY=change-owntracks-encryption-key
@@ -513,10 +507,11 @@ Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log
 mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH` is only a host-side symlink alias for the
 shorter `/var/log/mileage-logger-login-failures.log` path. Successful and failed login entries are
 shown separately in Diagnostics.
-Docker also binds `/data/owntracks-buffer` to `HOST_OWNTRACKS_BUFFER_DIR`. Keep this directory
-mounted and access-restricted because it can contain buffered location history while PostgreSQL is
-offline. Do not delete it during rebuilds unless you have confirmed the buffer is empty or you are
-intentionally discarding unreplayed OwnTracks payloads.
+Docker also binds `/data/owntracks-buffer` to `HOST_OWNTRACKS_BUFFER_DIR` and keeps
+`/data/owntracks-buffer-fallback` in the local `owntracks_buffer_fallback` named volume. Keep both
+stores mounted and access-restricted because they can contain buffered location history while
+PostgreSQL is offline. Do not delete either store during rebuilds unless you have confirmed the
+buffer is empty or you are intentionally discarding unreplayed OwnTracks payloads.
 Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
 mount, and are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
 are truncated in the Diagnostics table but remain visible on hover and available to download.
@@ -548,6 +543,7 @@ on a schedule without cron if you prefer host-managed timing. The Docker image i
 systemd inside the container.
 Set `REPORT_DISPLAY_NAME` when downloaded PDF reports should identify who submitted the report; the
 name appears under the report title as `Submitted by:`.
+The PDF summary highlights the final total reimbursement dollar amount with a yellow background.
 
 ## Workflow
 
@@ -568,9 +564,8 @@ name appears under the report title as `Submitted by:`.
 ```bash
 ruff check .
 pytest
-alembic revision --autogenerate -m "message"
-alembic upgrade head
 bash -n scripts/*.sh
-cp .env.docker.example .env
-docker compose config
+CLOUDFLARED_TUNNEL_TOKEN=dummy-token docker compose --env-file .env.docker.example config
+docker compose run --rm app alembic revision --autogenerate -m "message"
+docker compose run --rm app alembic upgrade head
 ```

@@ -35,8 +35,13 @@ prepare_log_paths() {
   local log_dir="${LOG_DIR:-/data/logs}"
   local login_failure_log_path="${LOGIN_FAILURE_LOG_PATH:-/var/log/mileage-logger-login-failures.log}"
   local owntracks_buffer_path="${OWNTRACKS_BUFFER_PATH:-/data/owntracks-buffer/owntracks-buffer.sqlite3}"
+  local owntracks_buffer_fallback_path="${OWNTRACKS_BUFFER_FALLBACK_PATH:-/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3}"
 
-  mkdir -p "${log_dir}" "$(dirname "${login_failure_log_path}")" "$(dirname "${owntracks_buffer_path}")"
+  mkdir -p \
+    "${log_dir}" \
+    "$(dirname "${login_failure_log_path}")" \
+    "$(dirname "${owntracks_buffer_path}")" \
+    "$(dirname "${owntracks_buffer_fallback_path}")"
   if [[ -d "${login_failure_log_path}" ]]; then
     echo "LOGIN_FAILURE_LOG_PATH points to a directory, expected a writable log file: ${login_failure_log_path}" >&2
     exit 1
@@ -44,9 +49,11 @@ prepare_log_paths() {
   touch "${login_failure_log_path}"
   chown -R app:app "${log_dir}"
   chown -R app:app "$(dirname "${owntracks_buffer_path}")"
+  chown -R app:app "$(dirname "${owntracks_buffer_fallback_path}")"
   chown app:app "${login_failure_log_path}"
   chmod 0750 "${log_dir}"
   chmod 0750 "$(dirname "${owntracks_buffer_path}")"
+  chmod 0750 "$(dirname "${owntracks_buffer_fallback_path}")"
   chmod 0640 "${login_failure_log_path}"
 }
 

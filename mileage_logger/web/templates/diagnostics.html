@@ -56,6 +56,37 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     </dl>
   </div>
 
+  <div id="system-status" class="panel">
+    <h2>System Status</h2>
+    <p class="panel-meta">PostgreSQL and OwnTracks buffer availability.</p>
+    <dl class="diagnostic-list">
+      <dt>PostgreSQL Server</dt>
+      <dd>
+        <span class="status-indicator-line">
+          <span class="status-dot {{ runtime_status.database.indicator_class }}" aria-hidden="true"></span>
+          {{ runtime_status.database.state_label }}
+        </span>
+        <span class="diagnostic-value">{{ runtime_status.database.detail_label }}</span>
+      </dd>
+      <dt>{{ runtime_status.primary_buffer.label }}</dt>
+      <dd>
+        <span class="status-indicator-line">
+          <span class="status-dot {{ runtime_status.primary_buffer.indicator_class }}" aria-hidden="true"></span>
+          {{ runtime_status.primary_buffer.state_label }}
+        </span>
+        <span class="diagnostic-value">{{ runtime_status.primary_buffer.queued_label }}</span>
+      </dd>
+      <dt>{{ runtime_status.backup_buffer.label }}</dt>
+      <dd>
+        <span class="status-indicator-line">
+          <span class="status-dot {{ runtime_status.backup_buffer.indicator_class }}" aria-hidden="true"></span>
+          {{ runtime_status.backup_buffer.state_label }}
+        </span>
+        <span class="diagnostic-value">{{ runtime_status.backup_buffer.queued_label }}</span>
+      </dd>
+    </dl>
+  </div>
+
   <div class="panel">
     <h2>Data</h2>
     <dl class="diagnostic-list">
@@ -713,7 +744,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <div class="panel-toolbar">
       <div>
         <h3>Automatic Backups</h3>
-        <p class="panel-meta">Runs hourly and keeps recent hourly and daily backups.</p>
+        <p class="panel-meta">Runs every 6 hours and keeps recent automatic and daily backups.</p>
       </div>
       <span class="pill {{ 'good' if automatic_backups_enabled else 'bad' }}">
         {{ "Enabled" if automatic_backups_enabled else "Disabled" }}
@@ -723,7 +754,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <dt>Backup Directory</dt>
       <dd>{{ automatic_backup_dir }}</dd>
       <dt>Retention</dt>
-      <dd>Newest 6 hourly backups plus one daily backup for today and the prior 2 days.</dd>
+      <dd>Newest 4 recent automatic backups plus one daily backup for each of the prior 2 days.</dd>
     </dl>
     {% if automatic_backups %}
     <table class="automatic-backup-table">

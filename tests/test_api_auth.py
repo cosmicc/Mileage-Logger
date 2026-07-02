@@ -149,6 +149,7 @@ def test_owntracks_endpoint_buffers_without_database_dependency(monkeypatch, tmp
         owntracks_password="owntracks-password",
         owntracks_encryption_key="owntracks-secret",
         owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
+        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
         automatic_trip_processing_enabled=False,
     )
     _patch_settings(monkeypatch, settings)

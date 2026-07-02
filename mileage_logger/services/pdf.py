@@ -29,6 +29,7 @@ PDF_TRIP_TABLE_COLUMN_WIDTHS = [65, 145, 145, 75, 75, 50]
 PDF_TITLE_TO_IDENTITY_SPACER = 0
 PDF_IDENTITY_TO_TABLE_SPACER = 6
 PDF_TITLE_TO_TABLE_SPACER = 6
+PDF_REIMBURSEMENT_HIGHLIGHT_COLOR = "#fff3b0"
 
 
 @dataclass(frozen=True)
@@ -244,6 +245,12 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f2f4f7")),
+                (
+                    "BACKGROUND",
+                    (1, -1),
+                    (1, -1),
+                    colors.HexColor(PDF_REIMBURSEMENT_HIGHLIGHT_COLOR),
+                ),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d0d5dd")),
                 ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
                 ("ALIGN", (1, 0), (1, -1), "RIGHT"),

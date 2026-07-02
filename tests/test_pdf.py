@@ -1,7 +1,9 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+from reportlab.lib import colors
 from reportlab.platypus import Paragraph as ReportLabParagraph
+from reportlab.platypus import TableStyle as ReportLabTableStyle
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -11,6 +13,7 @@ from mileage_logger.models import Base, MonthlyGasPrice, Site, Trip
 from mileage_logger.services import pdf as pdf_service
 from mileage_logger.services.pdf import (
     PDF_IDENTITY_TO_TABLE_SPACER,
+    PDF_REIMBURSEMENT_HIGHLIGHT_COLOR,
     PDF_REPORT_HORIZONTAL_MARGIN,
     PDF_REPORT_PAGE_SIZE,
     PDF_REPORT_VERTICAL_MARGIN,
@@ -263,3 +266,47 @@ def test_generate_monthly_pdf_adds_configured_report_display_name(monkeypatch) -
     assert "Mileage Log - July 2026" in rendered_paragraphs
     assert "Mileage Log - 2026-07" not in rendered_paragraphs
     assert "<b>Submitted by:</b> Jane &lt;Tech&gt; &amp; Co" in rendered_paragraphs
+
+
+def test_generate_monthly_pdf_highlights_total_reimbursement_value(monkeypatch) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    captured_styles: list[list[tuple]] = []
+
+    def record_table_style(commands):
+        captured_styles.append(list(commands))
+        return ReportLabTableStyle(commands)
+
+    monkeypatch.setattr(pdf_service, "TableStyle", record_table_style)
+
+    with session_factory() as db:
+        db.add(
+            MonthlyGasPrice(
+                year=2026,
+                month=7,
+                state="MI",
+                average_price_per_gallon=Decimal("3.500"),
+                buffer_per_gallon=Decimal("0.50"),
+                effective_rate=Decimal("4.000"),
+                source="manual",
+                source_detail="test",
+            )
+        )
+        db.commit()
+
+        report = generate_monthly_pdf(db, 2026, 7)
+
+    assert report.content.startswith(b"%PDF")
+    assert any(
+        command[0] == "BACKGROUND"
+        and command[1] == (1, -1)
+        and command[2] == (1, -1)
+        and command[3].hexval() == colors.HexColor(PDF_REIMBURSEMENT_HIGHLIGHT_COLOR).hexval()
+        for commands in captured_styles
+        for command in commands
+    )

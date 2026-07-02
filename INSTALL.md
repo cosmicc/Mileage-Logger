@@ -123,6 +123,7 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_BUFFER_ENABLED=true
 OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
+OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
 OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
 OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 LOG_DIR=/data/logs
@@ -293,10 +294,16 @@ startup, Docker starts the app in limp mode instead of stopping the container. B
 single responsive database warning page, non-OwnTracks API routes return 503 JSON, and OwnTracks
 HTTP/MQTT payloads are validated then written to the local FIFO buffer. The buffer is stored at
 `OWNTRACKS_BUFFER_PATH` inside the app container and should be backed by
-`HOST_OWNTRACKS_BUFFER_DIR` so it survives rebuilds. When PostgreSQL is reachable again, the app
-can run migrations on reconnect when `DATABASE_RUN_MIGRATIONS_ON_RECONNECT=true`, then replay
-buffered payloads in receive order. Automatic trip processing, gas snapshots, and automatic
-backups pause their database-writing passes while PostgreSQL is unreachable.
+`HOST_OWNTRACKS_BUFFER_DIR` so it survives rebuilds. If that primary buffer mount is unavailable,
+the app writes outage payloads to the local Docker named-volume fallback path configured by
+`OWNTRACKS_BUFFER_FALLBACK_PATH`. Fallback replay runs immediately while the primary buffer remains
+unavailable only when the app observed the primary buffer fail before the database outage;
+otherwise replay waits for both queues so payload order is preserved. When PostgreSQL is reachable
+again, the app can run migrations on reconnect when `DATABASE_RUN_MIGRATIONS_ON_RECONNECT=true`,
+then replay buffered payloads in receive order. Automatic trip processing, gas snapshots, and
+automatic backups pause their database-writing passes while PostgreSQL is unreachable. The
+limp-mode warning page shows PostgreSQL status plus primary and backup buffer state with
+queued-payload totals.
 
 The app will receive configuration from the environment variables imported into the Portainer
 stack.
@@ -457,6 +464,7 @@ OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
 OWNTRACKS_BUFFER_ENABLED=true
 OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
+OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
 OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
 OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 WEB_LOGIN_USERNAME=admin
@@ -590,10 +598,12 @@ Set `REPORT_DISPLAY_NAME` in `.env` when the downloaded PDF should identify the 
 when set, the name appears under the PDF title as `Submitted by:`.
 The PDF report title shows the selected report month as a month name and year, such as
 `Mileage Log - June 2026`.
+The PDF summary highlights the final total reimbursement dollar amount with a yellow background.
 
 The OwnTracks outage buffer can contain unreplayed location history while the database is down.
-Keep `HOST_OWNTRACKS_BUFFER_DIR` mounted and access-restricted, and do not delete it during normal
-container rebuilds unless Diagnostics or logs confirm the queue is empty.
+Keep `HOST_OWNTRACKS_BUFFER_DIR` and the `owntracks_buffer_fallback` Docker named volume mounted
+and access-restricted, and do not delete either store during normal container rebuilds unless
+Diagnostics or logs confirm the queues are empty.
 
 Reimbursement is calculated as:
 
@@ -764,11 +774,11 @@ upload the file, and type `RESTORE`; the app validates the backup before replaci
 table rows in one transaction. Backup files contain sensitive location history and should be stored
 securely.
 
-The app also creates one automatic startup full-data backup and then hourly full-data backups by
+The app also creates one automatic startup full-data backup and then 6-hour full-data backups by
 default. In Docker they are stored under `/data/logs/backups`, backed by `HOST_LOG_DIR` on the
 host, unless `AUTOMATIC_BACKUP_DIR` is set to another private path. Diagnostics labels startup
 backups, lists retained automatic backups, and can restore a selected file after you type
-`RESTORE`. Retention keeps the newest 6 hourly backups plus one daily backup for today and each of
+`RESTORE`. Retention keeps the newest 4 recent automatic backups plus one daily backup for each of
 the prior 2 days.
 
 Back up PostgreSQL:

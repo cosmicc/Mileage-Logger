@@ -125,7 +125,13 @@ of app JSON errors.
 Database-outage web handling is different from normal HTTP errors. The app-level limp-mode
 middleware renders `web/templates/limp_mode.html` for browser paths when PostgreSQL is unreachable
 and returns HTTP 200 with `X-Mileage-Logger-Limp-Mode: true` so nginx does not replace it with the
-generic 503 page. Non-OwnTracks API paths return 503 JSON during limp mode.
+generic 503 page. Non-OwnTracks API paths return 503 JSON during limp mode. The limp-mode page
+uses `mileage_logger.services.runtime_status.build_runtime_status()` so it can show PostgreSQL
+availability plus primary and backup buffer state/counts without querying PostgreSQL.
+OwnTracks ingestion remains the exception during limp mode: HTTP and MQTT payloads go through
+`ingest_or_buffer_owntracks_payload()`, which writes to the primary buffer or to the local fallback
+buffer if the primary path is unavailable. Do not write new OwnTracks ingestion routes directly to
+PostgreSQL or directly to one buffer path; the manager owns fallback selection and replay order.
 
 ### Credentials Configuration
 
@@ -645,8 +651,10 @@ individual failed-login rows rather than adding separate footer refresh or downl
 The Configure Passkey Diagnostics card creates one new WebAuthn credential at a time, lists stored
 credentials, and removes only the selected `passkey_credentials` row. Keep the top Diagnostics
 cards grouped together in this order unless the page is reorganized deliberately: Application,
-Data, Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive
-Space.
+System Status, Data, Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure
+Passkey, and Hard Drive Space. The System Status card uses
+`mileage_logger.services.runtime_status.build_runtime_status()` for PostgreSQL local/remote
+placement and primary/backup OwnTracks buffer indicators.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each

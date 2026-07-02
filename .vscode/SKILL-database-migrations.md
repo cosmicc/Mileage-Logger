@@ -8,7 +8,7 @@ Mileage Logger uses [Alembic](https://alembic.sqlalchemy.org/) for database migr
 - Migrations live in [`alembic/versions/`](alembic/versions/)
 - SQLAlchemy models in [mileage_logger/models.py](mileage_logger/models.py)
 - Migrations run automatically on app startup via Docker
-- Local dev: Run with `alembic upgrade head`
+- Manual migration commands should run through Docker Compose
 
 ---
 
@@ -42,7 +42,7 @@ class Trip(Base):
 
 In the project root:
 ```bash
-alembic revision -m "add custom_field to trips"
+docker compose run --rm app alembic revision -m "add custom_field to trips"
 ```
 
 This creates a new file in `alembic/versions/` with timestamp (e.g., `20260615_0015_add_custom_field_to_trips.py`).
@@ -67,25 +67,25 @@ def downgrade() -> None:
 - `op.create_table()` — Create new table
 - `op.drop_table()` — Remove table
 
-### Step 4: Test Locally
+### Step 4: Test In Docker
 
 ```bash
 # Apply the migration
-alembic upgrade head
+docker compose run --rm app alembic upgrade head
 
 # Verify the field exists
-psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\d trips"
+docker compose exec postgres psql -U mileage -d mileage_logger -c "\d trips"
 ```
 
 ### Step 5: Rollback if Needed
 
 ```bash
 # Revert to previous migration
-alembic downgrade -1
+docker compose run --rm app alembic downgrade -1
 
 # List migration history
-alembic current
-alembic history
+docker compose run --rm app alembic current
+docker compose run --rm app alembic history
 ```
 
 ---
@@ -110,9 +110,9 @@ alembic history
    op.create_index('idx_trips_trip_date', 'trips', ['trip_date'])
    ```
 
-4. **Test both directions**
-   - `alembic upgrade head` — Apply forward
-   - `alembic downgrade -1` — Verify rollback works
+4. **Test both directions through Docker**
+   - `docker compose run --rm app alembic upgrade head` — Apply forward
+   - `docker compose run --rm app alembic downgrade -1` — Verify rollback works
 
 5. **Avoid data transformations in migration**
    - Migrations should handle schema only
@@ -209,16 +209,16 @@ def downgrade() -> None:
 
 ### View Table Structure
 
-Local development (PostgreSQL):
+Docker Compose PostgreSQL:
 ```bash
 # List all tables
-psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\dt"
+docker compose exec postgres psql -U mileage -d mileage_logger -c "\dt"
 
 # Describe a specific table
-psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\d trips"
+docker compose exec postgres psql -U mileage -d mileage_logger -c "\d trips"
 
 # View indexes
-psql postgresql://mileage:mileage@localhost:5432/mileage_logger -c "\di"
+docker compose exec postgres psql -U mileage -d mileage_logger -c "\di"
 ```
 
 ### From Python (SQLAlchemy)
@@ -255,11 +255,17 @@ starts the app in OwnTracks buffer limp mode instead of exiting. This is intenti
 keep accepting OwnTracks data. Do not put schema changes in code paths that assume startup
 migrations already ran while the app is in limp mode. When buffered OwnTracks payloads are waiting
 and PostgreSQL returns, `mileage_logger.database_migrations.run_migrations_once_on_reconnect()`
-can run `alembic upgrade head` once before the replay worker drains the local queue.
+can run the app-container `alembic upgrade head` command once before the replay worker drains the
+local queue.
+The replay worker may need to merge the primary buffer and the local fallback buffer after an NFS
+buffer outage. Migration changes must keep replay idempotent enough to process entries in the
+stored receive order after both buffers are readable.
 
 **To add a new migration for deployment**:
-1. Create migration locally
-2. Test with `alembic upgrade head` / `downgrade -1`
+1. Create the migration through Docker:
+   `docker compose run --rm app alembic revision -m "description"`
+2. Test with `docker compose run --rm app alembic upgrade head` and
+   `docker compose run --rm app alembic downgrade -1`
 3. Commit to git
 4. On server: `docker compose up -d --build` applies migration automatically
 
@@ -278,7 +284,7 @@ docker compose exec app alembic downgrade -1  # Rollback
    - Solution: Always use `nullable=True` initially, then remove after backfill
 
 2. **Not testing rollback**
-   - Always run `alembic downgrade -1` to verify it works
+   - Always run `docker compose run --rm app alembic downgrade -1` to verify it works
    - Prevents being stuck in an unrecoverable state
 
 3. **Schema divergence**

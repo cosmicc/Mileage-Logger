@@ -60,6 +60,10 @@ def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:
         'OWNTRACKS_BUFFER_PATH: "${OWNTRACKS_BUFFER_PATH:-'
         '/data/owntracks-buffer/owntracks-buffer.sqlite3}"'
     )
+    expected_fallback_path = (
+        'OWNTRACKS_BUFFER_FALLBACK_PATH: "${OWNTRACKS_BUFFER_FALLBACK_PATH:-'
+        '/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3}"'
+    )
     expected_replay_interval = (
         'OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS: '
         '"${OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS:-15}"'
@@ -71,9 +75,12 @@ def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:
 
     assert 'OWNTRACKS_BUFFER_ENABLED: "${OWNTRACKS_BUFFER_ENABLED:-true}"' in app_block
     assert expected_buffer_path in app_block
+    assert expected_fallback_path in app_block
     assert expected_replay_interval in app_block
     assert (
         'OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE: "${OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE:-100}"'
         in app_block
     )
     assert expected_buffer_mount in app_block
+    assert "owntracks_buffer_fallback:/data/owntracks-buffer-fallback" in app_block
+    assert re.search(r"^  owntracks_buffer_fallback:\n", compose_text, re.MULTILINE)

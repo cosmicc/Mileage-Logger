@@ -10,6 +10,16 @@
     </p>
     <dl class="limp-mode-status">
       <div>
+        <dt>PostgreSQL Server</dt>
+        <dd>
+          <span class="status-indicator-line">
+            <span class="status-dot {{ runtime_status.database.indicator_class }}" aria-hidden="true"></span>
+            {{ runtime_status.database.state_label }}
+          </span>
+          <span class="diagnostic-value">{{ runtime_status.database.detail_label }}</span>
+        </dd>
+      </div>
+      <div>
         <dt>OwnTracks Intake</dt>
         <dd>Accepting and buffering</dd>
       </div>
@@ -17,6 +27,46 @@
         <dt>Queued OwnTracks Payloads</dt>
         <dd>{{ buffer_stats.queued_count }}</dd>
       </div>
+      <div>
+        <dt>Primary Buffer</dt>
+        <dd>
+          {% if runtime_status.primary_buffer.available %}
+            <span class="status-indicator-line">
+              <span class="status-dot {{ runtime_status.primary_buffer.indicator_class }}" aria-hidden="true"></span>
+              {{ runtime_status.primary_buffer.state_label }}
+            </span>
+            <span class="diagnostic-value">{{ runtime_status.primary_buffer.queued_label }}</span>
+          {% else %}
+            <span class="status-indicator-line">
+              <span class="status-dot {{ runtime_status.primary_buffer.indicator_class }}" aria-hidden="true"></span>
+              {{ runtime_status.primary_buffer.state_label }}
+            </span>
+          {% endif %}
+        </dd>
+      </div>
+      <div>
+        <dt>Backup Buffer</dt>
+        <dd>
+          {% if runtime_status.backup_buffer.available %}
+            <span class="status-indicator-line">
+              <span class="status-dot {{ runtime_status.backup_buffer.indicator_class }}" aria-hidden="true"></span>
+              {{ runtime_status.backup_buffer.state_label }}
+            </span>
+            <span class="diagnostic-value">{{ runtime_status.backup_buffer.queued_label }}</span>
+          {% else %}
+            <span class="status-indicator-line">
+              <span class="status-dot {{ runtime_status.backup_buffer.indicator_class }}" aria-hidden="true"></span>
+              {{ runtime_status.backup_buffer.state_label }}
+            </span>
+          {% endif %}
+        </dd>
+      </div>
+      {% if buffer_stats.replay_waiting_for_primary %}
+      <div>
+        <dt>Replay Status</dt>
+        <dd>Waiting for primary buffer</dd>
+      </div>
+      {% endif %}
       {% if buffer_stats.oldest_received_at %}
       <div>
         <dt>Oldest Queued Payload</dt>

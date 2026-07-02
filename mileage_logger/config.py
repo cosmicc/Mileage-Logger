@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     app_env: str = "local"
     secret_key: str = "change-me"
     local_timezone: str = "America/Detroit"
-    database_url: str = "postgresql+psycopg://mileage:mileage@localhost:5432/mileage_logger"
+    database_url: str = "postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger"
     database_pool_size: int = Field(default=5, ge=1)
     database_max_overflow: int = Field(default=10, ge=0)
     database_pool_timeout_seconds: int = Field(default=30, ge=1)
@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     owntracks_travel_distance_m: Decimal = Field(default=Decimal("50.0"), ge=Decimal("0"))
     owntracks_buffer_enabled: bool = True
     owntracks_buffer_path: str = "data/owntracks-buffer.sqlite3"
+    owntracks_buffer_fallback_path: str = "data/owntracks-buffer-fallback.sqlite3"
     owntracks_buffer_replay_interval_seconds: int = Field(default=15, ge=1)
     owntracks_buffer_replay_batch_size: int = Field(default=100, ge=1)
 

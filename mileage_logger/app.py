@@ -21,9 +21,8 @@ from mileage_logger.services.gas_prices import gas_snapshot_scheduler
 from mileage_logger.services.mqtt import MqttOwnTracksWorker
 from mileage_logger.services.owntracks_buffer import (
     OwnTracksBufferReplayer,
-    OwnTracksBufferStats,
-    owntracks_buffer_stats,
 )
+from mileage_logger.services.runtime_status import build_runtime_status
 from mileage_logger.services.trip_processor import AutomaticTripProcessor
 from mileage_logger.web.auth import enforce_web_login
 from mileage_logger.web.routes import router as web_router
@@ -100,20 +99,14 @@ async def database_limp_mode(request: Request, call_next):
                 status_code=503,
                 headers={"X-Mileage-Logger-Limp-Mode": "true"},
             )
-        try:
-            buffer_stats = owntracks_buffer_stats(settings)
-        except Exception as stats_exc:
-            logger.warning("Could not read OwnTracks buffer stats: %s", stats_exc)
-            buffer_stats = OwnTracksBufferStats(
-                queued_count=0,
-                last_error=f"Buffer status unavailable: {stats_exc}",
-            )
+        runtime_status = build_runtime_status(settings, database_available=False)
         return templates.TemplateResponse(
             request,
             "limp_mode.html",
             {
                 "settings": settings,
-                "buffer_stats": buffer_stats,
+                "buffer_stats": runtime_status.buffer_stats,
+                "runtime_status": runtime_status,
             },
             headers={"X-Mileage-Logger-Limp-Mode": "true"},
         )

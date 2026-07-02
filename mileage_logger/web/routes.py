@@ -98,6 +98,7 @@ from mileage_logger.services.pdf import (
     calculate_reimbursement_gallons,
     generate_monthly_pdf,
 )
+from mileage_logger.services.runtime_status import build_runtime_status
 from mileage_logger.services.timezone import (
     datetime_to_local,
     datetime_to_utc,
@@ -792,7 +793,7 @@ def _serialize_automatic_backup(
 ) -> DiagnosticAutomaticBackup:
     """Return display-safe metadata for one automatic backup file."""
 
-    source_label = "Startup" if backup_file.reason == "startup" else "Hourly"
+    source_label = "Startup" if backup_file.reason == "startup" else "6-Hour"
     return DiagnosticAutomaticBackup(
         filename=backup_file.filename,
         created_at_display=_format_local_datetime(backup_file.created_at_utc),
@@ -1969,6 +1970,7 @@ def diagnostics(
     backup_restore_enabled = web_login_enabled(settings)
     disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
     database_summary = _diagnostic_database_summary(db, settings.database_url)
+    runtime_status = build_runtime_status(settings, database_available=True)
     gas_price_extremes = _diagnostic_gas_price_extremes(db)
     hidden_login_failure_ids = set(db.scalars(select(HiddenLoginFailure.entry_id)))
     login_failure_entries = tail_login_failure_entries(
@@ -2025,6 +2027,7 @@ def diagnostics(
             "app_version": APP_VERSION,
             "settings": settings,
             "database_url": _masked_database_url(settings.database_url),
+            "runtime_status": runtime_status,
             "location_count": owntracks_entries_page.total,
             "site_count": db.scalar(select(func.count(Site.id))) or 0,
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,

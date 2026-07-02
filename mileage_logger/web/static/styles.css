@@ -1278,6 +1278,36 @@ td input[type="text"] {
   overflow-wrap: anywhere;
 }
 
+.status-indicator-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 850;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 0.72rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(244, 239, 230, 0.08);
+}
+
+.status-dot.good {
+  background: #45c66f;
+  box-shadow:
+    0 0 0 2px rgba(69, 198, 111, 0.16),
+    0 0 10px rgba(69, 198, 111, 0.25);
+}
+
+.status-dot.bad {
+  background: #ef6f6c;
+  box-shadow:
+    0 0 0 2px rgba(239, 111, 108, 0.16),
+    0 0 10px rgba(239, 111, 108, 0.25);
+}
+
 .drive-space-bars {
   display: grid;
   gap: 10px;

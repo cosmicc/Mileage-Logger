@@ -62,6 +62,7 @@ services:
       OWNTRACKS_TRAVEL_DISTANCE_M: "${OWNTRACKS_TRAVEL_DISTANCE_M:-50.0}"
       OWNTRACKS_BUFFER_ENABLED: "${OWNTRACKS_BUFFER_ENABLED:-true}"
       OWNTRACKS_BUFFER_PATH: "${OWNTRACKS_BUFFER_PATH:-/data/owntracks-buffer/owntracks-buffer.sqlite3}"
+      OWNTRACKS_BUFFER_FALLBACK_PATH: "${OWNTRACKS_BUFFER_FALLBACK_PATH:-/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3}"
       OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS: "${OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS:-15}"
       OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE: "${OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE:-100}"
       DATABASE_RUN_MIGRATIONS_ON_RECONNECT: "${DATABASE_RUN_MIGRATIONS_ON_RECONNECT:-true}"
@@ -89,6 +90,7 @@ services:
     volumes:
       - ${HOST_LOG_DIR:-/var/log/mileage-logger}:/data/logs
       - ${HOST_OWNTRACKS_BUFFER_DIR:-/var/lib/mileage-logger/owntracks-buffer}:/data/owntracks-buffer
+      - owntracks_buffer_fallback:/data/owntracks-buffer-fallback
     healthcheck:
       test:
         [
@@ -130,3 +132,4 @@ services:
 
 volumes:
   postgres_data:
+  owntracks_buffer_fallback:

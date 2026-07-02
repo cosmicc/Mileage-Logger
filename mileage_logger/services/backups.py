@@ -37,9 +37,9 @@ BACKUP_TABLE_NAMES = tuple(table.name for table in BACKUP_TABLES)
 AUTOMATIC_BACKUP_FILENAME_PREFIX = "mileage-logger-auto-backup-"
 AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX = "mileage-logger-auto-backup-startup-"
 AUTOMATIC_BACKUP_FILENAME_SUFFIX = ".json.gz"
-AUTOMATIC_BACKUP_INTERVAL_SECONDS = 60 * 60
-AUTOMATIC_HOURLY_BACKUPS_TO_KEEP = 6
-AUTOMATIC_DAILY_BACKUP_DAYS_TO_KEEP = 3
+AUTOMATIC_BACKUP_INTERVAL_SECONDS = 6 * 60 * 60
+AUTOMATIC_RECENT_BACKUPS_TO_KEEP = 4
+AUTOMATIC_PRIOR_DAILY_BACKUP_DAYS_TO_KEEP = 2
 AUTOMATIC_BACKUP_REASONS = {"scheduled", "startup"}
 _BACKUP_RESTORE_LOCK = threading.RLock()
 
@@ -210,7 +210,7 @@ def prune_automatic_backups(
     *,
     now: datetime | None = None,
 ) -> tuple[str, ...]:
-    """Delete automatic backup files outside the hourly and daily retention windows."""
+    """Delete automatic backup files outside scheduled and daily retention windows."""
 
     current_dt = (now or datetime.now(UTC)).astimezone(UTC)
     backup_files = list_automatic_backup_files(backup_directory)
@@ -453,16 +453,16 @@ def _retained_automatic_backup_filenames(
     backup_files: tuple[AutomaticBackupFile, ...],
     current_dt: datetime,
 ) -> set[str]:
-    """Return filenames protected by hourly and local daily retention rules."""
+    """Return filenames protected by scheduled and prior-day daily retention rules."""
 
     retained_filenames = {
         backup_file.filename
-        for backup_file in backup_files[:AUTOMATIC_HOURLY_BACKUPS_TO_KEEP]
+        for backup_file in backup_files[:AUTOMATIC_RECENT_BACKUPS_TO_KEEP]
     }
     current_local_date = datetime_to_local(current_dt).date()
     retained_daily_dates = {
         current_local_date - timedelta(days=day_offset)
-        for day_offset in range(AUTOMATIC_DAILY_BACKUP_DAYS_TO_KEEP)
+        for day_offset in range(1, AUTOMATIC_PRIOR_DAILY_BACKUP_DAYS_TO_KEEP + 1)
     }
     daily_kept_dates: set[date] = set()
     for backup_file in backup_files:

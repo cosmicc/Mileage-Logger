@@ -1,17 +1,28 @@
 # Changelog
 
-## [1.2.5] - Unreleased
+## [1.3.0] - Unreleased
 
-- Bumped the Mileage Logger package version to 1.2.5.
+- Bumped the Mileage Logger package version to 1.3.0.
 - Fixed changelog headings to use bracketed version labels and `MM.DD.YYYY` release dates.
 - Added a saved color palette sample sheet for choosing a future app theme.
 - Added the highest and lowest queried gas price readings to the Diagnostics Data card.
+- Removed the local-development `.env.example` sample and local app-run instructions so the app is
+  documented and defaulted as Docker-only.
 - Changed the PDF report title date to show the selected month name and year.
 - Added central PostgreSQL readiness by making app startup wait on the configured `DATABASE_URL`
   and exposing configurable PostgreSQL pool and timeout settings for network database deployments.
+- Added a Diagnostics System Status card showing PostgreSQL availability and whether the
+  configured PostgreSQL host is remote, plus primary and backup OwnTracks buffer availability with
+  red/green status indicators.
 - Added default-on OwnTracks limp-mode buffering so the app can keep accepting OwnTracks HTTP and
   MQTT payloads into a persistent local queue when PostgreSQL is unreachable, then replay them in
   receive order after the database returns.
+- Added a local Docker named-volume fallback OwnTracks buffer for cases where the primary
+  host/NFS-backed buffer path is unavailable, with replay held until both queues can be drained in
+  receive order unless primary failure was observed before the database outage.
+- Changed automatic full-data backups from hourly to every 6 hours and reduced recent automatic
+  backup retention to one day while keeping one daily backup for each of the prior 2 days.
+- Highlighted the PDF report's final total reimbursement value with a yellow background.
 - Tightened the PDF report header spacing so the title starts directly below the top margin, the
   submitted-by line sits closer to the title, and the trip table starts closer to the header.
 
