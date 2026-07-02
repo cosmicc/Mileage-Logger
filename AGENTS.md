@@ -371,10 +371,11 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    Space. Keep the group at three cards per row on desktop and one card per row on mobile. The
    System Status card shows PostgreSQL availability plus local/remote placement and primary/backup
    OwnTracks buffer availability with red/green indicator dots. The Data card shows raw record
-   counts plus the lowest and highest queried gas price snapshot readings; do not use monthly gas
-   averages for those high/low values. The detailed OwnTracks state-change log and recent OwnTracks
-   database entries are paginated in compact 10-row pages with the same mobile full-width
-   pagination row used by the login and Cloudflare block lists.
+   counts plus lowest, current, current-month average, and highest gas price readings; keep the
+   low/high values based on raw gas price snapshots and the monthly average based on the current
+   app-local month. The detailed OwnTracks state-change log and recent OwnTracks database entries
+   are paginated in compact 10-row pages with the same mobile full-width pagination row used by the
+   login and Cloudflare block lists.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
    readable event labels instead of the database row ID, raw receive timestamps, battery level, or
    MQTT topic details.

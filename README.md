@@ -392,8 +392,8 @@ grouped together in this order: Application, System Status, Data, Latest Records
 Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three
 cards per row. The System Status card shows PostgreSQL reachability, whether the configured
 PostgreSQL host is remote, and primary/backup OwnTracks buffer availability with red/green
-indicator dots. The Data card includes the lowest and highest queried gas price readings from
-saved gas price snapshots. Diagnostics also shows hard drive space for key runtime paths with
+indicator dots. The Data card includes lowest, current, current-month average, and highest gas
+price readings. Diagnostics also shows hard drive space for key runtime paths with
 used-space bars, combining paths into one row when their exact used space and total capacity
 match, and includes current database size plus total app record count at the bottom of the card.
 Recent OwnTracks entries,

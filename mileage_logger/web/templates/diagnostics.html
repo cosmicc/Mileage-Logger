@@ -98,9 +98,13 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <dd>{{ trip_count }}</dd>
       <dt>Gas Snapshots</dt>
       <dd>{{ gas_snapshot_count }}</dd>
-      <dt>Lowest Queried Gas Price</dt>
+      <dt>Lowest Gas Price</dt>
       <dd>{{ gas_price_extremes.lowest_display }}</dd>
-      <dt>Highest Queried Gas Price</dt>
+      <dt>Current Gas Price</dt>
+      <dd>{{ gas_price_extremes.current_display }}</dd>
+      <dt>Monthly Average Gas Price</dt>
+      <dd>{{ gas_price_extremes.monthly_average_display }}</dd>
+      <dt>Highest Gas Price</dt>
       <dd>{{ gas_price_extremes.highest_display }}</dd>
     </dl>
   </div>

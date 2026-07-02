@@ -57,6 +57,7 @@ from mileage_logger.services.runtime_status import (
 )
 from mileage_logger.web.auth import FAILED_LOGIN_ATTEMPTS
 from mileage_logger.web.routes import (
+    _current_year_month,
     _dashboard_distance_summary,
     _dashboard_reimbursement_summary,
     _diagnostic_database_summary,
@@ -4367,6 +4368,8 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "gas_snapshot_count": 0,
             "gas_price_extremes": SimpleNamespace(
                 lowest_display="None",
+                current_display="None",
+                monthly_average_display="None",
                 highest_display="None",
             ),
             "latest_location": None,
@@ -4516,8 +4519,15 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "status-dot good" in status_card
     assert "Data" in api_tests_section
     data_card = rendered[data_card_start:latest_records_start]
-    assert "Lowest Queried Gas Price" in data_card
-    assert "Highest Queried Gas Price" in data_card
+    assert "Lowest Queried Gas Price" not in data_card
+    assert "Highest Queried Gas Price" not in data_card
+    assert "Lowest Gas Price" in data_card
+    assert "Current Gas Price" in data_card
+    assert "Monthly Average Gas Price" in data_card
+    assert "Highest Gas Price" in data_card
+    assert data_card.index("Lowest Gas Price") < data_card.index("Current Gas Price")
+    assert data_card.index("Current Gas Price") < data_card.index("Monthly Average Gas Price")
+    assert data_card.index("Monthly Average Gas Price") < data_card.index("Highest Gas Price")
     assert "Latest Records" in api_tests_section
     assert "OwnTracks State" in api_tests_section
     assert "Manual Odometer" in api_tests_section
@@ -4608,14 +4618,19 @@ def test_diagnostics_database_summary_counts_all_app_records() -> None:
     assert summary.size_display.endswith(("B", "KB", "MB"))
 
 
-def test_diagnostics_gas_price_extremes_use_snapshot_queries_not_monthly_average() -> None:
+def test_diagnostics_gas_price_summary_uses_snapshots_and_current_month_average() -> None:
     db = _session()
 
     empty_extremes = _diagnostic_gas_price_extremes(db)
     assert empty_extremes.lowest_price_per_gallon is None
+    assert empty_extremes.current_price_per_gallon is None
+    assert empty_extremes.monthly_average_price_per_gallon is None
     assert empty_extremes.highest_price_per_gallon is None
     assert empty_extremes.lowest_display == "None"
+    assert empty_extremes.current_display == "None"
+    assert empty_extremes.monthly_average_display == "None"
     assert empty_extremes.highest_display == "None"
+    current_year, current_month = _current_year_month()
 
     db.add_all(
         [
@@ -4635,6 +4650,14 @@ def test_diagnostics_gas_price_extremes_use_snapshot_queries_not_monthly_average
                 source="test",
                 source_detail="low queried price",
             ),
+            GasPriceSnapshot(
+                observed_on=date(2026, 6, 3),
+                state="MI",
+                grade="regular",
+                price_per_gallon=Decimal("3.499"),
+                source="test",
+                source_detail="latest queried price",
+            ),
             MonthlyGasPrice(
                 year=2026,
                 month=6,
@@ -4645,6 +4668,16 @@ def test_diagnostics_gas_price_extremes_use_snapshot_queries_not_monthly_average
                 source="test",
                 source_detail="monthly average must not affect extrema",
             ),
+            MonthlyGasPrice(
+                year=current_year,
+                month=current_month,
+                state="MI",
+                average_price_per_gallon=Decimal("3.555"),
+                buffer_per_gallon=Decimal("0.500"),
+                effective_rate=Decimal("4.055"),
+                source="test",
+                source_detail="current month average",
+            ),
         ]
     )
 
@@ -4652,7 +4685,11 @@ def test_diagnostics_gas_price_extremes_use_snapshot_queries_not_monthly_average
 
     assert extremes.lowest_price_per_gallon == Decimal("2.999")
     assert extremes.highest_price_per_gallon == Decimal("4.299")
+    assert extremes.current_price_per_gallon == Decimal("3.499")
+    assert extremes.monthly_average_price_per_gallon == Decimal("3.555")
     assert extremes.lowest_display == "$2.999"
+    assert extremes.current_display == "$3.499"
+    assert extremes.monthly_average_display == "$3.555"
     assert extremes.highest_display == "$4.299"
 
 

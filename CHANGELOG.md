@@ -5,7 +5,8 @@
 - Bumped the Mileage Logger package version to 1.3.0.
 - Fixed changelog headings to use bracketed version labels and `MM.DD.YYYY` release dates.
 - Added a saved color palette sample sheet for choosing a future app theme.
-- Added the highest and lowest queried gas price readings to the Diagnostics Data card.
+- Added lowest, current, monthly average, and highest gas price readings to the Diagnostics Data
+  card.
 - Removed the local-development `.env.example` sample and local app-run instructions so the app is
   documented and defaulted as Docker-only.
 - Changed the PDF report title date to show the selected month name and year.

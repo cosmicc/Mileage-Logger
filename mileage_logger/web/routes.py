@@ -302,14 +302,24 @@ class DiagnosticDatabaseSummary:
 
 @dataclass(frozen=True)
 class DiagnosticGasPriceExtremes:
-    """Lowest and highest queried gas price snapshot readings for Diagnostics."""
+    """Gas price readings rendered in the Diagnostics Data card."""
 
     lowest_price_per_gallon: Decimal | None
+    current_price_per_gallon: Decimal | None
+    monthly_average_price_per_gallon: Decimal | None
     highest_price_per_gallon: Decimal | None
 
     @property
     def lowest_display(self) -> str:
         return _format_gas_price(self.lowest_price_per_gallon)
+
+    @property
+    def current_display(self) -> str:
+        return _format_gas_price(self.current_price_per_gallon)
+
+    @property
+    def monthly_average_display(self) -> str:
+        return _format_gas_price(self.monthly_average_price_per_gallon)
 
     @property
     def highest_display(self) -> str:
@@ -898,7 +908,7 @@ def _format_gas_price(price_per_gallon: Decimal | None) -> str:
 
 
 def _diagnostic_gas_price_extremes(db: Session) -> DiagnosticGasPriceExtremes:
-    """Return lowest and highest prices from raw gas price snapshot queries."""
+    """Return gas price summary values for the Diagnostics Data card."""
 
     lowest_price, highest_price = db.execute(
         select(
@@ -906,8 +916,27 @@ def _diagnostic_gas_price_extremes(db: Session) -> DiagnosticGasPriceExtremes:
             func.max(GasPriceSnapshot.price_per_gallon),
         )
     ).one()
+    current_price = db.scalar(
+        select(GasPriceSnapshot.price_per_gallon)
+        .order_by(
+            GasPriceSnapshot.observed_on.desc(),
+            GasPriceSnapshot.created_at.desc(),
+            GasPriceSnapshot.id.desc(),
+        )
+        .limit(1)
+    )
+    current_year, current_month = _current_year_month()
+    monthly_average = db.scalar(
+        select(MonthlyGasPrice.average_price_per_gallon)
+        .where(MonthlyGasPrice.year == current_year)
+        .where(MonthlyGasPrice.month == current_month)
+        .order_by(MonthlyGasPrice.updated_at.desc(), MonthlyGasPrice.id.desc())
+        .limit(1)
+    )
     return DiagnosticGasPriceExtremes(
         lowest_price_per_gallon=lowest_price,
+        current_price_per_gallon=current_price,
+        monthly_average_price_per_gallon=monthly_average,
         highest_price_per_gallon=highest_price,
     )
 
