@@ -434,7 +434,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   app in OwnTracks buffer limp mode instead of exiting. Web pages show the limp-mode warning, and
   buffered OwnTracks payloads replay after the configured database returns. If the primary
   OwnTracks buffer mount is unavailable, the fallback queue persists in the
-  `owntracks_buffer_fallback` Docker named volume.
+  `owntracks_buffer_fallback` Docker named volume. Keep `APP_HEALTHCHECK_START_PERIOD` longer than
+  `DB_WAIT_TIMEOUT_SECONDS` so Swarm does not replace the app task while the entrypoint is waiting
+  before limp mode starts.
 - Daily gas snapshots run as an app-container background scheduler; there is no separate
   `gas-snapshot` Compose service.
 - Diagnostics page available at `http://server/diagnostics`

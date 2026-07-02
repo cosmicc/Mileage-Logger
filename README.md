@@ -138,7 +138,9 @@ snapshots, and automatic backups pause their database-writing passes while Postg
 unreachable. The limp-mode warning page shows PostgreSQL status plus the primary and backup buffer
 state and queued-payload totals. A malformed `DATABASE_URL` is treated as database unavailable so
 the app can still start in limp mode and accept buffered OwnTracks payloads while the environment
-value is corrected.
+value is corrected. `APP_HEALTHCHECK_START_PERIOD` should stay longer than
+`DB_WAIT_TIMEOUT_SECONDS`; this prevents Docker Swarm from replacing the app task while the
+entrypoint is waiting before limp mode starts.
 
 Docker Swarm deployments use [docker-stack.yml](docker-stack.yml) instead of `docker-compose.yml`.
 Swarm cannot build images, use Compose profiles, or keep the normal Compose loopback-only port

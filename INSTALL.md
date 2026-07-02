@@ -314,6 +314,9 @@ then replay buffered payloads in receive order. Automatic trip processing, gas s
 automatic backups pause their database-writing passes while PostgreSQL is unreachable. The
 limp-mode warning page shows PostgreSQL status plus primary and backup buffer state with
 queued-payload totals.
+Keep `APP_HEALTHCHECK_START_PERIOD` longer than `DB_WAIT_TIMEOUT_SECONDS`. This gives the
+entrypoint time to wait for PostgreSQL and then start limp mode before Docker or Swarm counts
+healthcheck failures against the app task.
 
 The app will receive configuration from the environment variables imported into the Portainer
 stack.

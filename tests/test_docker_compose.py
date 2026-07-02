@@ -100,6 +100,7 @@ def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:
         'OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE: "${OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE:-100}"'
         in app_block
     )
+    assert 'start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"' in app_block
     assert expected_buffer_mount in app_block
     assert "owntracks_buffer_fallback:/data/owntracks-buffer-fallback" in app_block
     assert re.search(r"^  owntracks_buffer_fallback:\n", compose_text, re.MULTILINE)
@@ -120,6 +121,7 @@ def test_swarm_stack_avoids_compose_only_features() -> None:
     assert 'image: "${NGINX_IMAGE:-mileage-logger-nginx:latest}"' in nginx_block
     assert "ports:" not in nginx_block
     assert "TUNNEL_TOKEN:" in cloudflared_block
+    assert 'start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"' in app_block
     assert "restart_policy:" in stack_text
 
 

@@ -18,6 +18,8 @@
 - Fixed bare `postgresql://` database URLs so they use the installed psycopg v3 driver instead of
   trying to import unavailable psycopg2.
 - Added Docker Swarm stack files for remote PostgreSQL and optional bundled PostgreSQL deployments.
+- Added an app healthcheck start period so Docker Swarm does not restart the app while startup is
+  waiting for PostgreSQL before entering OwnTracks buffer limp mode.
 - Expanded `.env.docker.example` comments so Docker and Portainer configuration variables are
   easier to understand before deployment.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the

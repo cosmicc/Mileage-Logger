@@ -101,6 +101,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"
 
   nginx:
     build:
