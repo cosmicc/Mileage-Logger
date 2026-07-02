@@ -135,10 +135,10 @@ accepting outage payloads in the local named-volume fallback buffer configured b
 still down only when the app observed the primary buffer fail before the database outage; otherwise
 the app waits for both queues so payloads replay in receive order. Automatic trip processing, gas
 snapshots, and automatic backups pause their database-writing passes while PostgreSQL is
-unreachable. The limp-mode warning page shows PostgreSQL status plus the primary and backup buffer
-state and queued-payload totals without exposing database host, IP, or connection-string details.
-It hides normal app navigation and retries the login page until service returns. A malformed
-`DATABASE_URL` is treated as database unavailable so
+unreachable. The limp-mode warning page shows generic queued-payload status plus primary and
+backup queue state without exposing database host, IP, or connection-string details. It hides
+normal app navigation and retries the login page until service returns. A malformed `DATABASE_URL`
+is treated as database unavailable so
 the app can still start in limp mode and accept buffered OwnTracks payloads while the environment
 value is corrected. `APP_HEALTHCHECK_START_PERIOD` should stay longer than
 `DB_WAIT_TIMEOUT_SECONDS`; this prevents Docker Swarm from replacing the app task while the

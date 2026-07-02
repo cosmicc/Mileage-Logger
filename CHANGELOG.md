@@ -30,6 +30,8 @@
   status, replay errors, and bottom explanatory text from the database-outage warning page.
 - Changed the database-outage page queue status labels to generic primary/backup queues and showed
   the oldest queued payload as an elapsed age instead of a timestamp.
+- Removed the database status card from the database-outage warning page and aligned the queued
+  payload count with the oldest received payload age on the same row.
 - Expanded `.env.docker.example` comments so Docker and Portainer configuration variables are
   easier to understand before deployment.
 - Added a Diagnostics System Status card showing PostgreSQL availability and whether the

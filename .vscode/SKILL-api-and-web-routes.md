@@ -135,9 +135,10 @@ without nesting another `layout.html` top bar; shell JavaScript should redirect 
 content response has `X-Mileage-Logger-Limp-Mode: true` so stale navigation is not left on screen.
 While `limp_mode_active` is set, the full outage page hides shared app chrome, navigation, icons,
 and service-worker registration. The page uses the end-user facing `Service Temporarily
-Unavailable` heading, avoids host/IP/connection-string details, and performs a timed navigation
-retry to `/login` so the login page appears when service returns. Fragment responses must not
-include the retry script.
+Unavailable` heading, avoids host/IP/connection-string details and database status cards, keeps
+Queued Payloads and Oldest Received Payload beside each other in the first status row, and performs
+a timed navigation retry to `/login` so the login page appears when service returns. Fragment
+responses must not include the retry script.
 OwnTracks ingestion remains the exception during limp mode: HTTP and MQTT payloads go through
 `ingest_or_buffer_owntracks_payload()`, which writes to the primary buffer or to the local fallback
 buffer if the primary path is unavailable. Do not write new OwnTracks ingestion routes directly to

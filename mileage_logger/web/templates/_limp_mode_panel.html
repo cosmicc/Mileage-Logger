@@ -7,19 +7,16 @@
       diagnostics are paused until the database connection returns.
     </p>
     <dl class="limp-mode-status">
-      <div>
-        <dt>Database</dt>
-        <dd>
-          <span class="status-indicator-line">
-            <span class="status-dot {{ runtime_status.database.indicator_class }}" aria-hidden="true"></span>
-            {{ runtime_status.database.state_label }}
-          </span>
-        </dd>
-      </div>
       <div class="limp-mode-status-queued">
         <dt>Queued Payloads</dt>
         <dd>{{ buffer_stats.queued_count }}</dd>
       </div>
+      {% if oldest_queued_payload_age %}
+      <div class="limp-mode-status-oldest">
+        <dt>Oldest Received Payload</dt>
+        <dd>{{ oldest_queued_payload_age }}</dd>
+      </div>
+      {% endif %}
       <div class="limp-mode-buffer-card">
         <dt>Primary Queue</dt>
         <dd>
@@ -58,12 +55,6 @@
       <div>
         <dt>Replay Status</dt>
         <dd>Waiting for primary queue</dd>
-      </div>
-      {% endif %}
-      {% if oldest_queued_payload_age %}
-      <div>
-        <dt>Oldest Queued Payload</dt>
-        <dd>{{ oldest_queued_payload_age }}</dd>
       </div>
       {% endif %}
     </dl>

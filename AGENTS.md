@@ -328,9 +328,10 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   second top bar; shell JavaScript should redirect to `/login` when a limp-mode fragment is
   detected so already-loaded pages do not keep stale navigation visible. The full outage page is
   end-user facing, uses the `Service Temporarily Unavailable` heading, hides all shared app chrome
-  and navigation, avoids host/IP/connection-string details, and keeps retrying `/login` so the
-  login page appears when service returns. Fetched panel fragments must not include the retry
-  script.
+  and navigation, avoids host/IP/connection-string details and database status cards, and keeps
+  retrying `/login` so the login page appears when service returns. Fetched panel fragments must
+  not include the retry script. Keep the Queued Payloads and Oldest Received Payload cards beside
+  each other in the first outage-status row.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state, recent events, and logs

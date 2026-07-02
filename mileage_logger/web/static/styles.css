@@ -398,10 +398,6 @@ p {
   background: rgba(17, 16, 14, 0.32);
 }
 
-.limp-mode-status-queued {
-  grid-column: 1 / -1;
-}
-
 .limp-mode-status dt {
   color: var(--muted);
   font-size: 11px;

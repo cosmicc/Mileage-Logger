@@ -184,6 +184,7 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert 'navigator.serviceWorker.register("/service-worker.js"' not in response.text
         assert "<title>Service Temporarily Unavailable</title>" in response.text
         assert "PostgreSQL Server" not in response.text
+        assert "<dt>Database</dt>" not in response.text
         assert "Remote PostgreSQL - db.internal" not in response.text
         assert "db.internal" not in response.text
         assert "192.168.1.20" not in response.text
@@ -198,15 +199,20 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert "Backup Queue" in response.text
         assert "Last Replay Error" not in response.text
         assert "Buffered OwnTracks data" not in response.text
-        assert "Oldest Queued Payload" in response.text
+        assert "Oldest Queued Payload" not in response.text
+        assert "Oldest Received Payload" in response.text
         assert "2 hours ago" in response.text
         assert 'class="limp-mode-status-queued"' in response.text
+        assert 'class="limp-mode-status-oldest"' in response.text
+        assert response.text.index('class="limp-mode-status-queued"') < response.text.index(
+            'class="limp-mode-status-oldest"'
+        )
         assert response.text.count('class="limp-mode-buffer-card"') == 2
         assert "font-size: clamp(16px, 5vw, 36px);" in response.text
-        assert ".limp-mode-status-queued {\n  grid-column: 1 / -1;" in response.text
+        assert ".limp-mode-status-queued {\n  grid-column: 1 / -1;" not in response.text
         assert "2 queued" in response.text
         assert "1 queued" in response.text
-        assert "status-dot bad" in response.text
+        assert "status-dot bad" not in response.text
         assert "status-dot good" in response.text
         assert "3" in response.text
     finally:
@@ -243,10 +249,12 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
         assert "The application is currently offline." in response.text
         assert "Database Unreachable" not in response.text
         assert "Limp Mode" not in response.text
+        assert "<dt>Database</dt>" not in response.text
         assert "Queued OwnTracks Payloads" not in response.text
         assert "Queued Payloads" in response.text
         assert "Primary Queue" in response.text
         assert "Backup Queue" in response.text
+        assert "Oldest Queued Payload" not in response.text
         assert "Last Replay Error" not in response.text
         assert "Buffered OwnTracks data" not in response.text
         assert 'window.location.replace("/login")' not in response.text
