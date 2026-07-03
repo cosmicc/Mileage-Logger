@@ -49,7 +49,9 @@
   <div class="trip-summary-card">
     <span>Month Reimbursement</span>
     <strong>{% if trips_summary.reimbursement.total is not none %}${{ trips_summary.reimbursement.total|comma_number(2) }}{% else %}N/A{% endif %}</strong>
-    <small>{{ trips_summary.reimbursement.reimbursement_gallons_display|comma_number(1) }} reimbursement gallons</small>
+    <small>
+      {{ trips_summary.reimbursement.reimbursement_gallons_display|comma_number(1) }} reimbursement gallons{% if trips_summary.reimbursement.expense_total %} + ${{ trips_summary.reimbursement.expense_total|comma_number(2) }} expenses{% endif %}
+    </small>
   </div>
   <div class="trip-summary-card">
     <span>Monthly Avg Gas</span>
@@ -154,6 +156,85 @@
       </tr>
       {% else %}
       <tr><td colspan="7">No work trips for this month.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="panel">
+  <div class="panel-toolbar">
+    <div>
+      <h2>Extra Report Expenses</h2>
+      <p class="panel-meta">
+        {{ monthly_report_expenses|length }}/{{ monthly_report_expense_limit }} expenses,
+        ${{ monthly_report_expense_total|comma_number(2) }} total.
+      </p>
+    </div>
+  </div>
+  <form action="/trips/report-expenses/add" method="post" class="form-row extra-expense-form">
+    <label>
+      Date
+      <input
+        type="date"
+        name="expense_date"
+        value="{{ expense_default_date.isoformat() }}"
+        required
+        {% if monthly_report_expense_slots_remaining <= 0 %}disabled{% endif %}
+      >
+    </label>
+    <label class="expense-reason-label">
+      Expense Reason
+      <input
+        class="expense-reason-input"
+        type="text"
+        name="expense_reason"
+        maxlength="160"
+        required
+        {% if monthly_report_expense_slots_remaining <= 0 %}disabled{% endif %}
+      >
+    </label>
+    <label>
+      Price
+      <input
+        class="expense-price-input"
+        type="number"
+        name="expense_amount"
+        min="0.01"
+        step="0.01"
+        required
+        {% if monthly_report_expense_slots_remaining <= 0 %}disabled{% endif %}
+      >
+    </label>
+    <button type="submit" {% if monthly_report_expense_slots_remaining <= 0 %}disabled{% endif %}>Add Expense</button>
+  </form>
+  {% if monthly_report_expense_slots_remaining <= 0 %}
+  <p class="empty-state">This month already has the maximum of {{ monthly_report_expense_limit }} extra expenses.</p>
+  {% endif %}
+  <table class="extra-expense-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Reason</th>
+        <th>Price</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for expense in monthly_report_expenses %}
+      <tr>
+        <td>{{ expense.expense_date }}</td>
+        <td>{{ expense.reason }}</td>
+        <td>${{ expense.amount|comma_number(2) }}</td>
+        <td>
+          <form action="/trips/report-expenses/{{ expense.id }}/delete" method="post">
+            <input type="hidden" name="redirect_year" value="{{ year }}">
+            <input type="hidden" name="redirect_month" value="{{ month }}">
+            <button class="small-button danger" type="submit">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No extra report expenses for this month.</td></tr>
       {% endfor %}
     </tbody>
   </table>

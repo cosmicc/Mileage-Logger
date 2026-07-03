@@ -1072,6 +1072,31 @@ td input[type="text"] {
   align-items: flex-end;
 }
 
+.extra-expense-form {
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+
+.expense-reason-label {
+  flex: 1 1 320px;
+}
+
+.expense-reason-input {
+  width: 100%;
+  min-width: 240px;
+}
+
+.expense-price-input {
+  width: 118px;
+  min-width: 118px;
+}
+
+.extra-expense-table td:nth-child(3) {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .empty-state {
   margin: 12px 0 0;
   color: var(--muted);
@@ -1293,6 +1318,10 @@ td input[type="text"] {
   align-items: center;
   gap: 7px;
   font-weight: 850;
+}
+
+.compact-status-line {
+  font-size: 12px;
 }
 
 .status-dot {

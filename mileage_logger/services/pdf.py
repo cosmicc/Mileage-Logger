@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from mileage_logger.config import get_settings
-from mileage_logger.models import Trip
+from mileage_logger.models import MonthlyReportExpense, Trip
 from mileage_logger.services.gas_prices import get_or_create_monthly_price
 from mileage_logger.services.mileage import monthly_miles
 
@@ -40,6 +40,15 @@ class TripReportRow:
     start_odometer: Decimal | None
     end_odometer: Decimal | None
     trip_miles: Decimal
+
+
+@dataclass(frozen=True)
+class ExpenseReportRow:
+    """Manual extra expense row rendered after trip rows on the monthly PDF."""
+
+    expense_date: date
+    reason: str
+    amount: Decimal
 
 
 @dataclass(frozen=True)
@@ -93,6 +102,29 @@ def trips_for_month(db: Session, year: int, month: int) -> list[Trip]:
     return list(db.scalars(stmt))
 
 
+def expenses_for_month(db: Session, year: int, month: int) -> list[MonthlyReportExpense]:
+    """Return manual extra expenses for one report month in PDF display order."""
+
+    stmt = (
+        select(MonthlyReportExpense)
+        .where(MonthlyReportExpense.year == year)
+        .where(MonthlyReportExpense.month == month)
+        .order_by(
+            MonthlyReportExpense.expense_date.asc(),
+            MonthlyReportExpense.created_at.asc(),
+            MonthlyReportExpense.id.asc(),
+        )
+    )
+    return list(db.scalars(stmt))
+
+
+def extra_expense_total(expenses: list[MonthlyReportExpense]) -> Decimal:
+    """Return the two-decimal total for manual extra expenses."""
+
+    total = sum((Decimal(expense.amount) for expense in expenses), Decimal("0.00"))
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _origin_location(trip: Trip) -> str:
     return trip.origin_display_name
 
@@ -136,19 +168,41 @@ def trip_report_rows(trips: list[Trip]) -> list[TripReportRow]:
     return rows
 
 
+def expense_report_rows(expenses: list[MonthlyReportExpense]) -> list[ExpenseReportRow]:
+    """Return escaped-ready manual extra expense rows for the PDF report."""
+
+    rows: list[ExpenseReportRow] = []
+    for expense in expenses:
+        rows.append(
+            ExpenseReportRow(
+                expense_date=expense.expense_date,
+                reason=expense.reason,
+                amount=Decimal(expense.amount).quantize(
+                    Decimal("0.01"),
+                    rounding=ROUND_HALF_UP,
+                ),
+            )
+        )
+    return rows
+
+
 def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport:
     logger.info("Generating monthly PDF report year=%s month=%s", year, month)
     settings = get_settings()
     gas_price = get_or_create_monthly_price(db, year, month)
     trips = trips_for_month(db, year, month)
+    expenses = expenses_for_month(db, year, month)
     total_miles = monthly_miles(db, year, month)
     reimbursement_gallons = calculate_reimbursement_gallons(total_miles, settings.vehicle_mpg)
-    reimbursement_total = calculate_reimbursement(
+    mileage_reimbursement_total = calculate_reimbursement(
         total_miles,
         gas_price.average_price_per_gallon,
         settings.vehicle_mpg,
     )
+    expense_total = extra_expense_total(expenses)
+    reimbursement_total = mileage_reimbursement_total + expense_total
     report_rows = trip_report_rows(trips)
+    expense_rows = expense_report_rows(expenses)
 
     styles = getSampleStyleSheet()
     table_cell = ParagraphStyle(
@@ -181,8 +235,9 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         topMargin=PDF_REPORT_VERTICAL_MARGIN,
         bottomMargin=PDF_REPORT_VERTICAL_MARGIN,
     )
+    report_title_text = f"Mileage &amp; Expense Report - {_report_month_title(year, month)}"
     story = [
-        Paragraph(f"Mileage Log - {_report_month_title(year, month)}", report_title),
+        Paragraph(report_title_text, report_title),
     ]
     report_display_name = settings.report_display_name.strip()
     if report_display_name:
@@ -215,20 +270,40 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
     if len(trip_rows) == 1:
         trip_rows.append(["", "No trips", "", "", "", "0.0"])
 
-    table = Table(trip_rows, repeatRows=1, colWidths=PDF_TRIP_TABLE_COLUMN_WIDTHS)
-    table.setStyle(
-        TableStyle(
+    expense_row_start = len(trip_rows)
+    for row in expense_rows:
+        trip_rows.append(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#101828")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d0d5dd")),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                row.expense_date.isoformat(),
+                Paragraph(_paragraph_text(row.reason), table_cell),
+                "",
+                "",
+                "",
+                f"${row.amount:.2f}",
             ]
         )
+
+    table = Table(trip_rows, repeatRows=1, colWidths=PDF_TRIP_TABLE_COLUMN_WIDTHS)
+    table_style_commands = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#101828")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d0d5dd")),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]
+    for row_index in range(expense_row_start, len(trip_rows)):
+        table_style_commands.extend(
+            [
+                ("SPAN", (1, row_index), (4, row_index)),
+                ("BACKGROUND", (0, row_index), (-1, row_index), colors.HexColor("#fff8df")),
+                ("ALIGN", (5, row_index), (5, row_index), "RIGHT"),
+            ]
+        )
+    table.setStyle(
+        TableStyle(table_style_commands)
     )
     story.append(table)
     story.append(Spacer(1, 18))
@@ -238,6 +313,8 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         ["Vehicle MPG", f"{settings.vehicle_mpg:.1f}"],
         ["Total trip miles for month", f"{total_miles:.1f}"],
         ["Reimbursement gallons", f"{reimbursement_gallons:.3f}"],
+        ["Mileage reimbursement", f"${mileage_reimbursement_total:.2f}"],
+        ["Extra expense total", f"${expense_total:.2f}"],
         ["Total reimbursement", f"${reimbursement_total:.2f}"],
     ]
     summary = Table(summary_data, hAlign="RIGHT", colWidths=[220, 120])

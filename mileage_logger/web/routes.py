@@ -1,6 +1,7 @@
 import logging
 import re
 import shutil
+import time
 from calendar import month_name
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -29,6 +30,7 @@ from mileage_logger.models import (
     GasPriceSnapshot,
     HiddenLoginFailure,
     MonthlyGasPrice,
+    MonthlyReportExpense,
     OwnTracksLocation,
     PasskeyCredential,
     Site,
@@ -96,6 +98,7 @@ from mileage_logger.services.passkeys import (
 from mileage_logger.services.pdf import (
     calculate_reimbursement,
     calculate_reimbursement_gallons,
+    extra_expense_total,
     generate_monthly_pdf,
 )
 from mileage_logger.services.runtime_status import build_runtime_status
@@ -133,6 +136,7 @@ DIAGNOSTICS_TABLE_PAGE_SIZE = 10
 DIAGNOSTICS_STATE_CHANGE_LIMIT = 500
 DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES = 200
 DIAGNOSTICS_LOGIN_SUCCESS_MAX_ENTRIES = 200
+MONTHLY_REPORT_EXPENSE_LIMIT = 5
 
 
 def _format_local_datetime(value, fmt: str = "%Y-%m-%d %I:%M:%S %p %Z") -> str:
@@ -313,6 +317,17 @@ class DiagnosticDatabaseSummary:
     size_display: str
     total_records: int
     total_records_display: str
+
+
+@dataclass(frozen=True)
+class DiagnosticDatabaseStats:
+    """Safe database health details rendered in the Diagnostics System Status card."""
+
+    latency_display: str
+    size_display: str
+    total_records_display: str
+    pool_display: str
+    timeout_display: str
 
 
 @dataclass(frozen=True)
@@ -604,21 +619,27 @@ def _dashboard_reimbursement_summary(
 
     total_miles = monthly_miles(db, year, month)
     reimbursement_gallons = calculate_reimbursement_gallons(total_miles, vehicle_mpg)
+    expense_total = extra_expense_total(_monthly_report_expenses(db, year=year, month=month))
     if monthly_gas is None:
         return {
             "total": None,
+            "mileage_total": None,
+            "expense_total": expense_total,
             "total_miles": total_miles,
             "reimbursement_gallons": reimbursement_gallons,
             "reimbursement_gallons_display": _format_truncated_one_decimal(
                 reimbursement_gallons
             ),
         }
+    mileage_total = calculate_reimbursement(
+        total_miles,
+        monthly_gas.average_price_per_gallon,
+        vehicle_mpg,
+    )
     return {
-        "total": calculate_reimbursement(
-            total_miles,
-            monthly_gas.average_price_per_gallon,
-            vehicle_mpg,
-        ),
+        "total": mileage_total + expense_total,
+        "mileage_total": mileage_total,
+        "expense_total": expense_total,
         "total_miles": total_miles,
         "reimbursement_gallons": reimbursement_gallons,
         "reimbursement_gallons_display": _format_truncated_one_decimal(reimbursement_gallons),
@@ -656,6 +677,7 @@ def _trips_template_context(db: Session, *, year: int, month: int) -> dict[str, 
         .order_by(Trip.trip_date.desc(), Trip.started_at.desc(), Trip.id.desc())
     )
     all_trips = list(db.scalars(stmt))
+    monthly_report_expenses = _monthly_report_expenses(db, year=year, month=month)
     trips_summary = _trips_month_summary(
         db,
         year=year,
@@ -678,6 +700,14 @@ def _trips_template_context(db: Session, *, year: int, month: int) -> dict[str, 
         "selected_month_value": f"{year}-{month:02d}",
         "selected_month_display": f"{month_name[month]} {year} ({month:02d}/{year})",
         "today": local_today(),
+        "expense_default_date": _expense_default_date(year, month),
+        "monthly_report_expenses": monthly_report_expenses,
+        "monthly_report_expense_total": extra_expense_total(monthly_report_expenses),
+        "monthly_report_expense_limit": MONTHLY_REPORT_EXPENSE_LIMIT,
+        "monthly_report_expense_slots_remaining": max(
+            MONTHLY_REPORT_EXPENSE_LIMIT - len(monthly_report_expenses),
+            0,
+        ),
         "trips_summary": trips_summary,
         "waypoints": waypoints,
         "waypoint_names": [waypoint.name for waypoint in waypoints],
@@ -746,6 +776,77 @@ def _monthly_gas_context(db: Session, year: int, month: int) -> tuple[MonthlyGas
         return None, str(exc)
     except Exception as exc:
         return None, f"Could not load gas price: {exc}"
+
+
+def _monthly_report_expenses(
+    db: Session,
+    *,
+    year: int,
+    month: int,
+) -> list[MonthlyReportExpense]:
+    """Return manual extra expenses for a selected report month."""
+
+    return list(
+        db.scalars(
+            select(MonthlyReportExpense)
+            .where(MonthlyReportExpense.year == year)
+            .where(MonthlyReportExpense.month == month)
+            .order_by(
+                MonthlyReportExpense.expense_date.asc(),
+                MonthlyReportExpense.created_at.asc(),
+                MonthlyReportExpense.id.asc(),
+            )
+        )
+    )
+
+
+def _monthly_report_expense_count(db: Session, *, year: int, month: int) -> int:
+    """Return the number of manual extra expense rows in one report month."""
+
+    return int(
+        db.scalar(
+            select(func.count(MonthlyReportExpense.id))
+            .where(MonthlyReportExpense.year == year)
+            .where(MonthlyReportExpense.month == month)
+        )
+        or 0
+    )
+
+
+def _expense_report_month(expense_date: date) -> tuple[int, int]:
+    """Return the report month selected by one manual expense date."""
+
+    return expense_date.year, expense_date.month
+
+
+def _expense_default_date(year: int, month: int) -> date:
+    """Return a sensible default date for the selected report-month expense form."""
+
+    selected_start, selected_end = _month_date_bounds(year, month)
+    today = local_today()
+    if selected_start <= today < selected_end:
+        return today
+    return selected_start
+
+
+def _clean_expense_reason(reason: str) -> str:
+    """Normalize manual expense text before persisting or rendering it."""
+
+    cleaned = reason.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Expense reason is required")
+    if len(cleaned) > 160:
+        raise HTTPException(status_code=400, detail="Expense reason must be 160 characters or less")
+    return cleaned
+
+
+def _clean_expense_amount(amount: Decimal) -> Decimal:
+    """Validate and round a submitted manual expense amount."""
+
+    rounded = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if rounded <= 0:
+        raise HTTPException(status_code=400, detail="Expense price must be greater than zero")
+    return rounded
 
 
 def _human_duration_since(value: datetime | None, *, now: datetime | None = None) -> str:
@@ -913,6 +1014,68 @@ def _diagnostic_database_summary(
         size_display=_format_storage_size(size_bytes) if size_bytes is not None else "Unavailable",
         total_records=total_records,
         total_records_display=_format_record_count(total_records),
+    )
+
+
+def _database_latency_display(db: Session) -> str:
+    """Measure a lightweight database round trip for the Diagnostics status card."""
+
+    try:
+        started_at = time.perf_counter()
+        db.execute(text("SELECT 1"))
+        elapsed_ms = (time.perf_counter() - started_at) * 1000
+    except SQLAlchemyError:
+        logger.exception("Could not measure database latency")
+        return "Unavailable"
+    return f"{elapsed_ms:.1f} ms"
+
+
+def _call_pool_method(pool, method_name: str) -> int | None:
+    """Return a numeric SQLAlchemy pool metric when the active pool exposes it."""
+
+    method = getattr(pool, method_name, None)
+    if not callable(method):
+        return None
+    try:
+        return int(method())
+    except (TypeError, ValueError, NotImplementedError):
+        return None
+
+
+def _database_pool_display(db: Session, settings) -> str:
+    """Return safe connection-pool details without exposing connection strings."""
+
+    pool = db.get_bind().pool
+    configured = (
+        f"{settings.database_pool_size} pool, "
+        f"{settings.database_max_overflow} overflow"
+    )
+    size = _call_pool_method(pool, "size")
+    checked_out = _call_pool_method(pool, "checkedout")
+    overflow = _call_pool_method(pool, "overflow")
+    if size is None or checked_out is None:
+        return configured
+    if overflow is None:
+        return f"{checked_out} in use / {size} pool"
+    return f"{checked_out} in use / {size} pool, {overflow} overflow"
+
+
+def _diagnostic_database_stats(
+    db: Session,
+    settings,
+    summary: DiagnosticDatabaseSummary,
+) -> DiagnosticDatabaseStats:
+    """Return database metrics for the Diagnostics System Status card."""
+
+    return DiagnosticDatabaseStats(
+        latency_display=_database_latency_display(db),
+        size_display=summary.size_display,
+        total_records_display=summary.total_records_display,
+        pool_display=_database_pool_display(db, settings),
+        timeout_display=(
+            f"{settings.database_connect_timeout_seconds}s connect, "
+            f"{settings.database_pool_timeout_seconds}s pool"
+        ),
     )
 
 
@@ -1788,6 +1951,72 @@ def create_trip_form(
     )
 
 
+@router.post("/trips/report-expenses/add")
+def create_monthly_report_expense_form(
+    expense_date: date = Form(...),
+    expense_reason: str = Form(...),
+    expense_amount: Decimal = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    expense_year, expense_month = _expense_report_month(expense_date)
+    existing_count = _monthly_report_expense_count(
+        db,
+        year=expense_year,
+        month=expense_month,
+    )
+    if existing_count >= MONTHLY_REPORT_EXPENSE_LIMIT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Monthly reports can include at most {MONTHLY_REPORT_EXPENSE_LIMIT} expenses.",
+        )
+
+    expense = MonthlyReportExpense(
+        expense_date=expense_date,
+        year=expense_year,
+        month=expense_month,
+        reason=_clean_expense_reason(expense_reason),
+        amount=_clean_expense_amount(expense_amount),
+    )
+    db.add(expense)
+    db.commit()
+    logger.info(
+        "Created monthly report expense expense_id=%s date=%s amount=%s",
+        expense.id,
+        expense.expense_date.isoformat(),
+        expense.amount,
+    )
+    return RedirectResponse(
+        url=f"/trips?year={expense_year}&month={expense_month}",
+        status_code=303,
+    )
+
+
+@router.post("/trips/report-expenses/{expense_id}/delete")
+def delete_monthly_report_expense_form(
+    expense_id: int,
+    redirect_year: int = Form(...),
+    redirect_month: int = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    _validate_month(redirect_month)
+    expense = db.get(MonthlyReportExpense, expense_id)
+    if expense is None:
+        raise HTTPException(status_code=404, detail="Monthly report expense not found")
+
+    logger.info(
+        "Deleted monthly report expense expense_id=%s date=%s amount=%s",
+        expense.id,
+        expense.expense_date.isoformat(),
+        expense.amount,
+    )
+    db.delete(expense)
+    db.commit()
+    return RedirectResponse(
+        url=f"/trips?year={redirect_year}&month={redirect_month}",
+        status_code=303,
+    )
+
+
 @router.post("/trips/{trip_id}/delete")
 def delete_trip_form(trip_id: int, db: Session = Depends(get_db)) -> RedirectResponse:
     trip = db.get(Trip, trip_id)
@@ -2025,6 +2254,7 @@ def diagnostics(
     backup_restore_enabled = web_login_enabled(settings)
     disk_usages = _diagnostic_disk_usages(_diagnostic_storage_paths(settings))
     database_summary = _diagnostic_database_summary(db, settings.database_url)
+    database_stats = _diagnostic_database_stats(db, settings, database_summary)
     runtime_status = build_runtime_status(settings, database_available=True)
     gas_price_extremes = _diagnostic_gas_price_extremes(db)
     hidden_login_failure_ids = set(db.scalars(select(HiddenLoginFailure.entry_id)))
@@ -2083,6 +2313,7 @@ def diagnostics(
             "settings": settings,
             "database_url": _masked_database_url(settings.database_url),
             "runtime_status": runtime_status,
+            "database_stats": database_stats,
             "location_count": owntracks_entries_page.total,
             "site_count": db.scalar(select(func.count(Site.id))) or 0,
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,

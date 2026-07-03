@@ -58,7 +58,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
 
   <div id="system-status" class="panel">
     <h2>System Status</h2>
-    <p class="panel-meta">PostgreSQL and OwnTracks buffer availability.</p>
+    <p class="panel-meta">PostgreSQL health and OwnTracks buffer status.</p>
     <dl class="diagnostic-list">
       <dt>PostgreSQL Server</dt>
       <dd>
@@ -68,21 +68,29 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         </span>
         <span class="diagnostic-value">{{ runtime_status.database.detail_label }}</span>
       </dd>
+      <dt>Latency</dt>
+      <dd>{{ database_stats.latency_display }}</dd>
+      <dt>Database Size</dt>
+      <dd>{{ database_stats.size_display }}</dd>
+      <dt>Total Records</dt>
+      <dd>{{ database_stats.total_records_display }}</dd>
+      <dt>Pool</dt>
+      <dd>{{ database_stats.pool_display }}</dd>
+      <dt>Timeouts</dt>
+      <dd>{{ database_stats.timeout_display }}</dd>
       <dt>{{ runtime_status.primary_buffer.label }}</dt>
       <dd>
-        <span class="status-indicator-line">
+        <span class="status-indicator-line compact-status-line">
           <span class="status-dot {{ runtime_status.primary_buffer.indicator_class }}" aria-hidden="true"></span>
           {{ runtime_status.primary_buffer.state_label }}
         </span>
-        <span class="diagnostic-value">{{ runtime_status.primary_buffer.queued_label }}</span>
       </dd>
       <dt>{{ runtime_status.backup_buffer.label }}</dt>
       <dd>
-        <span class="status-indicator-line">
+        <span class="status-indicator-line compact-status-line">
           <span class="status-dot {{ runtime_status.backup_buffer.indicator_class }}" aria-hidden="true"></span>
           {{ runtime_status.backup_buffer.state_label }}
         </span>
-        <span class="diagnostic-value">{{ runtime_status.backup_buffer.queued_label }}</span>
       </dd>
     </dl>
   </div>

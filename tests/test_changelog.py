@@ -4,11 +4,11 @@ from pathlib import Path
 
 CHANGELOG_PATH = Path("CHANGELOG.md")
 CHANGELOG_HEADER_PATTERN = re.compile(
-    r"^## \[(?P<version>\d+\.\d+\.\d+)\] - (?P<date>Unreleased|\d{2}\.\d{2}\.\d{4})$"
+    r"^## (?P<version>\d+\.\d+\.\d+) - (?P<date>Unreleased|\d{2}\.\d{2}\.\d{4})$"
 )
 
 
-def test_changelog_version_headers_use_bracketed_versions_and_requested_dates() -> None:
+def test_changelog_version_headers_use_unbracketed_versions_and_requested_dates() -> None:
     headers = [
         line.strip()
         for line in CHANGELOG_PATH.read_text(encoding="utf-8").splitlines()

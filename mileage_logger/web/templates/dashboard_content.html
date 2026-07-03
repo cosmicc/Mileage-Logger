@@ -29,7 +29,9 @@
   <div class="stat">
     <span>Month Reimbursement</span>
     <strong>{% if reimbursement_summary.total is not none %}${{ reimbursement_summary.total|comma_number(2) }}{% else %}N/A{% endif %}</strong>
-    <small>{{ reimbursement_summary.reimbursement_gallons_display|comma_number(1) }} reimbursement gallons</small>
+    <small>
+      {{ reimbursement_summary.reimbursement_gallons_display|comma_number(1) }} reimbursement gallons{% if reimbursement_summary.expense_total|default(0) %} + ${{ reimbursement_summary.expense_total|comma_number(2) }} expenses{% endif %}
+    </small>
   </div>
   <div class="stat">
     <span>MI Monthly Avg Gas</span>

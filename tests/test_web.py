@@ -24,6 +24,7 @@ from mileage_logger.models import (
     GasPriceSnapshot,
     HiddenLoginFailure,
     MonthlyGasPrice,
+    MonthlyReportExpense,
     OwnTracksLocation,
     OwnTracksMonthlySummary,
     PasskeyCredential,
@@ -173,8 +174,8 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert "Database Unreachable" not in response.text
         assert "Service Temporarily Unavailable" in response.text
         assert "The application is currently offline." in response.text
-        assert "This page will keep trying the login page" in response.text
-        assert 'window.location.replace("/login")' in response.text
+        assert "This page will keep trying the app home page" in response.text
+        assert 'window.location.replace("/")' in response.text
         assert "window.location.reload()" not in response.text
         assert "}, 30000);" in response.text
         assert '<header class="topbar">' not in response.text
@@ -260,6 +261,7 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
         assert "Last Replay Error" not in response.text
         assert "Buffered OwnTracks data" not in response.text
         assert 'window.location.replace("/login")' not in response.text
+        assert 'window.location.replace("/")' not in response.text
         assert "window.location.reload()" not in response.text
         assert '<header class="topbar">' not in response.text
         assert "<!doctype html>" not in response.text
@@ -1126,7 +1128,7 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
         )
         assert 'data-dashboard-content-url="/dashboard/content"' in response.text
         assert 'response.headers.get("X-Mileage-Logger-Limp-Mode") === "true"' in response.text
-        assert 'window.location.replace("/login")' in response.text
+        assert 'window.location.replace("/")' in response.text
         assert (
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             in response.text
@@ -1225,7 +1227,7 @@ def test_trips_page_renders_loading_shell() -> None:
         assert "Loading selected-month cards and work trip records." in response.text
         assert 'data-trips-content-url="/trips/content?year=2026&amp;month=6"' in response.text
         assert 'response.headers.get("X-Mileage-Logger-Limp-Mode") === "true"' in response.text
-        assert 'window.location.replace("/login")' in response.text
+        assert 'window.location.replace("/")' in response.text
         assert "Monthly Work Trips" not in response.text
     finally:
         app.dependency_overrides.clear()
@@ -1517,6 +1519,8 @@ def test_dashboard_top_cards_format_large_numbers_with_commas() -> None:
             },
             "reimbursement_summary": {
                 "total": Decimal("12345.67"),
+                "mileage_total": Decimal("12345.67"),
+                "expense_total": Decimal("0.00"),
                 "total_miles": Decimal("98765.4"),
                 "reimbursement_gallons": Decimal("1234.56"),
                 "reimbursement_gallons_display": "1234.5",
@@ -1665,6 +1669,54 @@ def test_dashboard_replaces_waypoints_card_with_month_reimbursement(monkeypatch)
             assert reimbursement_summary["reimbursement_gallons_display"] == "4.0"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_dashboard_reimbursement_summary_includes_extra_expenses() -> None:
+    db = _session()
+    db.add_all(
+        [
+            Trip(
+                trip_date=date(2026, 6, 16),
+                started_at=datetime(2026, 6, 16, 13, 0, tzinfo=UTC),
+                ended_at=datetime(2026, 6, 16, 13, 30, tzinfo=UTC),
+                start_latitude=Decimal("42.3314"),
+                start_longitude=Decimal("-83.0458"),
+                end_latitude=Decimal("42.3440"),
+                end_longitude=Decimal("-83.0600"),
+                miles=Decimal("25.0"),
+            ),
+            MonthlyGasPrice(
+                year=2026,
+                month=6,
+                state="MI",
+                average_price_per_gallon=Decimal("3.500"),
+                buffer_per_gallon=Decimal("0.00"),
+                effective_rate=Decimal("3.500"),
+                source="test",
+                source_detail="dashboard reimbursement test",
+            ),
+            MonthlyReportExpense(
+                expense_date=date(2026, 6, 17),
+                year=2026,
+                month=6,
+                reason="Parking",
+                amount=Decimal("12.35"),
+            ),
+        ]
+    )
+    db.commit()
+
+    summary = _dashboard_reimbursement_summary(
+        db,
+        year=2026,
+        month=6,
+        monthly_gas=db.scalar(select(MonthlyGasPrice)),
+        vehicle_mpg=Decimal("25.0"),
+    )
+
+    assert summary["mileage_total"] == Decimal("3.50")
+    assert summary["expense_total"] == Decimal("12.35")
+    assert summary["total"] == Decimal("15.85")
 
 
 def test_dashboard_trip_plus_non_trip_total_is_never_below_trip_total(monkeypatch) -> None:
@@ -3970,6 +4022,81 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_trips_page_creates_and_deletes_monthly_report_expense() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        page_response = client.get("/trips/content?year=2026&month=6")
+        create_response = client.post(
+            "/trips/report-expenses/add",
+            data={
+                "expense_date": "2026-06-18",
+                "expense_reason": "Parking and tolls",
+                "expense_amount": "12.345",
+            },
+            follow_redirects=False,
+        )
+        content_response = client.get("/trips/content?year=2026&month=6")
+        delete_response = client.post(
+            "/trips/report-expenses/1/delete",
+            data={"redirect_year": "2026", "redirect_month": "6"},
+            follow_redirects=False,
+        )
+        final_response = client.get("/trips/content?year=2026&month=6")
+
+        assert page_response.status_code == 200
+        assert "Extra Report Expenses" in page_response.text
+        assert "No extra report expenses for this month." in page_response.text
+        assert create_response.status_code == 303
+        assert create_response.headers["location"] == "/trips?year=2026&month=6"
+        assert "Parking and tolls" in content_response.text
+        assert "$12.35" in content_response.text
+        assert "1/5 expenses" in content_response.text
+        assert delete_response.status_code == 303
+        assert delete_response.headers["location"] == "/trips?year=2026&month=6"
+        assert "No extra report expenses for this month." in final_response.text
+        with session_factory() as db:
+            assert db.scalar(select(MonthlyReportExpense)) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_trips_page_enforces_monthly_report_expense_cap() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            for index in range(5):
+                db.add(
+                    MonthlyReportExpense(
+                        expense_date=date(2026, 6, index + 1),
+                        year=2026,
+                        month=6,
+                        reason=f"Expense {index}",
+                        amount=Decimal("1.00"),
+                    )
+                )
+            db.commit()
+
+        page_response = client.get("/trips/content?year=2026&month=6")
+        create_response = client.post(
+            "/trips/report-expenses/add",
+            data={
+                "expense_date": "2026-06-18",
+                "expense_reason": "Sixth expense",
+                "expense_amount": "2.00",
+            },
+            follow_redirects=False,
+        )
+
+        assert page_response.status_code == 200
+        assert "5/5 expenses" in page_response.text
+        assert "maximum of 5 extra expenses" in page_response.text
+        assert create_response.status_code == 400
+        with session_factory() as db:
+            assert db.scalar(select(func.count(MonthlyReportExpense.id))) == 5
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_trips_page_shows_selected_month_summary_cards() -> None:
     client, session_factory = _test_client_session()
     try:
@@ -4069,6 +4196,11 @@ def test_trips_top_cards_format_large_numbers_with_commas() -> None:
             "year": 2026,
             "month": 6,
             "today": date(2026, 6, 16),
+            "expense_default_date": date(2026, 6, 16),
+            "monthly_report_expenses": [],
+            "monthly_report_expense_total": Decimal("0.00"),
+            "monthly_report_expense_limit": 5,
+            "monthly_report_expense_slots_remaining": 5,
             "trips_summary": {
                 "month_total": Decimal("123456.7"),
                 "month_trips": Decimal("23456.7"),
@@ -4077,6 +4209,8 @@ def test_trips_top_cards_format_large_numbers_with_commas() -> None:
                 "trip_count": 1_234,
                 "reimbursement": {
                     "total": Decimal("12345.67"),
+                    "mileage_total": Decimal("12345.67"),
+                    "expense_total": Decimal("0.00"),
                     "total_miles": Decimal("98765.4"),
                     "reimbursement_gallons": Decimal("1234.56"),
                     "reimbursement_gallons_display": "1234.5",
@@ -4489,6 +4623,13 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "app_version": __version__,
             "database_url": "sqlite://",
             "runtime_status": _runtime_status(),
+            "database_stats": SimpleNamespace(
+                latency_display="1.2 ms",
+                size_display="128.0 KB",
+                total_records_display="42 records",
+                pool_display="0 in use / 5 pool, 0 overflow",
+                timeout_display="10s connect, 30s pool",
+            ),
             "location_count": 1_234,
             "site_count": 10_000,
             "trip_count": 100_000,
@@ -4641,8 +4782,20 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     status_card = rendered[status_card_start:data_card_start]
     assert "PostgreSQL Server" in status_card
     assert "Remote PostgreSQL - db.internal" in status_card
+    assert "Latency" in status_card
+    assert "1.2 ms" in status_card
+    assert "Database Size" in status_card
+    assert "128.0 KB" in status_card
+    assert "Total Records" in status_card
+    assert "42 records" in status_card
+    assert "Pool" in status_card
+    assert "0 in use / 5 pool, 0 overflow" in status_card
+    assert "Timeouts" in status_card
+    assert "10s connect, 30s pool" in status_card
     assert "Primary Buffer" in status_card
     assert "Backup Buffer" in status_card
+    assert "2 queued" not in status_card
+    assert "3 queued" not in status_card
     assert "status-dot good" in status_card
     assert "Data" in api_tests_section
     data_card = rendered[data_card_start:latest_records_start]
@@ -4699,6 +4852,9 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".distance-card {\n  display: flex;\n  min-height: 96px;" in stylesheet
     assert ".distance-card strong" in stylesheet
     assert ".trip-summary-card strong" in stylesheet
+    assert ".extra-expense-form" in stylesheet
+    assert ".expense-reason-input" in stylesheet
+    assert ".compact-status-line" in stylesheet
     assert ".waypoint-pagination" in stylesheet
     assert ".diagnostics-pagination" in stylesheet
     assert ".status-dot.good" in stylesheet

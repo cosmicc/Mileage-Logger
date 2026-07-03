@@ -7,6 +7,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -263,6 +264,36 @@ class MonthlyGasPrice(Base):
     effective_rate: Mapped[Decimal] = mapped_column(Numeric(6, 3))
     source: Mapped[str] = mapped_column(String(80))
     source_detail: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class MonthlyReportExpense(Base):
+    """Manual non-mileage expense line included in one monthly PDF report."""
+
+    __tablename__ = "monthly_report_expenses"
+    __table_args__ = (
+        Index("ix_monthly_report_expenses_year_month", "year", "month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    expense_date: Mapped[date] = mapped_column(
+        Date,
+        index=True,
+        comment="Local expense date used to select the monthly PDF report.",
+    )
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(
+        String(160),
+        comment="Operator-entered expense reason shown on the monthly PDF report.",
+    )
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        comment="Expense amount added to the monthly reimbursement total.",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

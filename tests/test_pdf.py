@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from mileage_logger.config import Settings
-from mileage_logger.models import Base, MonthlyGasPrice, Site, Trip
+from mileage_logger.models import Base, MonthlyGasPrice, MonthlyReportExpense, Site, Trip
 from mileage_logger.services import pdf as pdf_service
 from mileage_logger.services.pdf import (
     PDF_IDENTITY_TO_TABLE_SPACER,
@@ -263,9 +263,76 @@ def test_generate_monthly_pdf_adds_configured_report_display_name(monkeypatch) -
 
     assert report.filename == "mileage-2026-07.pdf"
     assert report.content.startswith(b"%PDF")
-    assert "Mileage Log - July 2026" in rendered_paragraphs
-    assert "Mileage Log - 2026-07" not in rendered_paragraphs
+    assert "Mileage &amp; Expense Report - July 2026" in rendered_paragraphs
+    assert "Mileage &amp; Expense Report - 2026-07" not in rendered_paragraphs
     assert "<b>Submitted by:</b> Jane &lt;Tech&gt; &amp; Co" in rendered_paragraphs
+
+
+def test_generate_monthly_pdf_adds_extra_expenses_to_report_total(monkeypatch) -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    captured_tables: list[list[list[object]]] = []
+    original_table = pdf_service.Table
+
+    def record_table(data, *args, **kwargs):
+        captured_tables.append(data)
+        return original_table(data, *args, **kwargs)
+
+    monkeypatch.setattr(pdf_service, "Table", record_table)
+
+    with session_factory() as db:
+        db.add_all(
+            [
+                Trip(
+                    trip_date=date(2026, 7, 6),
+                    started_at=datetime(2026, 7, 6, 13, 0, tzinfo=UTC),
+                    ended_at=datetime(2026, 7, 6, 13, 30, tzinfo=UTC),
+                    start_latitude=Decimal("42.3314"),
+                    start_longitude=Decimal("-83.0458"),
+                    end_latitude=Decimal("42.3440"),
+                    end_longitude=Decimal("-83.0600"),
+                    miles=Decimal("25.0"),
+                ),
+                MonthlyReportExpense(
+                    expense_date=date(2026, 7, 7),
+                    year=2026,
+                    month=7,
+                    reason="Parking <garage> & tolls",
+                    amount=Decimal("12.345"),
+                ),
+                MonthlyGasPrice(
+                    year=2026,
+                    month=7,
+                    state="MI",
+                    average_price_per_gallon=Decimal("3.500"),
+                    buffer_per_gallon=Decimal("0.50"),
+                    effective_rate=Decimal("4.000"),
+                    source="manual",
+                    source_detail="test",
+                ),
+            ]
+        )
+        db.commit()
+
+        report = generate_monthly_pdf(db, 2026, 7)
+
+    assert report.content.startswith(b"%PDF")
+    assert report.reimbursement_total == Decimal("15.85")
+    assert any(
+        row[0] == "2026-07-07"
+        and isinstance(row[1], ReportLabParagraph)
+        and row[1].text == "Parking &lt;garage&gt; &amp; tolls"
+        and row[5] == "$12.35"
+        for table in captured_tables
+        for row in table
+    )
+    assert ["Extra expense total", "$12.35"] in captured_tables[-1]
+    assert ["Total reimbursement", "$15.85"] in captured_tables[-1]
 
 
 def test_generate_monthly_pdf_highlights_total_reimbursement_value(monkeypatch) -> None:

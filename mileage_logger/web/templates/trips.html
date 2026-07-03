@@ -57,7 +57,7 @@
     })
       .then((response) => {
         if (response.headers.get("X-Mileage-Logger-Limp-Mode") === "true") {
-          window.location.replace("/login");
+          window.location.replace("/");
           return "";
         }
         if (!response.ok) {

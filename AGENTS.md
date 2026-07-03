@@ -9,7 +9,7 @@ This document helps AI coding agents understand the Mileage Logger codebase and 
 - Stores waypoint transitions in PostgreSQL
 - Automatically generates **trips** from waypoint leave/enter events
 - Calculates **trip mileage** using OwnTracks location path distance
-- Generates monthly **PDF reimbursement reports** with gas price calculations
+- Generates monthly **PDF mileage and expense reports** with gas price calculations
 - Provides a web dashboard for trip review, editing, and manual entry
 
 **Tech Stack**: Python 3.12, FastAPI, SQLAlchemy, PostgreSQL, Alembic, Jinja2, ReportLab, Docker Compose
@@ -138,17 +138,21 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates portrait PDF with trip table and condensed margins for report content
-- Formats the PDF title with the selected report month name and year, such as `Mileage Log - June
-  2026`
+- Formats the PDF title with the selected report month name and year, such as `Mileage & Expense
+  Report - June 2026`
 - Keeps the PDF title directly below the top margin with compact spacing between the title,
   optional submitted-by line, and trip table
 - Adds optional `REPORT_DISPLAY_NAME` identification under the title as `Submitted by:` when the
   deployment setting is configured
 - Highlights the total reimbursement dollar amount value cell with a soft yellow background
 - Shows start/end odometers, miles, and location names
+- Adds up to five manual extra expense rows after trip rows, with date, expense reason, and price,
+  then includes the extra expense total in the final reimbursement total
 - Escapes trip and waypoint names before passing them to ReportLab `Paragraph` so user-managed
-  names, including the optional report display name, render as text rather than PDF markup.
-- Calculates total miles and total reimbursement amount
+  names, manual expense reasons, and the optional report display name render as text rather than
+  PDF markup.
+- Calculates total miles, mileage reimbursement, extra expense total, and total reimbursement
+  amount
 
 **[backups.py](mileage_logger/services/backups.py)** — Full app data backup and restore
 - Creates a gzip-compressed JSON backup of every SQLAlchemy app table plus OwnTracks waypoint export
@@ -232,9 +236,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   controls, and distinct warning, danger, success, and primary-action colors.
 
 ### Changelog Format
-- `CHANGELOG.md` release headings use bracketed version labels and `MM.DD.YYYY` release dates,
-  such as `## [1.2.4] - 07.02.2026`.
-- Keep the active development section as `## [x.y.z] - Unreleased` until that version is released.
+- `CHANGELOG.md` release headings use unbracketed version labels and `MM.DD.YYYY` release dates,
+  such as `## 1.2.4 - 07.02.2026`.
+- Keep the active development section as `## x.y.z - Unreleased` until that version is released.
 
 ---
 
@@ -289,9 +293,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   comma thousands separators for large displayed summary totals while keeping form input values
   unformatted.
 - The Trips root route renders a lightweight loading shell first. The selected-month cards,
-  Add Work Trip form, work trip rows, and deleted-trip rows render through `/trips/content`, which
-  is fetched by the shell so direct Work Trips loads show a loading message before month
-  calculations finish.
+  Add Work Trip form, work trip rows, extra report expense rows, and deleted-trip rows render
+  through `/trips/content`, which is fetched by the shell so direct Work Trips loads show a loading
+  message before month calculations finish.
+- The Work Trips extra report expenses card sits above Deleted Work Trip Records. It accepts a
+  date, expense reason, and price, enforces a hard cap of five expenses per report month, and
+  includes those expenses as the final PDF table entries after trip rows.
 - Manual trip creation defaults the date field to the app's `LOCAL_TIMEZONE` current date and uses
   origin/destination waypoint dropdowns populated from saved waypoints. Manual inserts calculate
   and save start/end odometers immediately from the current rolling OwnTracks odometer checkpoint,
@@ -308,8 +315,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   after raw OwnTracks location/event rows are purged. Dashboard summary cards use comma thousands
   separators for large displayed totals.
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
-  reimbursement gallons, monthly gas price, and `VEHICLE_MPG` calculation as the PDF report.
-  Display the card's reimbursement gallons at one decimal place.
+  reimbursement gallons, monthly gas price, `VEHICLE_MPG`, and manual extra expense total as the
+  PDF report. Display the card's reimbursement gallons at one decimal place.
 - The Dashboard home content shows the Location State card as the first visible card before other
   stat cards and distance summary cards. On full-width layouts, keep Dashboard top statistic cards
   and distance summary cards compact like the Work Trips selected-month cards, with each row still
@@ -328,11 +335,11 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - During PostgreSQL outages, full-page Dashboard and Work Trips loads should render the limp-mode
   warning page instead of the loading shell. Content fetches such as `/dashboard/content` and
   `/trips/content` must return only the limp-mode panel fragment so the shell does not nest a
-  second top bar; shell JavaScript should redirect to `/login` when a limp-mode fragment is
+  second top bar; shell JavaScript should redirect to `/` when a limp-mode fragment is
   detected so already-loaded pages do not keep stale navigation visible. The full outage page is
   end-user facing, uses the `Service Temporarily Unavailable` heading, hides all shared app chrome
   and navigation, avoids host/IP/connection-string details and database status cards, and keeps
-  retrying `/login` so the login page appears when service returns. Fetched panel fragments must
+  retrying `/` so the normal app/login flow resumes when service returns. Fetched panel fragments must
   not include the retry script. Keep the Queued Payloads and Oldest Received Payload cards beside
   each other in the first outage-status row.
 
@@ -372,11 +379,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 8. Diagnostics groups the top cards together in this order: Application, System Status, Data,
    Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive
    Space. Keep the group at three cards per row on desktop and one card per row on mobile. The
-   System Status card shows PostgreSQL availability plus local/remote placement and primary/backup
-   OwnTracks buffer availability with red/green indicator dots. The Data card shows raw record
-   counts plus lowest, current, current-month average, and highest gas price readings; format large
-   displayed counts with comma thousands separators, keep the low/high values based on raw gas
-   price snapshots, and keep the monthly average based on the current app-local month. The detailed
+   System Status card shows PostgreSQL availability, local/remote placement, latency, database
+   size, total app-record count, pool/timeout details, and compact primary/backup OwnTracks buffer
+   status indicators without per-buffer queue counts. The Data card shows raw record counts plus
+   lowest, current, current-month average, and highest gas price readings; format large displayed
+   counts with comma thousands separators, keep the low/high values based on raw gas price
+   snapshots, and keep the monthly average based on the current app-local month. The detailed
    OwnTracks state-change log and recent OwnTracks database entries are paginated in compact 10-row
    pages with the same mobile full-width pagination row used by the login and Cloudflare block
    lists.

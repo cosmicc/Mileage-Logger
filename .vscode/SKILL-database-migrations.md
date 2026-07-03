@@ -191,6 +191,11 @@ def downgrade() -> None:
 - Cached monthly average for a specific month/state
 - Used in PDF report calculations
 
+**MonthlyReportExpense** (`monthly_report_expenses` table)
+- Manual extra expense lines for monthly PDF reports
+- Stores expense date, report year/month, reason, and amount
+- Enforced in web routes at a maximum of five expenses per report month
+
 **DeletedTrip** (`deleted_trips` table)
 - Tombstone record preventing auto-recreation
 - Indexes the `(origin, destination, started_at, ended_at)` tuple

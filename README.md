@@ -2,7 +2,7 @@
 
 Mileage Logger receives OwnTracks waypoint events from an Android phone over HTTP or MQTT,
 stores them in PostgreSQL, lets you review and edit generated waypoint work trips, and produces
-monthly reimbursement PDF logs.
+monthly mileage and expense PDF logs.
 
 ## Current Scope
 
@@ -24,7 +24,7 @@ monthly reimbursement PDF logs.
   picker that loads the selected month automatically and shows compact selected-month summary
   cards.
 - Monthly gas price cache with a provider layer.
-- Monthly PDF report generation.
+- Monthly PDF report generation with optional extra expense lines.
 - GitHub Actions CI for linting and tests.
 
 ## Fuel Price Policy
@@ -137,7 +137,7 @@ the app waits for both queues so payloads replay in receive order. Automatic tri
 snapshots, and automatic backups pause their database-writing passes while PostgreSQL is
 unreachable. The limp-mode warning page shows generic queued-payload status plus primary and
 backup queue state without exposing database host, IP, or connection-string details. It hides
-normal app navigation and retries the login page until service returns. A malformed `DATABASE_URL`
+normal app navigation and retries the app home page until service returns. A malformed `DATABASE_URL`
 is treated as database unavailable so
 the app can still start in limp mode and accept buffered OwnTracks payloads while the environment
 value is corrected. `APP_HEALTHCHECK_START_PERIOD` should stay longer than
@@ -382,9 +382,9 @@ OwnTracks, or gas price records. Before raw OwnTracks location/event rows age ou
 monthly OwnTracks summary rollups so selected-month web totals and event counts remain stable after
 the raw location rows are purged.
 The Dashboard current-month reimbursement card uses the same trip-mile total, reimbursement
-gallons, monthly gas price, and `VEHICLE_MPG` formula as the downloadable PDF report, with
-displayed gallons limited to one decimal place. Dashboard top statistic and distance cards use the
-same compact sizing as the Work Trips selected-month cards on full-width layouts, while mobile
+gallons, monthly gas price, `VEHICLE_MPG`, and extra expense total as the downloadable PDF report,
+with displayed gallons limited to one decimal place. Dashboard top statistic and distance cards use
+the same compact sizing as the Work Trips selected-month cards on full-width layouts, while mobile
 keeps each card on its own row. Dashboard and Work Trips summary cards use comma thousands
 separators for large displayed totals.
 The Diagnostics Manual Odometer card shows the current reading and its source next to the form so
@@ -392,12 +392,12 @@ the existing checkpoint can be checked before entering a correction. The top Dia
 grouped together in this order: Application, System Status, Data, Latest Records, OwnTracks State,
 Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three
 cards per row. The System Status card shows PostgreSQL reachability, whether the configured
-PostgreSQL host is remote, and primary/backup OwnTracks buffer availability with red/green
-indicator dots. The Data card includes lowest, current, current-month average, and highest gas
-price readings and comma-formatted large record counts. Diagnostics also shows hard drive space
-for key runtime paths with used-space bars, combining paths into one row when their exact used
-space and total capacity match, and includes current database size plus total app record count at
-the bottom of the card.
+PostgreSQL host is remote, database latency, database size, total app records, pool/timeout
+details, and compact primary/backup OwnTracks buffer status indicators. The Data card includes
+lowest, current, current-month average, and highest gas price readings and comma-formatted large
+record counts. Diagnostics also shows hard drive space for key runtime paths with used-space bars,
+combining paths into one row when their exact used space and total capacity match, and includes
+current database size plus total app record count at the bottom of the card.
 Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
@@ -563,7 +563,10 @@ on a schedule without cron if you prefer host-managed timing. The Docker image i
 systemd inside the container.
 Set `REPORT_DISPLAY_NAME` when downloaded PDF reports should identify who submitted the report; the
 name appears under the report title as `Submitted by:`.
-The PDF summary highlights the final total reimbursement dollar amount with a yellow background.
+The PDF title uses `Mileage & Expense Report` plus the selected month and year. The Work Trips
+page can add up to five extra expense lines per report month, and those lines appear after trip
+rows in the PDF with date, reason, and price. The PDF summary highlights the final total
+reimbursement dollar amount with a yellow background.
 
 ## Workflow
 
@@ -576,8 +579,9 @@ The PDF summary highlights the final total reimbursement dollar amount with a ye
    row dates and odometers are read-only. The summary cards above Add Work Trip show the selected
    month's work trip plus non-work trip miles, work-trip-only miles, OwnTracks events, work trip
    count, reimbursement, and monthly average gas price.
-6. Add or fetch a monthly gas price for that report month.
-7. Download the portrait monthly PDF report from the `Work Trips` page.
+6. Add optional extra report expenses for the selected month, up to five lines.
+7. Add or fetch a monthly gas price for that report month.
+8. Download the portrait monthly PDF report from the `Work Trips` page.
 
 ## Project Commands
 

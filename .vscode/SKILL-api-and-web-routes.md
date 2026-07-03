@@ -131,13 +131,13 @@ availability plus primary and backup buffer state/counts without querying Postgr
 Full-page Dashboard and Work Trips requests preflight PostgreSQL reachability and render the
 limp-mode page instead of their normal loading shells during an outage. JavaScript content fetches
 must receive only `web/templates/_limp_mode_panel.html` so the fetched HTML can replace the shell
-without nesting another `layout.html` top bar; shell JavaScript should redirect to `/login` if the
+without nesting another `layout.html` top bar; shell JavaScript should redirect to `/` if the
 content response has `X-Mileage-Logger-Limp-Mode: true` so stale navigation is not left on screen.
 While `limp_mode_active` is set, the full outage page hides shared app chrome, navigation, icons,
 and service-worker registration. The page uses the end-user facing `Service Temporarily
 Unavailable` heading, avoids host/IP/connection-string details and database status cards, keeps
 Queued Payloads and Oldest Received Payload beside each other in the first status row, and performs
-a timed navigation retry to `/login` so the login page appears when service returns. Fragment
+a timed navigation retry to `/` so the normal app/login flow resumes when service returns. Fragment
 responses must not include the retry script.
 OwnTracks ingestion remains the exception during limp mode: HTTP and MQTT payloads go through
 `ingest_or_buffer_owntracks_payload()`, which writes to the primary buffer or to the local fallback
@@ -252,8 +252,9 @@ curl -X POST http://localhost:8000/api/owntracks \
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
 - Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
-  gallons, monthly gas price, and `VEHICLE_MPG` formula as `generate_monthly_pdf()` so the home
-  card matches the downloadable report. Keep displayed reimbursement gallons to one decimal place.
+  gallons, monthly gas price, `VEHICLE_MPG`, and manual extra expense total as
+  `generate_monthly_pdf()` so the home card matches the downloadable report. Keep displayed
+  reimbursement gallons to one decimal place.
 - Dashboard OwnTracks Events and Work Trips count cards are current-month cards. Scope them with
   the app-local month bounds from midnight on the first day of the month in `LOCAL_TIMEZONE`;
   month rollover should not delete older month data to make these cards reset. Selected-month
@@ -267,9 +268,9 @@ curl -X POST http://localhost:8000/api/owntracks \
   use the same compact sizing as the Work Trips selected-month cards while still spanning the app
   width by row; mobile should continue stacking those cards one per row.
 - The Trips root route renders a lightweight loading shell. Keep selected-month Work Trips queries,
-  summary cards, forms, work trip rows, and deleted-trip rows in `/trips/content` and render
-  `trips_content.html` there so direct Work Trips loads can show a loading state before month data
-  arrives.
+  summary cards, forms, work trip rows, extra report expense rows, and deleted-trip rows in
+  `/trips/content` and render `trips_content.html` there so direct Work Trips loads can show a
+  loading state before month data arrives.
 - `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use one
   centered blue raised button treatment, with icons shown to the left of text labels. On mobile,
   CSS hides the brand/icon and keeps nav links in one full-width icon-only blue top-bar row instead
@@ -289,6 +290,10 @@ curl -X POST http://localhost:8000/api/owntracks \
   and above Add Work Trip. Keep these scoped to the selected month: work trips plus non-work trips,
   work trips only, OwnTracks events by captured time, work trip count, reimbursement, and monthly
   average gas price.
+- The extra report expenses card sits above Deleted Work Trip Records. It accepts a date, expense
+  reason, and price, stores expenses by the submitted date's report month, enforces a hard cap of
+  five expenses per month server-side, and uses non-colliding routes under
+  `/trips/report-expenses/...` because `/trips/{trip_id}` already owns two-segment POST paths.
 - Diagnostics hard drive space rows group configured runtime paths as the same drive only when
   exact used bytes and total bytes both match. Keep this grouping rule aligned with the visible
   drive-space bars and database summary in `diagnostics.html`. The Diagnostics Application card
@@ -620,8 +625,10 @@ download filename and out of reimbursement calculations.
 Keep generated PDF reports in portrait letter layout unless the user explicitly requests another
 page orientation. The portrait report uses condensed margins so the trip table has more usable
 width and height. Keep the title using the selected report month name and year, such as
-`Mileage Log - June 2026`. Keep the title, optional submitted-by identity line, and trip table
-tightly stacked at the top of the report.
+`Mileage & Expense Report - June 2026`. Keep the title, optional submitted-by identity line, and
+trip table tightly stacked at the top of the report. Manual extra expense rows render after trip
+rows with date, a wide reason cell, and right-aligned price; the summary includes extra expense
+total immediately above the final total reimbursement row.
 
 ### Redirects
 
@@ -665,7 +672,9 @@ cards grouped together in this order unless the page is reorganized deliberately
 System Status, Data, Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure
 Passkey, and Hard Drive Space. The System Status card uses
 `mileage_logger.services.runtime_status.build_runtime_status()` for PostgreSQL local/remote
-placement and primary/backup OwnTracks buffer indicators.
+placement and primary/backup OwnTracks buffer indicators, and route-level Diagnostics helpers add
+safe latency, database size, total app records, pool, and timeout details without exposing full
+connection strings.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each
