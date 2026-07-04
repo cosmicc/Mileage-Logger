@@ -48,6 +48,29 @@ class Settings(BaseSettings):
     cloudflare_ip_block_allowlist: str = ""
     cloudflare_auto_block_failed_login_attempts: int = Field(default=5, ge=1)
 
+    pushover_enabled: bool = False
+    pushover_token: str = ""
+    pushover_user: str = ""
+    pushover_app_key: str = ""
+    pushover_user_key: str = ""
+    pushover_device: str = ""
+    pushover_priority: int = Field(default=0, ge=-2, le=2)
+    pushover_timeout_seconds: int = Field(default=10, ge=1)
+    app_health_monitor_interval_seconds: int = Field(default=60, ge=15)
+    app_health_db_latency_warning_ms: int = Field(default=500, ge=1)
+    app_health_db_latency_critical_ms: int = Field(default=2000, ge=1)
+    app_health_disk_warning_percent: Decimal = Field(
+        default=Decimal("85.0"),
+        ge=Decimal("0"),
+        le=Decimal("100"),
+    )
+    app_health_disk_critical_percent: Decimal = Field(
+        default=Decimal("95.0"),
+        ge=Decimal("0"),
+        le=Decimal("100"),
+    )
+    app_health_state_path: str = ""
+
     web_api_key: str = ""
     owntracks_username: str = ""
     owntracks_password: str = ""
@@ -130,7 +153,16 @@ class Settings(BaseSettings):
             raise ValueError("PASSKEY_ORIGIN must use https outside localhost testing")
         return origin
 
-    @field_validator("web_api_key", "owntracks_encryption_key", mode="before")
+    @field_validator(
+        "web_api_key",
+        "owntracks_encryption_key",
+        "pushover_token",
+        "pushover_user",
+        "pushover_app_key",
+        "pushover_user_key",
+        "pushover_device",
+        mode="before",
+    )
     @classmethod
     def strip_secret_text(cls, value: object) -> str:
         """Normalize optional shared-secret settings without logging or deriving them."""
@@ -194,11 +226,29 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_app_health_thresholds(self) -> Self:
+        """Validate app-health monitor thresholds and Pushover aliases."""
+
+        if self.app_health_db_latency_warning_ms > self.app_health_db_latency_critical_ms:
+            raise ValueError(
+                "APP_HEALTH_DB_LATENCY_WARNING_MS must be less than or equal to "
+                "APP_HEALTH_DB_LATENCY_CRITICAL_MS"
+            )
+        if self.app_health_disk_warning_percent > self.app_health_disk_critical_percent:
+            raise ValueError(
+                "APP_HEALTH_DISK_WARNING_PERCENT must be less than or equal to "
+                "APP_HEALTH_DISK_CRITICAL_PERCENT"
+            )
+        return self
+
+    @model_validator(mode="after")
     def default_automatic_backup_dir(self) -> Self:
         """Default automatic backups under the configured runtime log directory."""
 
         if not self.automatic_backup_dir.strip():
             self.automatic_backup_dir = f"{self.log_dir.rstrip('/')}/backups"
+        if not self.app_health_state_path.strip():
+            self.app_health_state_path = f"{self.log_dir.rstrip('/')}/app-health-state.json"
         return self
 
 

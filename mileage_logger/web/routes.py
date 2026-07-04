@@ -1,7 +1,6 @@
 import logging
 import re
 import shutil
-import time
 from calendar import month_name
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -36,6 +35,10 @@ from mileage_logger.models import (
     Site,
     Trip,
     TripProcessingCheckpoint,
+)
+from mileage_logger.services.app_health import (
+    build_app_health_snapshot,
+    measure_database_latency_ms,
 )
 from mileage_logger.services.backups import (
     BACKUP_MEDIA_TYPE,
@@ -323,6 +326,7 @@ class DiagnosticDatabaseSummary:
 class DiagnosticDatabaseStats:
     """Safe database health details rendered in the Diagnostics System Status card."""
 
+    latency_ms: float | None
     latency_display: str
     size_display: str
     total_records_display: str
@@ -956,6 +960,8 @@ def _diagnostic_storage_paths(settings) -> tuple[str, ...]:
         settings.log_dir,
         str(Path(settings.login_failure_log_path).expanduser().parent),
         settings.automatic_backup_dir,
+        str(Path(settings.owntracks_buffer_path).expanduser().parent),
+        str(Path(settings.owntracks_buffer_fallback_path).expanduser().parent),
     ]
     sqlite_path = _sqlite_database_path(settings.database_url)
     if sqlite_path is not None:
@@ -1020,12 +1026,8 @@ def _diagnostic_database_summary(
 def _database_latency_display(db: Session) -> str:
     """Measure a lightweight database round trip for the Diagnostics status card."""
 
-    try:
-        started_at = time.perf_counter()
-        db.execute(text("SELECT 1"))
-        elapsed_ms = (time.perf_counter() - started_at) * 1000
-    except SQLAlchemyError:
-        logger.exception("Could not measure database latency")
+    elapsed_ms = measure_database_latency_ms(db)
+    if elapsed_ms is None:
         return "Unavailable"
     return f"{elapsed_ms:.1f} ms"
 
@@ -1067,8 +1069,10 @@ def _diagnostic_database_stats(
 ) -> DiagnosticDatabaseStats:
     """Return database metrics for the Diagnostics System Status card."""
 
+    latency_ms = measure_database_latency_ms(db)
     return DiagnosticDatabaseStats(
-        latency_display=_database_latency_display(db),
+        latency_ms=latency_ms,
+        latency_display="Unavailable" if latency_ms is None else f"{latency_ms:.1f} ms",
         size_display=summary.size_display,
         total_records_display=summary.total_records_display,
         pool_display=_database_pool_display(db, settings),
@@ -2282,6 +2286,13 @@ def diagnostics(
     all_cloudflare_ip_blocks = list(
         db.scalars(select(CloudflareIPBlock).order_by(CloudflareIPBlock.created_at.desc()))
     )
+    app_health_snapshot = build_app_health_snapshot(
+        settings=settings,
+        runtime_status=runtime_status,
+        database_latency_ms=database_stats.latency_ms,
+        disk_usages=disk_usages,
+        cloudflare_block_count=len(all_cloudflare_ip_blocks),
+    )
     cloudflare_ip_blocks, cloudflare_ip_blocks_page = _paginate_items(
         all_cloudflare_ip_blocks,
         page=cloudflare_blocks_page,
@@ -2314,6 +2325,7 @@ def diagnostics(
             "database_url": _masked_database_url(settings.database_url),
             "runtime_status": runtime_status,
             "database_stats": database_stats,
+            "app_health_snapshot": app_health_snapshot,
             "location_count": owntracks_entries_page.total,
             "site_count": db.scalar(select(func.count(Site.id))) or 0,
             "trip_count": db.scalar(select(func.count(Trip.id))) or 0,

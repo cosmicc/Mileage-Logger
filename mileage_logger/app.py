@@ -17,6 +17,7 @@ from mileage_logger.config import get_settings
 from mileage_logger.database import engine, is_database_unavailable_error
 from mileage_logger.logging_config import configure_logging
 from mileage_logger.models import Base
+from mileage_logger.services.app_health import AppHealthMonitor
 from mileage_logger.services.backups import automatic_backup_scheduler
 from mileage_logger.services.gas_prices import gas_snapshot_scheduler
 from mileage_logger.services.mqtt import MqttOwnTracksWorker
@@ -33,6 +34,7 @@ settings = get_settings()
 mqtt_worker = MqttOwnTracksWorker()
 trip_processor = AutomaticTripProcessor()
 owntracks_buffer_replayer = OwnTracksBufferReplayer()
+app_health_monitor = AppHealthMonitor()
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     owntracks_buffer_replayer.start()
     trip_processor.start()
     mqtt_worker.start()
+    app_health_monitor.start()
     try:
         yield
     finally:
@@ -75,6 +78,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 await backup_task
         trip_processor.stop()
         owntracks_buffer_replayer.stop()
+        app_health_monitor.stop()
         mqtt_worker.stop()
 
 

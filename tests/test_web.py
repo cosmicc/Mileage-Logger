@@ -32,6 +32,7 @@ from mileage_logger.models import (
     Trip,
     TripProcessingCheckpoint,
 )
+from mileage_logger.services.app_health import AppHealthIssue, AppHealthSnapshot
 from mileage_logger.services.backups import create_automatic_backup, list_automatic_backup_files
 from mileage_logger.services.cloudflare_blocks import (
     CloudflareAccessRule,
@@ -3997,6 +3998,15 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         assert 'href="/trips?year=2026&amp;month=5"' not in page_response.text
         assert 'href="/trips?year=2026&amp;month=7"' not in page_response.text
         assert "Add Work Trip" in page_response.text
+        assert page_response.text.index("<h2>Monthly Work Trips</h2>") < page_response.text.index(
+            "<h2>Add Work Trip</h2>"
+        )
+        assert page_response.text.index("<h2>Add Work Trip</h2>") < page_response.text.index(
+            "<h2>Extra Report Expenses</h2>"
+        )
+        extra_expenses_index = page_response.text.index("<h2>Extra Report Expenses</h2>")
+        deleted_trips_index = page_response.text.index("<h2>Deleted Work Trip Records</h2>")
+        assert extra_expenses_index < deleted_trips_index
         assert 'name="trip_date" value="2026-06-22"' in page_response.text
         assert 'name="origin_site_id"' in page_response.text
         assert 'name="destination_site_id"' in page_response.text
@@ -4171,7 +4181,7 @@ def test_trips_page_shows_selected_month_summary_cards() -> None:
             '<section class="panel">',
         )
         assert response.text.index('<section class="trips-summary-grid"') < response.text.index(
-            "<h2>Add Work Trip</h2>"
+            "<h2>Monthly Work Trips</h2>"
         )
         assert "Month Work Trips + Non-Work Trips" in summary_section
         assert "Month Work Trips Only" in summary_section
@@ -4615,6 +4625,39 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
         app.dependency_overrides.clear()
 
 
+def test_diagnostics_shows_app_degraded_banner(monkeypatch) -> None:
+    degraded_snapshot = AppHealthSnapshot(
+        status="degraded",
+        severity="warning",
+        issues=(
+            AppHealthIssue(
+                key="database.latency_warning",
+                severity="warning",
+                title="Database latency elevated",
+                detail="Database round trip is 750.0 ms.",
+            ),
+        ),
+        checked_at=datetime(2026, 7, 4, 12, 0, tzinfo=UTC),
+    )
+    monkeypatch.setattr(
+        "mileage_logger.web.routes.build_app_health_snapshot",
+        lambda **_kwargs: degraded_snapshot,
+    )
+    client, _session_factory = _test_client_session()
+    try:
+        response = client.get("/diagnostics")
+
+        assert response.status_code == 200
+        assert 'class="app-health-banner warning"' in response.text
+        assert "App Degraded" in response.text
+        assert "1 monitored issue detected." in response.text
+        assert "Database latency elevated" in response.text
+        assert "Database round trip is 750.0 ms." in response.text
+        assert response.text.index("App Degraded") < response.text.index("<h2>Application</h2>")
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     now = datetime(2026, 6, 20, 13, 30, tzinfo=UTC)
     rendered = templates.env.get_template("diagnostics.html").render(
@@ -4624,11 +4667,18 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "database_url": "sqlite://",
             "runtime_status": _runtime_status(),
             "database_stats": SimpleNamespace(
+                latency_ms=1.2,
                 latency_display="1.2 ms",
                 size_display="128.0 KB",
                 total_records_display="42 records",
                 pool_display="0 in use / 5 pool, 0 overflow",
                 timeout_display="10s connect, 30s pool",
+            ),
+            "app_health_snapshot": AppHealthSnapshot(
+                status="ok",
+                severity="ok",
+                issues=(),
+                checked_at=now,
             ),
             "location_count": 1_234,
             "site_count": 10_000,

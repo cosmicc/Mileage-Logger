@@ -286,10 +286,11 @@ curl -X POST http://localhost:8000/api/owntracks \
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.
-- `trips_content.html` shows compact selected-month cards directly below the month selector rule
-  and above Add Work Trip. Keep these scoped to the selected month: work trips plus non-work trips,
-  work trips only, OwnTracks events by captured time, work trip count, reimbursement, and monthly
-  average gas price.
+- `trips_content.html` shows compact selected-month cards directly below the month selector rule.
+  Keep these scoped to the selected month: work trips plus non-work trips, work trips only,
+  OwnTracks events by captured time, work trip count, reimbursement, and monthly average gas price.
+- The Work Trips page order is selected-month cards, Monthly Work Trips, Add Work Trip, Extra
+  Report Expenses, then Deleted Work Trip Records.
 - The extra report expenses card sits above Deleted Work Trip Records. It accepts a date, expense
   reason, and price, stores expenses by the submitted date's report month, enforces a hard cap of
   five expenses per month server-side, and uses non-colliding routes under
@@ -301,6 +302,10 @@ curl -X POST http://localhost:8000/api/owntracks \
 - The Diagnostics Data card shows record counts and the lowest/highest queried gas price readings
   from `gas_price_snapshots.price_per_gallon`. Do not use `MonthlyGasPrice` averages for these
   high/low values.
+- Diagnostics degraded/unavailable banners and Pushover app-health notifications must use
+  `mileage_logger.services.app_health.build_app_health_snapshot()`. Keep monitored signals aligned:
+  PostgreSQL availability/latency, OwnTracks buffer availability and queue state, runtime disk
+  usage, active web-login lockouts, and app-managed Cloudflare IP blocks.
 
 ### Basic Pattern
 
@@ -628,7 +633,8 @@ width and height. Keep the title using the selected report month name and year, 
 `Mileage & Expense Report - June 2026`. Keep the title, optional submitted-by identity line, and
 trip table tightly stacked at the top of the report. Manual extra expense rows render after trip
 rows with date, a wide reason cell, and right-aligned price; the summary includes extra expense
-total immediately above the final total reimbursement row.
+total immediately above the final total reimbursement row. Keep extra expense rows unhighlighted
+like trip rows; only the final total reimbursement value cell should use the yellow highlight.
 
 ### Redirects
 
@@ -674,7 +680,8 @@ Passkey, and Hard Drive Space. The System Status card uses
 `mileage_logger.services.runtime_status.build_runtime_status()` for PostgreSQL local/remote
 placement and primary/backup OwnTracks buffer indicators, and route-level Diagnostics helpers add
 safe latency, database size, total app records, pool, and timeout details without exposing full
-connection strings.
+connection strings. The app-health banner appears above this card group only when the shared
+snapshot reports warning or critical issues.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each

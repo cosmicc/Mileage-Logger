@@ -7,10 +7,17 @@
   five-expense cap per report month.
 - Added extra expense rows to the monthly PDF below trip rows, plus an extra expense total row that
   is included in the final total reimbursement amount.
+- Kept individual PDF extra expense rows unhighlighted so only the final total reimbursement value
+  uses the yellow highlight.
 - Changed the monthly PDF title to `Mileage & Expense Report` while keeping the selected month and
   year in the title.
 - Added database latency, size, total-record, pool, and timeout details to the Diagnostics System
   Status card, and simplified the primary and backup buffer rows to status-only indicators.
+- Added optional Pushover app-health notifications for degraded or unavailable app state, plus a
+  restored notification when monitored checks are healthy again.
+- Added a yellow/red Diagnostics app-health banner for database, buffer, disk-space, web-login
+  lockout, and app-managed Cloudflare block issues.
+- Moved Add Work Trip below the Monthly Work Trips list and above Extra Report Expenses.
 - Fixed database-outage recovery navigation to retry the app base URL instead of `/login`, avoiding
   a 401 error page when service returns.
 - Changed changelog headings to use unbracketed version numbers with `MM.DD.YYYY` release dates.

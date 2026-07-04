@@ -277,13 +277,19 @@ def test_generate_monthly_pdf_adds_extra_expenses_to_report_total(monkeypatch) -
     Base.metadata.create_all(engine)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     captured_tables: list[list[list[object]]] = []
+    captured_styles: list[list[tuple]] = []
     original_table = pdf_service.Table
 
     def record_table(data, *args, **kwargs):
         captured_tables.append(data)
         return original_table(data, *args, **kwargs)
 
+    def record_table_style(commands):
+        captured_styles.append(list(commands))
+        return ReportLabTableStyle(commands)
+
     monkeypatch.setattr(pdf_service, "Table", record_table)
+    monkeypatch.setattr(pdf_service, "TableStyle", record_table_style)
 
     with session_factory() as db:
         db.add_all(
@@ -323,6 +329,7 @@ def test_generate_monthly_pdf_adds_extra_expenses_to_report_total(monkeypatch) -
 
     assert report.content.startswith(b"%PDF")
     assert report.reimbursement_total == Decimal("15.85")
+    expense_row_index = None
     assert any(
         row[0] == "2026-07-07"
         and isinstance(row[1], ReportLabParagraph)
@@ -330,6 +337,19 @@ def test_generate_monthly_pdf_adds_extra_expenses_to_report_total(monkeypatch) -
         and row[5] == "$12.35"
         for table in captured_tables
         for row in table
+    )
+    for index, row in enumerate(captured_tables[0]):
+        if row[0] == "2026-07-07":
+            expense_row_index = index
+            break
+
+    assert expense_row_index is not None
+    assert ("SPAN", (1, expense_row_index), (4, expense_row_index)) in captured_styles[0]
+    assert not any(
+        command[0] == "BACKGROUND"
+        and command[1] == (0, expense_row_index)
+        and command[2] == (-1, expense_row_index)
+        for command in captured_styles[0]
     )
     assert ["Extra expense total", "$12.35"] in captured_tables[-1]
     assert ["Total reimbursement", "$15.85"] in captured_tables[-1]

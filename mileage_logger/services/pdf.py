@@ -298,7 +298,6 @@ def generate_monthly_pdf(db: Session, year: int, month: int) -> MonthlyPdfReport
         table_style_commands.extend(
             [
                 ("SPAN", (1, row_index), (4, row_index)),
-                ("BACKGROUND", (0, row_index), (-1, row_index), colors.HexColor("#fff8df")),
                 ("ALIGN", (5, row_index), (5, row_index), "RIGHT"),
             ]
         )

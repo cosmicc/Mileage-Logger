@@ -136,6 +136,15 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Enforces `CLOUDFLARE_IP_BLOCK_ALLOWLIST` so trusted IPs/CIDRs are not blocked by the app, and
   records the block reason and manual/automatic source shown on Diagnostics
 
+**[app_health.py](mileage_logger/services/app_health.py)** — App health and Pushover alerts
+- Builds the shared app-health snapshot used by Diagnostics and background notifications
+- Monitors PostgreSQL availability and latency, OwnTracks buffer availability and queued payloads,
+  disk usage for runtime paths, active web-login lockouts, and app-managed Cloudflare IP blocks
+- Sends Pushover notifications only when configured degraded/unavailable issue signatures change,
+  and sends a restored notification when all monitored checks return to healthy
+- Persists notification state under `APP_HEALTH_STATE_PATH` so app restarts do not repeat the same
+  degraded alert
+
 **[pdf.py](mileage_logger/services/pdf.py)** — Report generation
 - Generates portrait PDF with trip table and condensed margins for report content
 - Formats the PDF title with the selected report month name and year, such as `Mileage & Expense
@@ -147,7 +156,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Highlights the total reimbursement dollar amount value cell with a soft yellow background
 - Shows start/end odometers, miles, and location names
 - Adds up to five manual extra expense rows after trip rows, with date, expense reason, and price,
-  then includes the extra expense total in the final reimbursement total
+  then includes the extra expense total in the final reimbursement total. Extra expense rows use
+  the same unhighlighted background as trip rows; only the final total reimbursement value is
+  highlighted.
 - Escapes trip and waypoint names before passing them to ReportLab `Paragraph` so user-managed
   names, manual expense reasons, and the optional report display name render as text rather than
   PDF markup.
@@ -218,7 +229,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
-  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `WEB_API_KEY`,
+  `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS`, `PUSHOVER_ENABLED`, `PUSHOVER_TOKEN`,
+  `PUSHOVER_USER`, `PUSHOVER_APP_KEY`, `PUSHOVER_USER_KEY`, `PUSHOVER_DEVICE`,
+  `PUSHOVER_PRIORITY`, `APP_HEALTH_MONITOR_INTERVAL_SECONDS`,
+  `APP_HEALTH_DB_LATENCY_WARNING_MS`, `APP_HEALTH_DB_LATENCY_CRITICAL_MS`,
+  `APP_HEALTH_DISK_WARNING_PERCENT`, `APP_HEALTH_DISK_CRITICAL_PERCENT`,
+  `APP_HEALTH_STATE_PATH`, `WEB_API_KEY`,
   `OWNTRACKS_ENCRYPTION_KEY`, `OWNTRACKS_BUFFER_ENABLED`, `OWNTRACKS_BUFFER_PATH`,
   `OWNTRACKS_BUFFER_FALLBACK_PATH`, `OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS`,
   `OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE`, `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
@@ -287,11 +303,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - The Work Trips page month selector is a single browser month/year picker. It defaults to the app's
   current `LOCAL_TIMEZONE` month, auto-loads the selected month, and displays the month as
   `Showing June 2026 (06/2026)` style text under the Work Trips title.
-- The Work Trips page shows compact selected-month summary cards between the month selector line
-  and Add Work Trip. Keep the cards scoped to the selected month: work trips plus non-work trips,
-  work trips only, OwnTracks events, work trip count, reimbursement, and monthly average gas. Use
-  comma thousands separators for large displayed summary totals while keeping form input values
-  unformatted.
+- The Work Trips page shows compact selected-month summary cards below the month selector line.
+  Keep the cards scoped to the selected month: work trips plus non-work trips, work trips only,
+  OwnTracks events, work trip count, reimbursement, and monthly average gas. Use comma thousands
+  separators for large displayed summary totals while keeping form input values unformatted.
+- The Monthly Work Trips list appears above Add Work Trip, and Add Work Trip appears above the
+  extra report expenses card.
 - The Trips root route renders a lightweight loading shell first. The selected-month cards,
   Add Work Trip form, work trip rows, extra report expense rows, and deleted-trip rows render
   through `/trips/content`, which is fetched by the shell so direct Work Trips loads show a loading
@@ -379,6 +396,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 8. Diagnostics groups the top cards together in this order: Application, System Status, Data,
    Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure Passkey, and Hard Drive
    Space. Keep the group at three cards per row on desktop and one card per row on mobile. The
+   Diagnostics page shows a yellow or red app-health banner above the top cards when monitored
+   checks are degraded or unavailable. The banner and Pushover notifications must use the shared
+   `app_health.py` snapshot so they stay consistent. The
    System Status card shows PostgreSQL availability, local/remote placement, latency, database
    size, total app-record count, pool/timeout details, and compact primary/backup OwnTracks buffer
    status indicators without per-buffer queue counts. The Data card shows raw record counts plus
@@ -486,6 +506,10 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - The OwnTracks primary buffer is host bind-mounted through `HOST_OWNTRACKS_BUFFER_DIR`; treat it
   as sensitive location data and keep it across normal rebuilds until buffered rows have replayed.
   The fallback buffer is a local Docker named volume and should also be retained during rebuilds.
+- Optional Pushover app-health notifications use `PUSHOVER_ENABLED=true`, a Pushover app API token
+  in `PUSHOVER_TOKEN` or `PUSHOVER_APP_KEY`, and a user/group key in `PUSHOVER_USER` or
+  `PUSHOVER_USER_KEY`. The app sends degraded/unavailable notifications on monitored state changes
+  and one restored notification when all monitored checks are healthy again.
 
 ---
 

@@ -56,6 +56,37 @@ def test_app_container_requires_production_web_login_secrets() -> None:
     assert 'PASSKEY_ORIGIN: "${PASSKEY_ORIGIN:-}"' in app_block
 
 
+def test_app_container_exposes_pushover_health_settings() -> None:
+    compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+    stack_text = STACK_FILE.read_text(encoding="utf-8")
+    env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
+    compose_app_block = _service_block(compose_text, "app")
+    stack_app_block = _service_block(stack_text, "app")
+
+    for app_block in (compose_app_block, stack_app_block):
+        assert 'PUSHOVER_ENABLED: "${PUSHOVER_ENABLED:-false}"' in app_block
+        assert 'PUSHOVER_TOKEN: "${PUSHOVER_TOKEN:-}"' in app_block
+        assert 'PUSHOVER_USER: "${PUSHOVER_USER:-}"' in app_block
+        assert 'PUSHOVER_APP_KEY: "${PUSHOVER_APP_KEY:-}"' in app_block
+        assert 'PUSHOVER_USER_KEY: "${PUSHOVER_USER_KEY:-}"' in app_block
+        assert (
+            'APP_HEALTH_MONITOR_INTERVAL_SECONDS: '
+            '"${APP_HEALTH_MONITOR_INTERVAL_SECONDS:-60}"'
+            in app_block
+        )
+        assert (
+            'APP_HEALTH_STATE_PATH: "${APP_HEALTH_STATE_PATH:-'
+            '/data/logs/app-health-state.json}"'
+            in app_block
+        )
+
+    assert "PUSHOVER_ENABLED=false" in env_text
+    assert "PUSHOVER_TOKEN=" in env_text
+    assert "PUSHOVER_USER=" in env_text
+    assert "APP_HEALTH_DB_LATENCY_WARNING_MS=500" in env_text
+    assert "APP_HEALTH_DISK_CRITICAL_PERCENT=95.0" in env_text
+
+
 def test_bundled_postgres_is_default_optional_compose_profile() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
     env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")

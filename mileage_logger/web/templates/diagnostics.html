@@ -33,6 +33,20 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
   </div>
 </section>
 
+{% if app_health_snapshot.is_degraded %}
+<section class="app-health-banner {{ app_health_snapshot.banner_class }}" role="alert">
+  <div>
+    <h2>{{ app_health_snapshot.banner_title }}</h2>
+    <p>{{ app_health_snapshot.summary }}</p>
+  </div>
+  <ul>
+    {% for issue in app_health_snapshot.issues %}
+    <li><strong>{{ issue.title }}</strong>: {{ issue.detail }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section id="api-tests" class="diagnostics-grid">
   <div class="panel">
     <h2>Application</h2>

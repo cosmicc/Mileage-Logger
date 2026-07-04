@@ -19,6 +19,7 @@ monthly mileage and expense PDF logs.
   location updates between those events used as the primary trip distance.
 - Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
   the latest current reading before saving a new checkpoint.
+- Optional Pushover app-health notifications for degraded or unavailable app state and restoration.
 - Manual trip entry defaults to today's local date and uses saved waypoint dropdowns for From/To,
   with trip-row waypoint and mileage review on the Work Trips page. Work Trips uses one month/year
   picker that loads the selected month automatically and shows compact selected-month summary
@@ -60,7 +61,8 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
 - In-app diagnostics page for app logs, trip calculation logs, successful and failed web-login
   audit records, and OwnTracks state in the configured local timezone. The top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
-  space readings, detailed lists use compact 10-row pages, and Full Data Backup stays at the bottom
+  space readings, a yellow or red degraded banner appears when monitored app-health checks need
+  attention, detailed lists use compact 10-row pages, and Full Data Backup stays at the bottom
   under the App Log.
 - Authenticated desktop navigation uses centered blue raised icon-and-label buttons matching the
   mobile web-app layout, where navigation becomes icon-only in one full-width top-bar row and
@@ -397,7 +399,9 @@ details, and compact primary/backup OwnTracks buffer status indicators. The Data
 lowest, current, current-month average, and highest gas price readings and comma-formatted large
 record counts. Diagnostics also shows hard drive space for key runtime paths with used-space bars,
 combining paths into one row when their exact used space and total capacity match, and includes
-current database size plus total app record count at the bottom of the card.
+current database size plus total app record count at the bottom of the card. When app-health checks
+detect degraded or unavailable service, Diagnostics shows a yellow or red banner above the top
+cards for database, buffer, disk-space, login-lockout, or app-managed Cloudflare block issues.
 Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
@@ -486,6 +490,19 @@ CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
 CLOUDFLARE_IP_BLOCK_ALLOWLIST=
 CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
+PUSHOVER_ENABLED=false
+PUSHOVER_TOKEN=
+PUSHOVER_USER=
+PUSHOVER_APP_KEY=
+PUSHOVER_USER_KEY=
+PUSHOVER_DEVICE=
+PUSHOVER_PRIORITY=0
+APP_HEALTH_MONITOR_INTERVAL_SECONDS=60
+APP_HEALTH_DB_LATENCY_WARNING_MS=500
+APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
+APP_HEALTH_DISK_WARNING_PERCENT=85.0
+APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
+APP_HEALTH_STATE_PATH=/data/logs/app-health-state.json
 HTTP_PORT=80
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
@@ -521,6 +538,13 @@ manual or automatic source pills with the block reason in the app-managed block 
 both the Cloudflare rule and local list row when you remove the block.
 Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that should never be
 blocked by the app.
+Set `PUSHOVER_ENABLED=true`, `PUSHOVER_TOKEN` to the Pushover app API token, and `PUSHOVER_USER`
+to the Pushover user/group key to receive app-health notifications. `PUSHOVER_APP_KEY` and
+`PUSHOVER_USER_KEY` are accepted aliases. The monitor watches PostgreSQL availability and
+latency, OwnTracks buffer state and queued payloads, runtime disk usage, active web-login
+lockouts, and app-managed Cloudflare blocks. It sends a degraded or unavailable notification when
+the monitored issue set changes, and one restored notification when all monitored checks are
+healthy again.
 Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
 `trip-calculation.log`, worker logs, gas snapshot logs, and
 `mileage-logger-login-failures.log` directly. The app writes web-login audit records inside the
@@ -574,11 +598,11 @@ reimbursement dollar amount with a yellow background.
 2. Review or export saved waypoints from the `Waypoints` page.
 3. Configure OwnTracks to send waypoint transition events and normal location updates.
 4. Let the app automatically create work trips from incoming OwnTracks transitions.
-5. Review `Work Trips`, choose the needed month/year with the month picker, add manual work trips
-   with the local-today date default, and edit row waypoint dropdowns or miles if needed. Existing
-   row dates and odometers are read-only. The summary cards above Add Work Trip show the selected
-   month's work trip plus non-work trip miles, work-trip-only miles, OwnTracks events, work trip
-   count, reimbursement, and monthly average gas price.
+5. Review `Work Trips`, choose the needed month/year with the month picker, edit row waypoint
+   dropdowns or miles if needed, and add manual work trips with the local-today date default.
+   Existing row dates and odometers are read-only. The summary cards show the selected month's work
+   trip plus non-work trip miles, work-trip-only miles, OwnTracks events, work trip count,
+   reimbursement, and monthly average gas price.
 6. Add optional extra report expenses for the selected month, up to five lines.
 7. Add or fetch a monthly gas price for that report month.
 8. Download the portrait monthly PDF report from the `Work Trips` page.

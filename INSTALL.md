@@ -119,6 +119,19 @@ CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
 CLOUDFLARE_IP_BLOCK_ALLOWLIST=
 CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
+PUSHOVER_ENABLED=false
+PUSHOVER_TOKEN=
+PUSHOVER_USER=
+PUSHOVER_APP_KEY=
+PUSHOVER_USER_KEY=
+PUSHOVER_DEVICE=
+PUSHOVER_PRIORITY=0
+APP_HEALTH_MONITOR_INTERVAL_SECONDS=60
+APP_HEALTH_DB_LATENCY_WARNING_MS=500
+APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
+APP_HEALTH_DISK_WARNING_PERCENT=85.0
+APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
+APP_HEALTH_STATE_PATH=/data/logs/app-health-state.json
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
@@ -547,6 +560,19 @@ CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_ZONE_ID=
 CLOUDFLARE_IP_BLOCK_ALLOWLIST=
 CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS=5
+PUSHOVER_ENABLED=false
+PUSHOVER_TOKEN=
+PUSHOVER_USER=
+PUSHOVER_APP_KEY=
+PUSHOVER_USER_KEY=
+PUSHOVER_DEVICE=
+PUSHOVER_PRIORITY=0
+APP_HEALTH_MONITOR_INTERVAL_SECONDS=60
+APP_HEALTH_DB_LATENCY_WARNING_MS=500
+APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
+APP_HEALTH_DISK_WARNING_PERCENT=85.0
+APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
+APP_HEALTH_STATE_PATH=/data/logs/app-health-state.json
 HTTP_PORT=80
 HOST_LOG_DIR=/var/log/mileage-logger
 HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
@@ -587,6 +613,12 @@ with a required reason, then shows the reason with an Auto or Manual source pill
 list. Removing a block from the list removes both the Cloudflare rule and the local app-managed
 row. Set `CLOUDFLARE_IP_BLOCK_ALLOWLIST` to comma-separated trusted IPs or CIDRs that
 should never be blocked by this app.
+Set `PUSHOVER_ENABLED=true`, `PUSHOVER_TOKEN` to your Pushover app API token, and `PUSHOVER_USER`
+to your user/group key to receive app-health notifications. `PUSHOVER_APP_KEY` and
+`PUSHOVER_USER_KEY` are accepted aliases. The app watches database availability and latency,
+OwnTracks buffer availability and queued payloads, runtime disk usage, active web-login lockouts,
+and app-managed Cloudflare blocks. It sends one degraded/unavailable notification when the issue
+set changes and one restored notification when all monitored checks are healthy.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
 least `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
 
