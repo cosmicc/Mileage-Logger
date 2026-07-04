@@ -13,6 +13,8 @@
   inside home-screen icon masks.
 - Reduced the installable icon artwork one final small step to avoid slight gauge clipping at the
   top of mobile home-screen masks.
+- Shrunk the installable icon artwork more noticeably and nudged it downward so the gauge top stays
+  inside mobile home-screen masks.
 
 ## 1.3.1 - 07.04.2026
 
