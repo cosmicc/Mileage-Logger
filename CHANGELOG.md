@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.1 - Unreleased
+## 1.3.1 - 07.04.2026
 
 - Bumped the Mileage Logger package version to 1.3.1.
 - Added manual extra expense lines to monthly PDF reports from the Work Trips page, with a hard
