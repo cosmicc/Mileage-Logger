@@ -250,10 +250,13 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   Additional source variants are saved as
   [docs/design/mileage-logger-logo-transparent.png](docs/design/mileage-logger-logo-transparent.png)
   and [docs/design/mileage-logger-logo-fully-transparent.png](docs/design/mileage-logger-logo-fully-transparent.png).
-  Web favicon, Apple touch icon, and installable web-app icons are generated from the original
-  square logo, while the authenticated header brand uses the cleaned transparent brand asset under
-  [mileage_logger/web/static/icons](mileage_logger/web/static/icons). Keep app logos, app names,
-  manifest links, favicon links, and Apple touch icon links out of the login page.
+  Web favicon icons are generated from the original square logo. Apple touch icons and installable
+  web-app icons use the cleaned transparent brand asset centered on the dark app background with
+  launcher-safe padding so mobile masks do not crop the logo. The authenticated header brand uses
+  the cleaned transparent brand asset under [mileage_logger/web/static/icons](mileage_logger/web/static/icons).
+  When icon assets change, update the static icon cache-busting query in `layout.html` and
+  `manifest.webmanifest`. Keep app logos, app names, manifest links, favicon links, and Apple touch
+  icon links out of the login page.
 - Do not change the active palette until the user chooses one. When a palette is applied, keep
   `styles.css`, the bundled nginx error pages, `theme-color` metadata, `manifest.webmanifest`, and
   the app icon visually coordinated.
@@ -408,11 +411,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    Diagnostics page shows a yellow or red app-health banner above the top cards when monitored
    checks are degraded or unavailable. The banner and Pushover notifications must use the shared
    `app_health.py` snapshot so they stay consistent. The
-   System Status card shows PostgreSQL availability, local/remote placement, latency, database
-   size, total app-record count, pool/timeout details, and compact primary/backup OwnTracks buffer
-   status indicators without per-buffer queue counts. The Data card shows raw record counts plus
-   lowest, current, current-month average, and highest gas price readings; format large displayed
-   counts with comma thousands separators, keep the low/high values based on raw gas price
+   System Status card shows PostgreSQL availability, local/remote placement, latency with a
+   green/yellow/red status dot based on the app-health database latency thresholds, database size,
+   total app-record count, pool/timeout details, and compact primary/backup OwnTracks buffer status
+   indicators without per-buffer queue counts. The Data card shows raw record counts plus lowest,
+   current, current-month average, and highest gas price readings; format large displayed counts
+   with comma thousands separators, keep the low/high values based on raw gas price
    snapshots, and keep the monthly average based on the current app-local month. The detailed
    OwnTracks state-change log and recent OwnTracks database entries are paginated in compact 10-row
    pages with the same mobile full-width pagination row used by the login and Cloudflare block

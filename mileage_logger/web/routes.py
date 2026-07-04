@@ -252,14 +252,22 @@ def service_worker() -> FileResponse:
 def favicon() -> FileResponse:
     """Serve the launcher icon as the browser favicon at the standard root path."""
 
-    return FileResponse(ICON_DIR / "favicon.ico", media_type="image/x-icon")
+    return FileResponse(
+        ICON_DIR / "favicon.ico",
+        media_type="image/x-icon",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/apple-touch-icon.png", include_in_schema=False)
 def apple_touch_icon() -> FileResponse:
     """Serve the iOS home-screen icon at Apple's default discovery path."""
 
-    return FileResponse(ICON_DIR / "mileage-logger-apple-touch-icon.png", media_type="image/png")
+    return FileResponse(
+        ICON_DIR / "mileage-logger-apple-touch-icon.png",
+        media_type="image/png",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @dataclass(frozen=True)
@@ -328,6 +336,7 @@ class DiagnosticDatabaseStats:
 
     latency_ms: float | None
     latency_display: str
+    latency_indicator_class: str
     size_display: str
     total_records_display: str
     pool_display: str
@@ -1073,6 +1082,7 @@ def _diagnostic_database_stats(
     return DiagnosticDatabaseStats(
         latency_ms=latency_ms,
         latency_display="Unavailable" if latency_ms is None else f"{latency_ms:.1f} ms",
+        latency_indicator_class=_database_latency_indicator_class(settings, latency_ms),
         size_display=summary.size_display,
         total_records_display=summary.total_records_display,
         pool_display=_database_pool_display(db, settings),
@@ -1081,6 +1091,18 @@ def _diagnostic_database_stats(
             f"{settings.database_pool_timeout_seconds}s pool"
         ),
     )
+
+
+def _database_latency_indicator_class(settings, latency_ms: float | None) -> str:
+    """Return the status-dot class for the current database latency reading."""
+
+    if latency_ms is None:
+        return "warning"
+    if latency_ms >= settings.app_health_db_latency_critical_ms:
+        return "bad"
+    if latency_ms >= settings.app_health_db_latency_warning_ms:
+        return "warning"
+    return "good"
 
 
 def _format_gas_price(price_per_gallon: Decimal | None) -> str:

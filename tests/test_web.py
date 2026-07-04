@@ -62,6 +62,7 @@ from mileage_logger.web.routes import (
     _current_year_month,
     _dashboard_distance_summary,
     _dashboard_reimbursement_summary,
+    _database_latency_indicator_class,
     _diagnostic_database_summary,
     _diagnostic_disk_usages,
     _diagnostic_gas_price_extremes,
@@ -1275,7 +1276,7 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
         assert manifest["scope"] == "/"
         assert manifest_response.headers["cache-control"] == "no-store"
         assert {icon["purpose"] for icon in manifest["icons"]} == {"any", "maskable"}
-        assert "/static/icons/mileage-logger-icon-512.png" in {
+        assert "/static/icons/mileage-logger-icon-512.png?v=1.3.2" in {
             icon["src"] for icon in manifest["icons"]
         }
 
@@ -1287,8 +1288,10 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
 
         assert favicon_response.status_code == 200
         assert favicon_response.headers["content-type"].startswith("image/x-icon")
+        assert favicon_response.headers["cache-control"] == "no-store"
         assert apple_icon_response.status_code == 200
         assert apple_icon_response.headers["content-type"].startswith("image/png")
+        assert apple_icon_response.headers["cache-control"] == "no-store"
         assert brand_icon_response.status_code == 200
         assert brand_icon_response.headers["content-type"].startswith("image/png")
         assert svg_icon_response.status_code == 200
@@ -4679,6 +4682,19 @@ def test_diagnostics_shows_app_degraded_banner(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_database_latency_indicator_uses_health_thresholds() -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        app_health_db_latency_warning_ms=250,
+        app_health_db_latency_critical_ms=750,
+    )
+
+    assert _database_latency_indicator_class(settings, 12.5) == "good"
+    assert _database_latency_indicator_class(settings, 250) == "warning"
+    assert _database_latency_indicator_class(settings, None) == "warning"
+    assert _database_latency_indicator_class(settings, 750) == "bad"
+
+
 def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     now = datetime(2026, 6, 20, 13, 30, tzinfo=UTC)
     rendered = templates.env.get_template("diagnostics.html").render(
@@ -4690,6 +4706,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
             "database_stats": SimpleNamespace(
                 latency_ms=1.2,
                 latency_display="1.2 ms",
+                latency_indicator_class="good",
                 size_display="128.0 KB",
                 total_records_display="42 records",
                 pool_display="0 in use / 5 pool, 0 overflow",
@@ -4855,6 +4872,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "Remote PostgreSQL - db.internal" in status_card
     assert "Latency" in status_card
     assert "1.2 ms" in status_card
+    assert 'class="status-dot good"' in status_card
     assert "Database Size" in status_card
     assert "128.0 KB" in status_card
     assert "Total Records" in status_card
@@ -4929,6 +4947,7 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".waypoint-pagination" in stylesheet
     assert ".diagnostics-pagination" in stylesheet
     assert ".status-dot.good" in stylesheet
+    assert ".status-dot.warning" in stylesheet
     assert ".status-dot.bad" in stylesheet
     assert ".panel-toolbar .pagination-controls" in stylesheet
     assert ".pagination-button-row .button-link" in stylesheet

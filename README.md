@@ -61,9 +61,9 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
 - In-app diagnostics page for app logs, trip calculation logs, successful and failed web-login
   audit records, and OwnTracks state in the configured local timezone. The top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
-  space readings, a yellow or red degraded banner appears when monitored app-health checks need
-  attention, detailed lists use compact 10-row pages, and Full Data Backup stays at the bottom
-  under the App Log.
+  space readings, database latency includes a green/yellow/red status dot, a yellow or red degraded
+  banner appears when monitored app-health checks need attention, detailed lists use compact 10-row
+  pages, and Full Data Backup stays at the bottom under the App Log.
 - Authenticated desktop navigation uses centered blue raised icon-and-label buttons matching the
   mobile web-app layout, where navigation becomes icon-only in one full-width top-bar row and
   leaves the bottom safe area clear for phone system navigation without opting into edge-to-edge
@@ -394,8 +394,9 @@ the existing checkpoint can be checked before entering a correction. The top Dia
 grouped together in this order: Application, System Status, Data, Latest Records, OwnTracks State,
 Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three
 cards per row. The System Status card shows PostgreSQL reachability, whether the configured
-PostgreSQL host is remote, database latency, database size, total app records, pool/timeout
-details, and compact primary/backup OwnTracks buffer status indicators. The Data card includes
+PostgreSQL host is remote, database latency with a green/yellow/red status indicator, database
+size, total app records, pool/timeout details, and compact primary/backup OwnTracks buffer status
+indicators. The Data card includes
 lowest, current, current-month average, and highest gas price readings and comma-formatted large
 record counts. Diagnostics also shows hard drive space for key runtime paths with used-space bars,
 combining paths into one row when their exact used space and total capacity match, and includes

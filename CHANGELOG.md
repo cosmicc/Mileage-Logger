@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.2 - Unreleased
+
+- Bumped the Mileage Logger package version to 1.3.2 for unreleased testing.
+- Added a green/yellow/red database latency status indicator to the Diagnostics System Status card.
+- Kept the browser favicon on the new Mileage Logger logo and set icon responses to no-store
+  caching so browsers pick up refreshed assets.
+- Changed Apple touch and installable web-app icons to use launcher-safe padding so mobile home
+  screen masks do not crop the logo, and versioned manifest icon URLs so new installs fetch the
+  refreshed assets.
+
 ## 1.3.1 - 07.04.2026
 
 - Bumped the Mileage Logger package version to 1.3.1.

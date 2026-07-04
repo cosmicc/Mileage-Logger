@@ -264,6 +264,15 @@ nav .nav-link:not(.nav-link-disabled):active {
   border-bottom: 1px solid var(--line);
 }
 
+.page-header > div {
+  min-width: 0;
+  width: 100%;
+}
+
+.page-header p {
+  overflow-wrap: anywhere;
+}
+
 .header-actions {
   display: flex;
   flex-wrap: wrap;
@@ -308,6 +317,15 @@ nav .nav-link:not(.nav-link-disabled):active {
   margin: 0;
   padding-left: 18px;
   color: var(--text-soft);
+}
+
+.app-health-banner > * {
+  min-width: 0;
+}
+
+.app-health-banner li {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .app-health-banner li::marker {
@@ -1355,6 +1373,7 @@ td input[type="text"] {
   margin: 0;
   color: var(--text-soft);
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .status-indicator-line {
@@ -1382,6 +1401,13 @@ td input[type="text"] {
   box-shadow:
     0 0 0 2px rgba(69, 198, 111, 0.16),
     0 0 10px rgba(69, 198, 111, 0.25);
+}
+
+.status-dot.warning {
+  background: var(--warning);
+  box-shadow:
+    0 0 0 2px rgba(226, 173, 69, 0.16),
+    0 0 10px rgba(226, 173, 69, 0.25);
 }
 
 .status-dot.bad {
@@ -1693,6 +1719,24 @@ td input[type="text"] {
     gap: 14px;
     margin-bottom: 16px;
     padding-bottom: 14px;
+  }
+
+  .page-header p {
+    max-width: 34ch;
+  }
+
+  .app-health-banner li {
+    max-width: 32ch;
+    word-break: break-word;
+  }
+
+  .diagnostic-list {
+    grid-template-columns: minmax(92px, 32%) minmax(0, 1fr);
+    gap: 10px 12px;
+  }
+
+  .diagnostic-list dd {
+    word-break: break-all;
   }
 
   h1 {

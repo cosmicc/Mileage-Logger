@@ -83,7 +83,15 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
         <span class="diagnostic-value">{{ runtime_status.database.detail_label }}</span>
       </dd>
       <dt>Latency</dt>
-      <dd>{{ database_stats.latency_display }}</dd>
+      <dd>
+        <span class="status-indicator-line compact-status-line">
+          <span
+            class="status-dot {{ database_stats.latency_indicator_class|default('warning', true) }}"
+            aria-hidden="true"
+          ></span>
+          {{ database_stats.latency_display }}
+        </span>
+      </dd>
       <dt>Database Size</dt>
       <dd>{{ database_stats.size_display }}</dd>
       <dt>Total Records</dt>

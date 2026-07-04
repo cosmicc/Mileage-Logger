@@ -273,9 +273,11 @@ curl -X POST http://localhost:8000/api/owntracks \
   loading state before month data arrives.
 - `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use one
   centered blue raised button treatment, with icons shown to the left of text labels. The
-  authenticated header brand uses the cleaned transparent logo asset, while the installable app
-  icons and favicon stay on the square original logo. On mobile, CSS hides the brand/icon and keeps
-  nav links in one full-width icon-only blue top-bar row instead of using a fixed bottom nav. App
+  authenticated header brand uses the cleaned transparent logo asset, while installable app icons
+  use launcher-safe padding from the transparent logo and the favicon stays on the square original
+  logo. When icon assets change, update the static icon cache-busting query in `layout.html` and
+  `manifest.webmanifest`. On mobile, CSS hides the brand/icon and keeps nav links in one full-width
+  icon-only blue top-bar row instead of using a fixed bottom nav. App
   buttons and button-style links should stay raised, brighten on hover, and press inward when
   clicked while preserving non-navigation button colors. Keep the login page free of shared top
   navigation, visible or metadata app names, app logos, manifest links, favicon links, and Apple
@@ -683,8 +685,11 @@ Passkey, and Hard Drive Space. The System Status card uses
 `mileage_logger.services.runtime_status.build_runtime_status()` for PostgreSQL local/remote
 placement and primary/backup OwnTracks buffer indicators, and route-level Diagnostics helpers add
 safe latency, database size, total app records, pool, and timeout details without exposing full
-connection strings. The app-health banner appears above this card group only when the shared
-snapshot reports warning or critical issues.
+connection strings. Database latency should render with the same status-dot pattern as other
+System Status rows, using green below `APP_HEALTH_DB_LATENCY_WARNING_MS`, yellow at or above the
+warning threshold or when unavailable, and red at or above `APP_HEALTH_DB_LATENCY_CRITICAL_MS`.
+The app-health banner appears above this card group only when the shared snapshot reports warning
+or critical issues.
 Cloudflare block/unblock controls should only create and remove app-managed rows in
 `cloudflare_ip_blocks`; do not touch unrelated Cloudflare rules. Validate manual IP entries before
 calling Cloudflare, require a block reason, show each reason in the blocked-IP table, and keep each
