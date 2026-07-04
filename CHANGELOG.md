@@ -11,6 +11,8 @@
   refreshed assets.
 - Reduced the installable mobile web-app icon artwork size again so the logo fits more comfortably
   inside home-screen icon masks.
+- Reduced the installable icon artwork one final small step to avoid slight gauge clipping at the
+  top of mobile home-screen masks.
 
 ## 1.3.1 - 07.04.2026
 
