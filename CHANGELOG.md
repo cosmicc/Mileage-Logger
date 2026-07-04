@@ -9,6 +9,8 @@
 - Changed Apple touch and installable web-app icons to use launcher-safe padding so mobile home
   screen masks do not crop the logo, and versioned manifest icon URLs so new installs fetch the
   refreshed assets.
+- Reduced the installable mobile web-app icon artwork size again so the logo fits more comfortably
+  inside home-screen icon masks.
 
 ## 1.3.1 - 07.04.2026
 
