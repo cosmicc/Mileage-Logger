@@ -15,6 +15,8 @@
   top of mobile home-screen masks.
 - Shrunk the installable icon artwork more noticeably and nudged it downward so the gauge top stays
   inside mobile home-screen masks.
+- Moved the installable home-screen icon artwork slightly upward while keeping the reduced safe-area
+  sizing.
 
 ## 1.3.1 - 07.04.2026
 
