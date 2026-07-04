@@ -80,12 +80,9 @@ a {
 
 .brand-mark {
   display: inline-grid;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   place-items: center;
-  border: 1px solid rgba(59, 130, 246, 0.42);
-  border-radius: 8px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.22), rgba(226, 173, 69, 0.14));
   color: var(--accent);
   font-size: 12px;
   letter-spacing: 0;
@@ -93,8 +90,9 @@ a {
 
 .brand-mark img {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
 }
 
 nav {

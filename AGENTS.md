@@ -245,6 +245,15 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   [styles.css](mileage_logger/web/static/styles.css).
 - Saved palette samples live in [docs/design/color-palettes.svg](docs/design/color-palettes.svg).
   Option A is the current app palette; the other options are proposals only.
+- The source app logo is saved as [docs/design/mileage-logger-logo-original.png](docs/design/mileage-logger-logo-original.png),
+  with a matching SVG wrapper at [docs/design/mileage-logger-logo.svg](docs/design/mileage-logger-logo.svg).
+  Additional source variants are saved as
+  [docs/design/mileage-logger-logo-transparent.png](docs/design/mileage-logger-logo-transparent.png)
+  and [docs/design/mileage-logger-logo-fully-transparent.png](docs/design/mileage-logger-logo-fully-transparent.png).
+  Web favicon, Apple touch icon, and installable web-app icons are generated from the original
+  square logo, while the authenticated header brand uses the cleaned transparent brand asset under
+  [mileage_logger/web/static/icons](mileage_logger/web/static/icons). Keep app logos, app names,
+  manifest links, favicon links, and Apple touch icon links out of the login page.
 - Do not change the active palette until the user chooses one. When a palette is applied, keep
   `styles.css`, the bundled nginx error pages, `theme-color` metadata, `manifest.webmanifest`, and
   the app icon visually coordinated.
@@ -338,7 +347,7 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   stat cards and distance summary cards. On full-width layouts, keep Dashboard top statistic cards
   and distance summary cards compact like the Work Trips selected-month cards, with each row still
   spanning the app width. Mobile should continue stacking those cards one per row.
-- The shared top bar uses centered blue raised navigation buttons with icons and labels on
+- The shared top bar uses a transparent brand logo plus centered blue raised navigation buttons with icons and labels on
   authenticated desktop pages. On mobile, hide the brand/icon and keep the blue navigation buttons
   as icon-only controls in one full-width top-bar row. App buttons and button-style links are
   raised, brighten on hover, and press inward when clicked while preserving non-navigation button

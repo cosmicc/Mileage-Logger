@@ -272,13 +272,16 @@ curl -X POST http://localhost:8000/api/owntracks \
   `/trips/content` and render `trips_content.html` there so direct Work Trips loads can show a
   loading state before month data arrives.
 - `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use one
-  centered blue raised button treatment, with icons shown to the left of text labels. On mobile,
-  CSS hides the brand/icon and keeps nav links in one full-width icon-only blue top-bar row instead
-  of using a fixed bottom nav. App buttons and button-style links should stay raised, brighten on
-  hover, and press inward when clicked while preserving non-navigation button colors. Keep the
-  login page free of shared top navigation, keep the mobile viewport non-edge-to-edge, and preserve
-  the manifest browser fallback so phone system navigation remains visible. The brand icon/text is
-  display-only and not a home link.
+  centered blue raised button treatment, with icons shown to the left of text labels. The
+  authenticated header brand uses the cleaned transparent logo asset, while the installable app
+  icons and favicon stay on the square original logo. On mobile, CSS hides the brand/icon and keeps
+  nav links in one full-width icon-only blue top-bar row instead of using a fixed bottom nav. App
+  buttons and button-style links should stay raised, brighten on hover, and press inward when
+  clicked while preserving non-navigation button colors. Keep the login page free of shared top
+  navigation, visible or metadata app names, app logos, manifest links, favicon links, and Apple
+  touch icon links. Keep the mobile viewport non-edge-to-edge, and preserve the manifest browser
+  fallback on authenticated app pages so phone system navigation remains visible. The brand
+  icon/text is display-only and not a home link.
 - The active app color palette lives in `mileage_logger/web/static/styles.css`. Palette samples are
   saved in `docs/design/color-palettes.svg`; Option A is the current palette. Do not apply a new
   palette until the user chooses one. Palette changes must keep `styles.css`, nginx error pages,

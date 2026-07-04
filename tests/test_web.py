@@ -915,7 +915,14 @@ def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
 
         assert response.status_code == 200
         assert "Mileage Logger" not in response.text
+        assert "Mileage" not in response.text
         assert ">ML<" not in response.text
+        assert 'name="application-name"' not in response.text
+        assert 'name="apple-mobile-web-app-title"' not in response.text
+        assert 'rel="manifest" href="/manifest.webmanifest"' not in response.text
+        assert 'rel="icon"' not in response.text
+        assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' not in response.text
+        assert "/static/icons/mileage-logger" not in response.text
         assert "<title>Sign In</title>" in response.text
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
@@ -1143,6 +1150,7 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
         assert 'rel="manifest" href="/manifest.webmanifest"' in response.text
         assert 'rel="apple-touch-icon" href="/apple-touch-icon.png"' in response.text
         assert "/static/icons/mileage-logger-icon.svg" in response.text
+        assert "/static/icons/mileage-logger-brand.png" in response.text
         assert '<div class="brand" aria-label="Mileage Logger">' in response.text
         assert '<a class="brand" href="/">' not in response.text
         assert '<nav aria-label="Primary navigation">' in response.text
@@ -1249,6 +1257,14 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
         service_worker_response = client.get("/service-worker.js", follow_redirects=False)
         favicon_response = client.get("/favicon.ico", follow_redirects=False)
         apple_icon_response = client.get("/apple-touch-icon.png", follow_redirects=False)
+        brand_icon_response = client.get(
+            "/static/icons/mileage-logger-brand.png",
+            follow_redirects=False,
+        )
+        svg_icon_response = client.get(
+            "/static/icons/mileage-logger-icon.svg",
+            follow_redirects=False,
+        )
 
         assert manifest_response.status_code == 200
         assert manifest_response.headers["content-type"].startswith("application/manifest+json")
@@ -1273,6 +1289,11 @@ def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) ->
         assert favicon_response.headers["content-type"].startswith("image/x-icon")
         assert apple_icon_response.status_code == 200
         assert apple_icon_response.headers["content-type"].startswith("image/png")
+        assert brand_icon_response.status_code == 200
+        assert brand_icon_response.headers["content-type"].startswith("image/png")
+        assert svg_icon_response.status_code == 200
+        assert svg_icon_response.headers["content-type"].startswith("image/svg+xml")
+        assert "data:image/png;base64," in svg_icon_response.text
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()

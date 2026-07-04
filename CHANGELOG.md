@@ -17,6 +17,11 @@
   restored notification when monitored checks are healthy again.
 - Added a yellow/red Diagnostics app-health banner for database, buffer, disk-space, web-login
   lockout, and app-managed Cloudflare block issues.
+- Replaced the web favicon, header brand icon, Apple touch icon, and installable mobile web-app
+  icons with the new Mileage Logger logo.
+- Added transparent logo source variants and changed the authenticated header to use a transparent
+  brand logo while keeping the original square logo for installed mobile app icons.
+- Removed app logo, app-name, manifest, favicon, and Apple touch icon metadata from the login page.
 - Moved Add Work Trip below the Monthly Work Trips list and above Extra Report Expenses.
 - Fixed database-outage recovery navigation to retry the app base URL instead of `/login`, avoiding
   a 401 error page when service returns.
