@@ -339,12 +339,14 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Dashboard work trip plus non-work trip distance cards use OwnTracks path distance as the
   total-distance source but floor the combined total at the stored work trip total after
   one-decimal rounding, so the displayed non-work trip remainder is never negative.
-- Dashboard OwnTracks Events and Work Trips count cards are scoped to the current app-local month.
-  The month starts at midnight on the first day in `LOCAL_TIMEZONE` (default America/Detroit), and
-  month rollover must not delete prior-month trips, OwnTracks rows, gas price records, or derived
-  app data. Monthly OwnTracks summary rollups preserve selected-month web totals and event counts
-  after raw OwnTracks location/event rows are purged. Dashboard summary cards use comma thousands
-  separators for large displayed totals.
+- Dashboard OwnTracks Events count is scoped to the current app-local month. The Work Trips count
+  card shows app-local Today, This Week, and This Month counts inside the same card; This Week uses
+  a Monday-Sunday local week. Keep those three Work Trips counts in one row on mobile when they fit
+  without clipping. The month starts at midnight on the first day in `LOCAL_TIMEZONE` (default
+  America/Detroit), and month rollover must not delete prior-month trips, OwnTracks rows, gas price
+  records, or derived app data. Monthly OwnTracks summary rollups preserve selected-month web totals
+  and event counts after raw OwnTracks location/event rows are purged. Dashboard summary cards use
+  comma thousands separators for large displayed totals.
 - The Dashboard current-month reimbursement card must use the same monthly trip miles,
   reimbursement gallons, monthly gas price, `VEHICLE_MPG`, and manual extra expense total as the
   PDF report. Display the card's reimbursement gallons at one decimal place.

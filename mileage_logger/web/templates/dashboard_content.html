@@ -22,9 +22,22 @@
     <span>OwnTracks Events</span>
     <strong>{{ location_count|comma_number }}</strong>
   </div>
-  <div class="stat">
+  <div class="stat work-trips-stat">
     <span>Work Trips</span>
-    <strong>{{ trip_count|comma_number }}</strong>
+    <dl class="work-trip-counts" aria-label="Work Trips counts">
+      <div>
+        <dt>Today</dt>
+        <dd>{{ work_trip_counts.today|comma_number }}</dd>
+      </div>
+      <div>
+        <dt>This Week</dt>
+        <dd>{{ work_trip_counts.week|comma_number }}</dd>
+      </div>
+      <div>
+        <dt>This Month</dt>
+        <dd>{{ work_trip_counts.month|comma_number }}</dd>
+      </div>
+    </dl>
   </div>
   <div class="stat">
     <span>Month Reimbursement</span>

@@ -609,6 +609,30 @@ p {
   line-height: 1.25;
 }
 
+.work-trip-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.work-trip-counts dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.work-trip-counts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 19px;
+  font-weight: 850;
+  line-height: 1;
+}
+
 .state-stat strong {
   font-size: 22px;
   line-height: 1.08;
@@ -1755,6 +1779,16 @@ td input[type="text"] {
   .stat {
     min-height: 104px;
     padding: 16px;
+  }
+
+  .work-trip-counts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .work-trip-counts dd {
+    margin-top: 3px;
+    font-size: 19px;
   }
 
   .trip-summary-card {

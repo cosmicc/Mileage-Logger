@@ -458,6 +458,32 @@ def _trip_count_for_date_range(db: Session, start_date: date, end_date: date) ->
     )
 
 
+def _monday_week_date_bounds(today: date) -> tuple[date, date]:
+    """Return the Monday-Sunday app-local week containing today."""
+
+    week_start = today - timedelta(days=today.weekday())
+    return week_start, week_start + timedelta(days=7)
+
+
+def _dashboard_work_trip_counts(
+    db: Session,
+    *,
+    today: date,
+    year: int,
+    month: int,
+) -> dict[str, int]:
+    """Return Work Trips counts for the Dashboard count card."""
+
+    tomorrow = today + timedelta(days=1)
+    week_start, week_end = _monday_week_date_bounds(today)
+    month_start, month_end = _month_date_bounds(year, month)
+    return {
+        "today": _trip_count_for_date_range(db, today, tomorrow),
+        "week": _trip_count_for_date_range(db, week_start, week_end),
+        "month": _trip_count_for_date_range(db, month_start, month_end),
+    }
+
+
 def _owntracks_location_before(
     db: Session,
     before_dt: datetime,
@@ -1797,9 +1823,13 @@ def _dashboard_template_context(db: Session) -> dict:
         year=year,
         month=month,
     )
-    month_start_date, month_end_date = _month_date_bounds(year, month)
     location_count = owntracks_monthly_event_count(db, year=year, month=month)
-    trip_count = _trip_count_for_date_range(db, month_start_date, month_end_date)
+    work_trip_counts = _dashboard_work_trip_counts(
+        db,
+        today=app_today,
+        year=year,
+        month=month,
+    )
     reimbursement_summary = _dashboard_reimbursement_summary(
         db,
         year=year,
@@ -1822,7 +1852,8 @@ def _dashboard_template_context(db: Session) -> dict:
         "year": year,
         "month": month,
         "location_count": location_count,
-        "trip_count": trip_count,
+        "trip_count": work_trip_counts["month"],
+        "work_trip_counts": work_trip_counts,
         "distance_summary": distance_summary,
         "reimbursement_summary": reimbursement_summary,
         "location_state": location_state,

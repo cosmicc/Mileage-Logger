@@ -17,6 +17,10 @@
   inside mobile home-screen masks.
 - Moved the installable home-screen icon artwork slightly upward while keeping the reduced safe-area
   sizing.
+- Changed the Dashboard Work Trips card to show today, current Monday-Sunday week, and current
+  month work-trip counts inside the same card.
+- Changed the mobile Dashboard Work Trips card to keep the today, week, and month counts in one
+  row when the phone width allows it.
 - Fixed automatic waypoint trip detection so destination dwell confirmation requires later stored
   coordinates inside the saved waypoint radius, preventing loose OwnTracks region labels or elapsed
   processor time alone from creating drive-by trips.

@@ -64,6 +64,7 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
   space readings, database latency includes a green/yellow/red status dot, a yellow or red degraded
   banner appears when monitored app-health checks need attention, detailed lists use compact 10-row
   pages, and Full Data Backup stays at the bottom under the App Log.
+- Dashboard Work Trips counts for today, the current Monday-Sunday week, and the current month.
 - Authenticated desktop navigation uses centered blue raised icon-and-label buttons matching the
   mobile web-app layout, where navigation becomes icon-only in one full-width top-bar row and
   leaves the bottom safe area clear for phone system navigation without opting into edge-to-edge

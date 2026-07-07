@@ -1483,6 +1483,16 @@ def test_dashboard_count_cards_reset_at_detroit_month_boundary(monkeypatch) -> N
                         {"_type": "location"},
                     ),
                     Trip(
+                        trip_date=date(2026, 6, 28),
+                        started_at=datetime(2026, 6, 28, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 28, 13, 30, tzinfo=UTC),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("4.0"),
+                    ),
+                    Trip(
                         trip_date=date(2026, 6, 30),
                         started_at=datetime(2026, 7, 1, 3, 30, tzinfo=UTC),
                         ended_at=datetime(2026, 7, 1, 3, 50, tzinfo=UTC),
@@ -1521,8 +1531,11 @@ def test_dashboard_count_cards_reset_at_detroit_month_boundary(monkeypatch) -> N
         ) in stats_section
         assert (
             "<span>Work Trips</span>\n"
-            "    <strong>1</strong>"
+            "    <dl class=\"work-trip-counts\" aria-label=\"Work Trips counts\">"
         ) in stats_section
+        assert "<dt>Today</dt>\n        <dd>1</dd>" in stats_section
+        assert "<dt>This Week</dt>\n        <dd>2</dd>" in stats_section
+        assert "<dt>This Month</dt>\n        <dd>1</dd>" in stats_section
     finally:
         app.dependency_overrides.clear()
 
@@ -1534,6 +1547,11 @@ def test_dashboard_top_cards_format_large_numbers_with_commas() -> None:
             "month": 6,
             "location_count": 12_345,
             "trip_count": 1_234,
+            "work_trip_counts": {
+                "today": 100_000,
+                "week": 123_456,
+                "month": 1_234,
+            },
             "distance_summary": {
                 "today_total": Decimal("10001.2"),
                 "today_trips": Decimal("9999.9"),
@@ -1587,7 +1605,9 @@ def test_dashboard_top_cards_format_large_numbers_with_commas() -> None:
         '<section class="panel">',
     )
     assert "<strong>12,345</strong>" in stats_section
-    assert "<strong>1,234</strong>" in stats_section
+    assert "<dd>100,000</dd>" in stats_section
+    assert "<dd>123,456</dd>" in stats_section
+    assert "<dd>1,234</dd>" in stats_section
     assert "$12,345.67" in stats_section
     assert "1,234.5 reimbursement gallons" in stats_section
     assert "$1,234.567" in stats_section
@@ -4934,6 +4954,9 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".loading-spinner" in stylesheet
     assert ".trips-summary-grid" in stylesheet
     assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in stylesheet
+    assert ".work-trip-counts" in stylesheet
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in stylesheet
+    assert "grid-template-columns: 1fr;\n  }\n\n  .work-trip-counts dd" not in stylesheet
     assert (
         ".stats-grid {\n  display: grid;\n  grid-template-columns: repeat(6, minmax(0, 1fr));"
         in stylesheet
