@@ -340,9 +340,10 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   total-distance source but floor the combined total at the stored work trip total after
   one-decimal rounding, so the displayed non-work trip remainder is never negative.
 - Dashboard OwnTracks Events count is scoped to the current app-local month. The Work Trips count
-  card shows app-local Today, This Week, and This Month counts inside the same card; This Week uses
-  a Monday-Sunday local week. Keep those three Work Trips counts in one row on mobile when they fit
-  without clipping. The month starts at midnight on the first day in `LOCAL_TIMEZONE` (default
+  card shows app-local Today, Week, and Month counts inside the same card; Week uses a
+  Monday-Sunday local week. Keep those three Work Trips counts in one row on mobile when they fit
+  without clipping, with values aligned on the same row. The month starts at midnight on the first
+  day in `LOCAL_TIMEZONE` (default
   America/Detroit), and month rollover must not delete prior-month trips, OwnTracks rows, gas price
   records, or derived app data. Monthly OwnTracks summary rollups preserve selected-month web totals
   and event counts after raw OwnTracks location/event rows are purged. Dashboard summary cards use

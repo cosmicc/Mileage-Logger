@@ -1534,8 +1534,10 @@ def test_dashboard_count_cards_reset_at_detroit_month_boundary(monkeypatch) -> N
             "    <dl class=\"work-trip-counts\" aria-label=\"Work Trips counts\">"
         ) in stats_section
         assert "<dt>Today</dt>\n        <dd>1</dd>" in stats_section
-        assert "<dt>This Week</dt>\n        <dd>2</dd>" in stats_section
-        assert "<dt>This Month</dt>\n        <dd>1</dd>" in stats_section
+        assert "<dt>Week</dt>\n        <dd>2</dd>" in stats_section
+        assert "<dt>Month</dt>\n        <dd>1</dd>" in stats_section
+        assert "This Week" not in stats_section
+        assert "This Month" not in stats_section
     finally:
         app.dependency_overrides.clear()
 
@@ -4955,7 +4957,10 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".trips-summary-grid" in stylesheet
     assert "grid-template-columns: repeat(6, minmax(0, 1fr));" in stylesheet
     assert ".work-trip-counts" in stylesheet
+    assert ".work-trip-counts > div" in stylesheet
+    assert "grid-template-rows: 12px auto;" in stylesheet
     assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in stylesheet
+    assert "font-size: 22px;" in stylesheet
     assert "grid-template-columns: 1fr;\n  }\n\n  .work-trip-counts dd" not in stylesheet
     assert (
         ".stats-grid {\n  display: grid;\n  grid-template-columns: repeat(6, minmax(0, 1fr));"

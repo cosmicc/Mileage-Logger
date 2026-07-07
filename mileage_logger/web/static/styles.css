@@ -616,6 +616,12 @@ p {
   margin: 6px 0 0;
 }
 
+.work-trip-counts > div {
+  display: grid;
+  grid-template-rows: 12px auto;
+  align-content: start;
+}
+
 .work-trip-counts dt {
   color: var(--muted);
   font-size: 10px;
@@ -1788,7 +1794,7 @@ td input[type="text"] {
 
   .work-trip-counts dd {
     margin-top: 3px;
-    font-size: 19px;
+    font-size: 22px;
   }
 
   .trip-summary-card {
