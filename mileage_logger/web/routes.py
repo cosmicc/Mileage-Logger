@@ -199,6 +199,7 @@ templates.env.filters["owntracks_entry_event_label"] = owntracks_entry_event_lab
 templates.env.filters["owntracks_entry_received_delay"] = owntracks_entry_received_delay_display
 templates.env.globals["request_is_authenticated"] = request_is_authenticated
 templates.env.globals["web_login_enabled"] = web_login_enabled
+templates.env.globals["app_version"] = APP_VERSION
 WAYPOINT_PAGE_SIZE = 20
 DISTANCE_PRECISION = Decimal("0.1")
 LOG_LINE_LEVEL_RE = re.compile(r"\s(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+\[")
@@ -1759,7 +1760,6 @@ def login_form(
                 "login_error": "Login is temporarily unavailable.",
                 "passkey_login_available": passkey_login_available(db),
             },
-            status_code=429,
         )
     if authenticate_web_credentials(username, password, settings):
         record_web_login_success(
@@ -1799,7 +1799,6 @@ def login_form(
             "login_error": "Invalid username or password.",
             "passkey_login_available": passkey_login_available(db),
         },
-        status_code=401,
     )
 
 

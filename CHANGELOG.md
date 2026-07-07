@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.3 - Unreleased
+
+### Added
+- Added regression coverage for pending waypoint arrivals, delayed same-waypoint departures.
+- Added the current app version below the Mileage Logger title in the authenticated desktop top
+  navigation bar.
+
+### Changed
+- Bumped the Mileage Logger package version to 1.3.3 for unreleased testing.
+- Changed waypoint dwell confirmation to use all available OwnTracks state evidence after an
+  inside-radius arrival, including later same-waypoint departures, later next-waypoint arrivals,
+  and the next processing pass after the dwell timer when no earlier event contradicts the visit.
+
+### Fixed
+- Fixed automatic trip detection so a same-waypoint `leave` after the dwell window confirms the
+  prior waypoint arrival instead of rejecting it.
+- Fixed invalid username/password login attempts so the browser stays on the sign-in page and
+  shows a top status-line error instead of being replaced by the public 401 error page.
+
 ## 1.3.2 - 07.07.2026
 
 - Bumped the Mileage Logger package version to 1.3.2.

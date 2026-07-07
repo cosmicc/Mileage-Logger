@@ -54,7 +54,7 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Watches for new OwnTracks location/transition events
 - Runs `generate_trips()` when waypoint transitions occur
 - Maintains rolling `TripProcessingCheckpoint` to track odometer distance
-- Enforces minimum dwell time before confirming arrival at a waypoint
+- Enforces minimum dwell time and later OwnTracks state before confirming arrival at a waypoint
 - Purges only old raw OwnTracks location/event records based on `OWNTRACKS_LOCATION_RETENTION_DAYS`,
   with an enforced minimum retention of 90 days
 
@@ -115,6 +115,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Feeds the Diagnostics successful-login and failed-login tables, per-row failed-login hide
   controls, per-row Cloudflare block buttons, and the raw download endpoint; the failed-login card
   intentionally has no separate footer refresh or download buttons
+- Invalid username/password browser form responses stay on `login.html` with a top status-line
+  error and HTTP 200 so public browser error pages do not replace the form.
 - Diagnostics shows the stored effective IP for successful-login and failed-login rows. Failed-login
   row block buttons must use that same visible, blockable client IP.
 
@@ -183,9 +185,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 1. OwnTracks sends waypoint transition events (enter/leave/arrival/departure)
 2. Trip processor detects qualifying transitions:
    - `leave` from waypoint A + `enter` to waypoint B = one trip
-   - Requires at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5) of later OwnTracks
-     coordinate data inside the destination waypoint's saved radius. Elapsed processor time,
-     OwnTracks `desc`, `rid`, or `inregions` labels alone do not confirm a visit.
+   - Requires an inside-radius destination arrival that remains valid for at least
+     `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5). Confirmation can come from later coordinates
+     inside the saved radius, a later same-waypoint `leave`, a later next-waypoint `enter`, or the
+     next processing pass after the dwell timer when no earlier event contradicts the visit.
+     OwnTracks `desc`, `rid`, or `inregions` labels alone do not override coordinates outside the
+     saved radius.
    - Home → Home never generates a trip
    - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
 3. Mileage is calculated from OwnTracks location updates between the two events
@@ -356,10 +361,11 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   and distance summary cards compact like the Work Trips selected-month cards, with each row still
   spanning the app width. Mobile should continue stacking those cards one per row.
 - The shared top bar uses a transparent brand logo plus centered blue raised navigation buttons with icons and labels on
-  authenticated desktop pages. On mobile, hide the brand/icon and keep the blue navigation buttons
-  as icon-only controls in one full-width top-bar row. App buttons and button-style links are
-  raised, brighten on hover, and press inward when clicked while preserving non-navigation button
-  colors. Avoid fixed bottom navigation, and use a normal non-edge-to-edge viewport plus
+  authenticated desktop pages. Show the current app version as a small readable line directly under
+  the Mileage Logger brand title. On mobile, hide the brand/icon and keep the blue navigation
+  buttons as icon-only controls in one full-width top-bar row. App buttons and button-style links
+  are raised, brighten on hover, and press inward when clicked while preserving non-navigation
+  button colors. Avoid fixed bottom navigation, and use a normal non-edge-to-edge viewport plus
   standalone/browser manifest fallback so phone system navigation remains visible. The login page
   has no shared top navigation. The brand icon/text is display-only and must not be a clickable
   home link.
@@ -535,7 +541,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 1. **Timezone Confusion**: The server can run on UTC, but trip dates and day boundaries use `LOCAL_TIMEZONE`. Always convert with `datetime_to_local()` before displaying.
 
-2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, OwnTracks event timestamps, and whether later stored coordinates are inside the saved waypoint radius. OwnTracks region labels alone are not enough to prove a visit.
+2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, OwnTracks event timestamps, whether the arrival coordinates start inside the saved waypoint radius, and whether later coordinates or waypoint state confirm the visit. A same-waypoint `leave` after the dwell window confirms the arrival, but an early leave, early next-waypoint arrival, or clearly-away movement before the dwell window rejects it. OwnTracks region labels alone are not enough to override outside-radius coordinates.
 
 3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Odometer values are never a distance source; manual distance edits override generated calculations. Prior trip end odometers are not the source for new generated trip starts.
 

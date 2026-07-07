@@ -40,6 +40,7 @@ ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 ODOMETER_SOURCE_OWNTRACKS_ROLLING = "owntracks_rolling"
 HOME_WAYPOINT_NAME = "Home"
 SAME_WAYPOINT_MINIMUM_TRIP_MILES = Decimal("1.0")
+WAYPOINT_DEPARTURE_CONFIRMATION_DISTANCE_M = Decimal("500")
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
 MANUAL_TRIP_NOTE = "Manually added from Trips page."
@@ -267,6 +268,16 @@ def _coordinates_inside_site(site: Site, location: OwnTracksLocation) -> bool:
     return distance_meters(site, location) <= Decimal(site.radius_m)
 
 
+def _coordinates_clearly_away_from_site(site: Site, location: OwnTracksLocation) -> bool:
+    """Return true when coordinates are far enough from a waypoint to disprove dwell."""
+
+    confirmation_distance = max(
+        Decimal(site.radius_m),
+        WAYPOINT_DEPARTURE_CONFIRMATION_DISTANCE_M,
+    )
+    return distance_meters(site, location) >= confirmation_distance
+
+
 def _enter_transition_confirmed(
     enter_location: OwnTracksLocation,
     site: Site,
@@ -310,6 +321,8 @@ def _enter_transition_confirmed(
             and candidate_site is not None
             and candidate_site.id == site.id
         ):
+            if candidate_time >= dwell_deadline:
+                return True
             return False
 
         if (
@@ -317,12 +330,33 @@ def _enter_transition_confirmed(
             and candidate_site is not None
             and candidate_site.id != site.id
         ):
+            if candidate_time >= dwell_deadline:
+                return True
             return False
 
         if candidate_time >= dwell_deadline and _coordinates_inside_site(site, candidate_location):
             return True
 
+        if (
+            candidate_time < dwell_deadline
+            and candidate_event is None
+            and _coordinates_clearly_away_from_site(site, candidate_location)
+        ):
+            trip_logger.debug(
+                "waypoint enter rejected reason=left_before_dwell site=%s captured_at=%s "
+                "candidate_at=%s distance_m=%s dwell_deadline=%s",
+                site.name,
+                enter_location.captured_at.isoformat(),
+                candidate_location.captured_at.isoformat(),
+                distance_meters(site, candidate_location).quantize(Decimal("0.1")),
+                dwell_deadline.isoformat(),
+            )
+            return False
+
     if as_of is not None and datetime_to_utc(as_of) >= dwell_deadline:
+        return True
+
+    if as_of is not None:
         trip_logger.debug(
             "waypoint enter pending reason=awaiting_coordinate_confirmation site=%s "
             "captured_at=%s dwell_deadline=%s as_of=%s",

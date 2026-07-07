@@ -273,11 +273,12 @@ curl -X POST http://localhost:8000/api/owntracks \
   loading state before month data arrives.
 - `layout.html` keeps authenticated navigation in the shared top bar. Desktop nav links use one
   centered blue raised button treatment, with icons shown to the left of text labels. The
-  authenticated header brand uses the cleaned transparent logo asset, while installable app icons
-  use launcher-safe padding from the transparent logo and the favicon stays on the square original
-  logo. When icon assets change, update the static icon cache-busting query in `layout.html` and
-  `manifest.webmanifest`. On mobile, CSS hides the brand/icon and keeps nav links in one full-width
-  icon-only blue top-bar row instead of using a fixed bottom nav. App
+  authenticated header brand uses the cleaned transparent logo asset and shows the current app
+  version as a small readable line directly under the Mileage Logger title, while installable app
+  icons use launcher-safe padding from the transparent logo and the favicon stays on the square
+  original logo. When icon assets change, update the static icon cache-busting query in
+  `layout.html` and `manifest.webmanifest`. On mobile, CSS hides the brand/icon and keeps nav links
+  in one full-width icon-only blue top-bar row instead of using a fixed bottom nav. App
   buttons and button-style links should stay raised, brighten on hover, and press inward when
   clicked while preserving non-navigation button colors. Keep the login page free of shared top
   navigation, visible or metadata app names, app logos, manifest links, favicon links, and Apple
@@ -451,14 +452,16 @@ def protected_page(request: Request) -> TemplateResponse:
 4. On match: Session cookie set, user allowed access
 5. Failed attempts: Temporary lockout (`WEB_LOGIN_MAX_ATTEMPTS` x `WEB_LOGIN_LOCKOUT_SECONDS`)
    and a structured JSON-lines audit record written to `LOGIN_FAILURE_LOG_PATH`
-6. Lockout rejections are also failed login attempts and must be written to the same audit log
-7. Successful login appends a structured audit record to the login audit file, then clears the
+6. Invalid username/password and lockout browser form responses render `login.html` with a top
+   status-line error and HTTP 200 so public browser error pages do not replace the form
+7. Lockout rejections are also failed login attempts and must be written to the same audit log
+8. Successful login appends a structured audit record to the login audit file, then clears the
    in-memory consecutive-failure state for that client IP
-8. When Cloudflare IP blocking is enabled, the app creates an app-managed Cloudflare zone IP
+9. When Cloudflare IP blocking is enabled, the app creates an app-managed Cloudflare zone IP
    Access Rule after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failures for the
    same client IP. Diagnostics also supports manually entered valid IP addresses with a required
    block reason.
-9. Passkey login uses `/passkeys/login/options` and `/passkeys/login/verify` as unauthenticated
+10. Passkey login uses `/passkeys/login/options` and `/passkeys/login/verify` as unauthenticated
    ceremony endpoints for the login page. Registration and deletion stay behind authenticated
    Diagnostics routes under `/diagnostics/passkeys/...`.
 

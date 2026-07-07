@@ -29,7 +29,10 @@
         <span class="brand-mark" aria-hidden="true">
           <img src="/static/icons/mileage-logger-brand.png" alt="" width="34" height="34">
         </span>
-        <span>Mileage Logger</span>
+        <span class="brand-copy">
+          <span class="brand-title">Mileage Logger</span>
+          <span class="brand-version">v{{ app_version }}</span>
+        </span>
       </div>
       {% if request is defined and request_is_authenticated(request) %}
       {% set nav_disabled = limp_mode_active | default(false) %}

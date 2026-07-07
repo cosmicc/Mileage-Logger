@@ -65,11 +65,12 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
   banner appears when monitored app-health checks need attention, detailed lists use compact 10-row
   pages, and Full Data Backup stays at the bottom under the App Log.
 - Dashboard Work Trips counts for today, the current Monday-Sunday week, and the current month.
-- Authenticated desktop navigation uses centered blue raised icon-and-label buttons matching the
-  mobile web-app layout, where navigation becomes icon-only in one full-width top-bar row and
-  leaves the bottom safe area clear for phone system navigation without opting into edge-to-edge
-  phone drawing. App buttons use a raised treatment, brighten on hover, and press inward when
-  clicked. The login page does not show the shared top navigation.
+- Authenticated desktop navigation shows the current app version under the Mileage Logger title and
+  uses centered blue raised icon-and-label buttons matching the mobile web-app layout, where
+  navigation becomes icon-only in one full-width top-bar row and leaves the bottom safe area clear
+  for phone system navigation without opting into edge-to-edge phone drawing. App buttons use a
+  raised treatment, brighten on hover, and press inward when clicked. The login page does not show
+  the shared top navigation.
 - Web-login audit records shown on Diagnostics and written into the host log directory, with an
   optional `/var/log/mileage-logger-login-failures.log` host symlink.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
@@ -220,7 +221,8 @@ pages. Non-OwnTracks `/api/` routes use `WEB_API_KEY` instead of the web login, 
 only exposes the OwnTracks ingestion endpoints. If you access the app over plain HTTP for local
 testing, set
 `WEB_SESSION_COOKIE_SECURE=false` so the browser accepts the session cookie. The login page does
-not show the app name before authentication and temporarily locks out repeated failed attempts.
+not show the app name before authentication, keeps invalid username/password attempts on the form
+with a top status-line error, and temporarily locks out repeated failed attempts.
 `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` must be set together. When web login is enabled,
 `SECRET_KEY` must be changed from `change-me`; production Docker starts fail closed if the login
 credentials or session secret are missing. Docker publishes the web service only on `127.0.0.1`, so public
@@ -308,10 +310,15 @@ ingestion can receive waypoint definitions, transition events, and location upda
 The app generates work trips directly from OwnTracks waypoint transitions:
 
 - A trip is created from a waypoint `leave` event followed by another waypoint `enter` event.
-- The destination `enter` event must be confirmed by at least
-  `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes of later OwnTracks coordinate data inside that saved
-  waypoint's radius. The default is 5 minutes so driving through a waypoint does not create a trip.
-  OwnTracks region labels by themselves do not confirm a visit.
+- The destination `enter` event must start inside that saved waypoint's radius and remain valid
+  for at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes. The default is 5 minutes so driving
+  through a waypoint does not create a trip.
+- Dwell confirmation can come from later OwnTracks coordinates inside the waypoint radius, a later
+  same-waypoint `leave` after the dwell window, a later next-waypoint `enter` after the dwell
+  window, or the next processing pass after the dwell timer when no earlier event contradicts the
+  visit. OwnTracks region labels by themselves do not override coordinates outside the saved
+  radius, and an early leave, early next-waypoint arrival, or clearly-away movement before the
+  dwell window rejects the visit.
 - `Home` is the exact waypoint name for home.
 - `Home` to `Home` is never a trip.
 - Work trips between the same non-home waypoint are kept only when the calculated distance is at

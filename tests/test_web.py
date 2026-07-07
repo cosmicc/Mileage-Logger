@@ -683,8 +683,12 @@ def test_web_login_rejects_invalid_credentials(monkeypatch, tmp_path) -> None:
         )
         page_response = client.get("/trips?year=2026&month=6", follow_redirects=False)
 
-        assert login_response.status_code == 401
+        assert login_response.status_code == 200
+        assert '<p class="form-error login-status-line" role="alert">' in login_response.text
         assert "Invalid username or password." in login_response.text
+        error_index = login_response.text.index("Invalid username or password.")
+        username_index = login_response.text.index("Username")
+        assert error_index < username_index
         assert page_response.status_code == 303
         assert login_failure_log_path.exists()
     finally:
@@ -725,7 +729,7 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
         log_text = login_failure_log_path.read_text(encoding="utf-8")
         payload = json.loads(log_text.splitlines()[0])
 
-        assert response.status_code == 401
+        assert response.status_code == 200
         assert payload["event"] == "web_login_failed"
         assert payload["client_ip"] == "198.51.100.77"
         assert payload["cf_connecting_ip"] == "198.51.100.77"
@@ -775,7 +779,7 @@ def test_web_login_uses_cloudflare_client_ip_when_header_is_present(
         log_text = login_failure_log_path.read_text(encoding="utf-8")
         payload = json.loads(log_text.splitlines()[0])
 
-        assert response.status_code == 401
+        assert response.status_code == 200
         assert payload["client_ip"] == "198.51.100.77"
         assert payload["direct_client_ip"] == "203.0.113.88"
         assert payload["cf_connecting_ip"] == "198.51.100.77"
@@ -1153,6 +1157,8 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
         assert "/static/icons/mileage-logger-icon.svg" in response.text
         assert "/static/icons/mileage-logger-brand.png" in response.text
         assert '<div class="brand" aria-label="Mileage Logger">' in response.text
+        assert '<span class="brand-title">Mileage Logger</span>' in response.text
+        assert f'<span class="brand-version">v{__version__}</span>' in response.text
         assert '<a class="brand" href="/">' not in response.text
         assert '<nav aria-label="Primary navigation">' in response.text
         assert (
@@ -2112,7 +2118,7 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
                     "next_url": "/trips?year=2026&month=6",
                 },
             )
-            assert response.status_code == 401
+            assert response.status_code == 200
 
         locked_response = client.post(
             "/login",
@@ -2123,7 +2129,7 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
             },
         )
 
-        assert locked_response.status_code == 429
+        assert locked_response.status_code == 200
         assert "Login is temporarily unavailable." in locked_response.text
         payloads = [
             json.loads(line)
@@ -2184,7 +2190,7 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
                 },
                 headers={"CF-Connecting-IP": "198.51.100.55"},
             )
-            assert response.status_code == 401
+            assert response.status_code == 200
 
         assert created_blocks == ["198.51.100.55"]
         with session_factory() as db:
@@ -2243,7 +2249,7 @@ def test_cloudflare_header_controls_auto_block_when_present(
                 },
                 headers={"CF-Connecting-IP": "198.51.100.55"},
             )
-            assert response.status_code == 401
+            assert response.status_code == 200
 
         assert created_blocks == ["198.51.100.55"]
         with session_factory() as db:
@@ -2297,7 +2303,7 @@ def test_successful_web_login_resets_consecutive_failures_before_auto_block(
                 },
                 headers={"CF-Connecting-IP": "198.51.100.56"},
             )
-            assert response.status_code == 401
+            assert response.status_code == 200
 
         success_response = client.post(
             "/login",
@@ -2320,7 +2326,7 @@ def test_successful_web_login_resets_consecutive_failures_before_auto_block(
             },
             headers={"CF-Connecting-IP": "198.51.100.56"},
         )
-        assert response.status_code == 401
+        assert response.status_code == 200
         with session_factory() as db:
             assert db.scalar(select(CloudflareIPBlock)) is None
     finally:

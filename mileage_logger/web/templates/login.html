@@ -18,6 +18,9 @@
       <section class="login-panel" aria-label="Sign in">
         <form action="/login" method="post" class="login-form">
           <input type="hidden" name="next_url" value="{{ next_url }}">
+          {% if login_error %}
+          <p class="form-error login-status-line" role="alert">{{ login_error }}</p>
+          {% endif %}
           <label>
             Username
             <input type="text" name="username" autocomplete="username" required autofocus>
@@ -26,9 +29,6 @@
             Password
             <input type="password" name="password" autocomplete="current-password" required>
           </label>
-          {% if login_error %}
-          <p class="form-error">{{ login_error }}</p>
-          {% endif %}
           <button type="submit">Continue</button>
         </form>
         {% if passkey_login_available %}
