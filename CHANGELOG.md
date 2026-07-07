@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.3.2 - Unreleased
+## 1.3.2 - 07.07.2026
 
-- Bumped the Mileage Logger package version to 1.3.2 for unreleased testing.
+- Bumped the Mileage Logger package version to 1.3.2.
 - Added a green/yellow/red database latency status indicator to the Diagnostics System Status card.
 - Kept the browser favicon on the new Mileage Logger logo and set icon responses to no-store
   caching so browsers pick up refreshed assets.
