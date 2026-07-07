@@ -377,7 +377,7 @@ def test_generate_trips_from_leave_and_enter_transitions() -> None:
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
 
 
-def test_generate_trips_confirms_arrival_from_as_of_without_follow_up_location() -> None:
+def test_generate_trips_waits_for_coordinate_confirmation_after_dwell() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     arrival_at = day + timedelta(minutes=24)
@@ -407,9 +407,53 @@ def test_generate_trips_confirms_arrival_from_as_of_without_follow_up_location()
     )
 
     assert early_trips == []
-    assert len(mature_trips) == 1
-    assert mature_trips[0].origin_site_id == home.id
-    assert mature_trips[0].destination_site_id == client.id
+    assert mature_trips == []
+
+    db.add(_dwell_confirmation(arrival_at, client))
+    db.commit()
+
+    confirmed_trips = generate_trips(
+        db,
+        day.date(),
+        day.date(),
+        as_of=arrival_at + timedelta(minutes=6),
+    )
+
+    assert len(confirmed_trips) == 1
+    assert confirmed_trips[0].origin_site_id == home.id
+    assert confirmed_trips[0].destination_site_id == client.id
+
+
+def test_generate_trips_ignores_loose_region_labels_outside_waypoint_radius() -> None:
+    db = _session()
+    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(day, home, "leave"),
+            _location(
+                day + timedelta(minutes=24),
+                "42.3475",
+                "-83.0600",
+                {"_type": "transition", "event": "enter", "desc": "Client"},
+            ),
+            _location(
+                day + timedelta(minutes=30),
+                "42.3475",
+                "-83.0600",
+                {"_type": "location", "inregions": ["Client"]},
+            ),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(db, day.date(), day.date(), as_of=day + timedelta(minutes=31))
+
+    assert trips == []
+    assert db.scalar(select(Trip.id)) is None
 
 
 def test_generate_trips_ignores_drive_through_waypoint_without_dwell() -> None:
@@ -1622,7 +1666,7 @@ def test_automatic_trip_processing_uses_checkpoint_without_duplicate_trips() -> 
     assert checkpoint.last_owntracks_location_id == latest_location_id
 
 
-def test_automatic_trip_processing_rechecks_pending_arrival_after_dwell() -> None:
+def test_automatic_trip_processing_rechecks_pending_arrival_after_inside_location() -> None:
     db = _session()
     day = datetime(2026, 6, 9, 13, 0, tzinfo=UTC)
     arrival_at = day + timedelta(minutes=24)
@@ -1639,6 +1683,8 @@ def test_automatic_trip_processing_rechecks_pending_arrival_after_dwell() -> Non
     db.commit()
 
     first_result = run_automatic_trip_processing(db, now=arrival_at + timedelta(minutes=1))
+    db.add(_dwell_confirmation(arrival_at, client))
+    db.commit()
     second_result = run_automatic_trip_processing(db, now=arrival_at + timedelta(minutes=20))
 
     trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
@@ -1646,7 +1692,7 @@ def test_automatic_trip_processing_rechecks_pending_arrival_after_dwell() -> Non
     assert first_result.generated == 0
     assert first_result.processed_location_count == 2
     assert second_result.generated == 1
-    assert second_result.processed_location_count == 0
+    assert second_result.processed_location_count == 1
     assert len(trips) == 1
     assert trips[0].origin_site_id == home.id
     assert trips[0].destination_site_id == client.id

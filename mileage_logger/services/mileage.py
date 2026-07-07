@@ -82,25 +82,34 @@ def haversine_miles(
     lat2: Decimal | float,
     lon2: Decimal | float,
 ) -> Decimal:
+    meters = haversine_meters(lat1, lon1, lat2, lon2)
+    miles = meters / METERS_PER_MILE
+    return miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
+
+
+def haversine_meters(
+    lat1: Decimal | float,
+    lon1: Decimal | float,
+    lat2: Decimal | float,
+    lon2: Decimal | float,
+) -> Decimal:
+    """Calculate unrounded distance between two GPS points in meters."""
+
     lat1_f = radians(float(lat1))
     lat2_f = radians(float(lat2))
     dlat = lat2_f - lat1_f
     dlon = radians(float(lon2) - float(lon1))
     a = sin(dlat / 2) ** 2 + cos(lat1_f) * cos(lat2_f) * sin(dlon / 2) ** 2
     meters = float(EARTH_RADIUS_M) * 2 * asin(sqrt(a))
-    miles = Decimal(str(meters)) / METERS_PER_MILE
-    return miles.quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
+    return Decimal(str(meters))
 
 
 def distance_meters(site: Site, location: OwnTracksLocation) -> Decimal:
-    return (
-        haversine_miles(
-            site.latitude,
-            site.longitude,
-            location.latitude,
-            location.longitude,
-        )
-        * METERS_PER_MILE
+    return haversine_meters(
+        site.latitude,
+        site.longitude,
+        location.latitude,
+        location.longitude,
     )
 
 
@@ -252,17 +261,10 @@ def owntracks_segment_miles(
     )
 
 
-def _site_matches_location(
-    site: Site,
-    location: OwnTracksLocation,
-    sites: list[Site],
-    sites_by_name: dict[str, Site],
-    sites_by_region_id: dict[str, Site],
-) -> bool:
-    """Return true when a stored OwnTracks row still places the device inside a site."""
+def _coordinates_inside_site(site: Site, location: OwnTracksLocation) -> bool:
+    """Return true when stored coordinates are physically inside the saved waypoint radius."""
 
-    matched_site = site_for_location(location, sites, sites_by_name, sites_by_region_id)
-    return matched_site is not None and matched_site.id == site.id
+    return distance_meters(site, location) <= Decimal(site.radius_m)
 
 
 def _enter_transition_confirmed(
@@ -276,12 +278,22 @@ def _enter_transition_confirmed(
     *,
     as_of: datetime | None,
 ) -> bool:
-    """Confirm an enter event after stored data or processor time proves waypoint dwell."""
+    """Confirm an enter event only when stored coordinates prove waypoint dwell."""
 
     dwell_time = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
     enter_time = datetime_to_utc(enter_location.captured_at)
     dwell_deadline = enter_time + dwell_time
-    as_of_utc = datetime_to_utc(as_of) if as_of is not None else None
+
+    if not _coordinates_inside_site(site, enter_location):
+        trip_logger.debug(
+            "waypoint enter rejected reason=enter_coordinates_outside_radius site=%s "
+            "captured_at=%s distance_m=%s radius_m=%s",
+            site.name,
+            enter_location.captured_at.isoformat(),
+            distance_meters(site, enter_location).quantize(Decimal("0.1")),
+            site.radius_m,
+        )
+        return False
 
     for candidate_location in locations[enter_index + 1 :]:
         candidate_time = datetime_to_utc(candidate_location.captured_at)
@@ -298,7 +310,7 @@ def _enter_transition_confirmed(
             and candidate_site is not None
             and candidate_site.id == site.id
         ):
-            return candidate_time >= dwell_deadline
+            return False
 
         if (
             candidate_event == "enter"
@@ -307,16 +319,19 @@ def _enter_transition_confirmed(
         ):
             return False
 
-        if candidate_time >= dwell_deadline and _site_matches_location(
-            site,
-            candidate_location,
-            sites,
-            sites_by_name,
-            sites_by_region_id,
-        ):
+        if candidate_time >= dwell_deadline and _coordinates_inside_site(site, candidate_location):
             return True
 
-    return as_of_utc is not None and as_of_utc >= dwell_deadline
+    if as_of is not None and datetime_to_utc(as_of) >= dwell_deadline:
+        trip_logger.debug(
+            "waypoint enter pending reason=awaiting_coordinate_confirmation site=%s "
+            "captured_at=%s dwell_deadline=%s as_of=%s",
+            site.name,
+            enter_location.captured_at.isoformat(),
+            dwell_deadline.isoformat(),
+            datetime_to_utc(as_of).isoformat(),
+        )
+    return False
 
 
 def _waypoint_transitions(

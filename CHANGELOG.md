@@ -17,6 +17,9 @@
   inside mobile home-screen masks.
 - Moved the installable home-screen icon artwork slightly upward while keeping the reduced safe-area
   sizing.
+- Fixed automatic waypoint trip detection so destination dwell confirmation requires later stored
+  coordinates inside the saved waypoint radius, preventing loose OwnTracks region labels or elapsed
+  processor time alone from creating drive-by trips.
 
 ## 1.3.1 - 07.04.2026
 

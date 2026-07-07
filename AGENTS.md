@@ -183,7 +183,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 1. OwnTracks sends waypoint transition events (enter/leave/arrival/departure)
 2. Trip processor detects qualifying transitions:
    - `leave` from waypoint A + `enter` to waypoint B = one trip
-   - Requires at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5) of data inside destination
+   - Requires at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5) of later OwnTracks
+     coordinate data inside the destination waypoint's saved radius. Elapsed processor time,
+     OwnTracks `desc`, `rid`, or `inregions` labels alone do not confirm a visit.
    - Home → Home never generates a trip
    - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
 3. Mileage is calculated from OwnTracks location updates between the two events
@@ -530,7 +532,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 1. **Timezone Confusion**: The server can run on UTC, but trip dates and day boundaries use `LOCAL_TIMEZONE`. Always convert with `datetime_to_local()` before displaying.
 
-2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES` and OwnTracks event timestamps.
+2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, OwnTracks event timestamps, and whether later stored coordinates are inside the saved waypoint radius. OwnTracks region labels alone are not enough to prove a visit.
 
 3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Odometer values are never a distance source; manual distance edits override generated calculations. Prior trip end odometers are not the source for new generated trip starts.
 

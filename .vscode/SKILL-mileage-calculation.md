@@ -130,7 +130,7 @@ def generate_trips(
 1. **Load OwnTracks transitions** for the day (leave/enter events)
 2. **Match transition pairs**:
    - `leave` at time T1 + `enter` at time T2 = potential trip
-   - Verify destination dwell time ≥ 5 min
+   - Verify destination dwell time ≥ 5 min with later coordinates inside the saved waypoint radius
    - Skip if both are "Home" waypoint
 3. **For each valid pair**:
    - Load location updates between T1 and T2

@@ -308,8 +308,9 @@ The app generates work trips directly from OwnTracks waypoint transitions:
 
 - A trip is created from a waypoint `leave` event followed by another waypoint `enter` event.
 - The destination `enter` event must be confirmed by at least
-  `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes of later OwnTracks data inside that saved waypoint.
-  The default is 5 minutes so driving through a waypoint does not create a trip.
+  `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes of later OwnTracks coordinate data inside that saved
+  waypoint's radius. The default is 5 minutes so driving through a waypoint does not create a trip.
+  OwnTracks region labels by themselves do not confirm a visit.
 - `Home` is the exact waypoint name for home.
 - `Home` to `Home` is never a trip.
 - Work trips between the same non-home waypoint are kept only when the calculated distance is at

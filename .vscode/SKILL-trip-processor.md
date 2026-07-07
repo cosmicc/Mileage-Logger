@@ -32,9 +32,13 @@ A trip is created when:
 waypoint_leave_event (at time T1) 
   + waypoint_enter_event (at time T2) 
   + T2 > T1 
-  + destination has ≥ OWNTRACKS_WAYPOINT_DWELL_MINUTES of location data inside it
+  + destination has ≥ OWNTRACKS_WAYPOINT_DWELL_MINUTES of later coordinate data inside its saved radius
   + NOT (origin == "Home" AND destination == "Home")
 ```
+
+OwnTracks region metadata is only a candidate signal. A destination visit is confirmed from stored
+latitude/longitude inside the saved waypoint radius; elapsed processor time, `desc`, `rid`, or
+`inregions` labels alone must not confirm the visit.
 
 ### Key Entry Point
 
@@ -54,7 +58,7 @@ waypoint_leave_event (at time T1)
 
 3. OwnTracks sends: transition event { "event": "enter", "desc": "Work", ... }
    → Stored in owntracks_locations
-   → Minimum dwell (5 min default) verified
+   → Minimum dwell (5 min default) verified by later coordinates inside the saved Work radius
    → Trip auto-created from Home→Work
 
 4. Trip processor updates checkpoint.last_owntracks_location_id
@@ -134,7 +138,8 @@ If user then enters "manual odometer: 50010.0":
 **3. Trip dwell time not met**
 - Default: `OWNTRACKS_WAYPOINT_DWELL_MINUTES=5`
 - If user drives through a waypoint quickly, trip won't generate
-- Check OwnTracks event timestamps: `tst` field must show 5+ min of data
+- Check OwnTracks event timestamps: `tst` field must show 5+ min of later coordinates physically
+  inside the saved waypoint radius
 
 ### Diagnostics Page
 
