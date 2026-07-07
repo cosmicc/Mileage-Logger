@@ -22,7 +22,7 @@
 - Changed the mobile Dashboard Work Trips card to keep the today, week, and month counts in one
   row when the phone width allows it.
 - Changed the Dashboard Work Trips card labels to Today, Week, and Month, aligned the values on one
-  row, and made the mobile values slightly larger.
+  row, and made the mobile values larger.
 - Fixed automatic waypoint trip detection so destination dwell confirmation requires later stored
   coordinates inside the saved waypoint radius, preventing loose OwnTracks region labels or elapsed
   processor time alone from creating drive-by trips.

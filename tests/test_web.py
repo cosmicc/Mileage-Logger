@@ -4960,7 +4960,7 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".work-trip-counts > div" in stylesheet
     assert "grid-template-rows: 12px auto;" in stylesheet
     assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in stylesheet
-    assert "font-size: 22px;" in stylesheet
+    assert "font-size: 26px;" in stylesheet
     assert "grid-template-columns: 1fr;\n  }\n\n  .work-trip-counts dd" not in stylesheet
     assert (
         ".stats-grid {\n  display: grid;\n  grid-template-columns: repeat(6, minmax(0, 1fr));"
