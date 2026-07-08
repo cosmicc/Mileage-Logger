@@ -310,12 +310,14 @@ ingestion can receive waypoint definitions, transition events, and location upda
 The app generates work trips directly from OwnTracks waypoint transitions:
 
 - A trip is created from a waypoint `leave` event followed by another waypoint `enter` event.
-- The destination `enter` event must start inside that saved waypoint's radius and remain valid
-  for at least `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes. The default is 5 minutes so driving
-  through a waypoint does not create a trip.
+- The destination `enter` event must remain valid for at least
+  `OWNTRACKS_WAYPOINT_DWELL_MINUTES` minutes. The default is 5 minutes so driving through a
+  waypoint does not create a trip.
 - Dwell confirmation can come from later OwnTracks coordinates inside the waypoint radius, a later
   same-waypoint `leave` after the dwell window, a later next-waypoint `enter` after the dwell
-  window, or the next processing pass after the dwell timer when no earlier event contradicts the
+  window for an inside-radius arrival, or the next processing pass after the dwell timer when no
+  earlier event contradicts an inside-radius arrival. If an OwnTracks-named arrival starts outside
+  the saved radius, a later same-waypoint `leave` after the dwell window can still confirm the
   visit. OwnTracks region labels by themselves do not override coordinates outside the saved
   radius, and an early leave, early next-waypoint arrival, or clearly-away movement before the
   dwell window rejects the visit.

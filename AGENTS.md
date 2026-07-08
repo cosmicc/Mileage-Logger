@@ -185,12 +185,13 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 1. OwnTracks sends waypoint transition events (enter/leave/arrival/departure)
 2. Trip processor detects qualifying transitions:
    - `leave` from waypoint A + `enter` to waypoint B = one trip
-   - Requires an inside-radius destination arrival that remains valid for at least
-     `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5). Confirmation can come from later coordinates
-     inside the saved radius, a later same-waypoint `leave`, a later next-waypoint `enter`, or the
-     next processing pass after the dwell timer when no earlier event contradicts the visit.
-     OwnTracks `desc`, `rid`, or `inregions` labels alone do not override coordinates outside the
-     saved radius.
+   - Requires a destination arrival that remains valid for at least
+     `OWNTRACKS_WAYPOINT_DWELL_MINUTES` (default 5). An inside-radius arrival can be confirmed by
+     later coordinates inside the saved radius, a later same-waypoint `leave`, a later next-waypoint
+     `enter`, or the next processing pass after the dwell timer when no earlier event contradicts
+     the visit. An OwnTracks-named arrival whose first coordinates are outside the saved radius
+     still needs later same-waypoint state evidence, such as a same-waypoint `leave` after the dwell
+     window; the label alone is not enough.
    - Home → Home never generates a trip
    - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
 3. Mileage is calculated from OwnTracks location updates between the two events
@@ -541,7 +542,7 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 1. **Timezone Confusion**: The server can run on UTC, but trip dates and day boundaries use `LOCAL_TIMEZONE`. Always convert with `datetime_to_local()` before displaying.
 
-2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, OwnTracks event timestamps, whether the arrival coordinates start inside the saved waypoint radius, and whether later coordinates or waypoint state confirm the visit. A same-waypoint `leave` after the dwell window confirms the arrival, but an early leave, early next-waypoint arrival, or clearly-away movement before the dwell window rejects it. OwnTracks region labels alone are not enough to override outside-radius coordinates.
+2. **Trip Dwell Time**: If waypoint transitions arrive too quickly, the trip won't be confirmed. The default is 5 minutes. Check `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, OwnTracks event timestamps, whether the arrival coordinates start inside the saved waypoint radius, and whether later coordinates or waypoint state confirm the visit. A same-waypoint `leave` after the dwell window confirms an inside-radius arrival and can also confirm an OwnTracks-named outside-radius arrival, but an early leave, early next-waypoint arrival, or clearly-away movement before the dwell window rejects it. OwnTracks region labels alone are not enough without later state confirmation.
 
 3. **Mileage Priority**: OwnTracks path distance is preferred, but if location updates are sparse, fallback to waypoint distance. Odometer values are never a distance source; manual distance edits override generated calculations. Prior trip end odometers are not the source for new generated trip starts.
 

@@ -63,6 +63,8 @@ def _transition(
     event: str,
     *,
     duplicate_region_name: bool = False,
+    latitude: str | None = None,
+    longitude: str | None = None,
 ) -> OwnTracksLocation:
     payload = {
         "_type": "transition",
@@ -76,8 +78,8 @@ def _transition(
     return OwnTracksLocation(
         captured_at=captured_at,
         received_at=captured_at,
-        latitude=site.latitude,
-        longitude=site.longitude,
+        latitude=Decimal(latitude) if latitude is not None else site.latitude,
+        longitude=Decimal(longitude) if longitude is not None else site.longitude,
         raw_payload=payload,
     )
 
@@ -502,6 +504,59 @@ def test_generate_trips_records_delayed_home_acs_home_sequence() -> None:
     )
 
     assert len(trips) == 2
+    assert [(trip.origin_display_name, trip.destination_display_name) for trip in trips] == [
+        ("Home", "ACS Troy"),
+        ("ACS Troy", "Home"),
+    ]
+    assert trips[0].started_at == _naive(home_leave)
+    assert trips[0].ended_at == _naive(acs_arrival)
+    assert trips[1].started_at == _naive(acs_leave)
+    assert trips[1].ended_at == _naive(home_arrival)
+
+
+def test_generate_trips_confirms_named_arrival_outside_radius_from_later_leave() -> None:
+    db = _session()
+    home_leave = datetime(2026, 7, 7, 14, 4, 35, tzinfo=UTC)
+    acs_arrival = datetime(2026, 7, 7, 14, 29, 17, tzinfo=UTC)
+    acs_leave = datetime(2026, 7, 7, 19, 11, 26, tzinfo=UTC)
+    home_arrival = datetime(2026, 7, 7, 19, 50, 3, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458", "home-rid")
+    acs_troy = _site("ACS Troy", "42.5578", "-83.1550", "acs-troy-rid")
+    db.add_all(
+        [
+            home,
+            acs_troy,
+            _transition(home_leave, home, "leave"),
+            _location(
+                datetime(2026, 7, 7, 14, 5, 29, tzinfo=UTC),
+                "42.3700",
+                "-83.0700",
+            ),
+            _transition(
+                acs_arrival,
+                acs_troy,
+                "enter",
+                latitude="42.5500",
+                longitude="-83.1550",
+            ),
+            _transition(acs_leave, acs_troy, "leave"),
+            _location(
+                datetime(2026, 7, 7, 19, 11, 52, tzinfo=UTC),
+                "42.5200",
+                "-83.1300",
+            ),
+            _transition(home_arrival, home, "enter"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(
+        db,
+        home_leave.date(),
+        home_leave.date(),
+        as_of=home_arrival + timedelta(minutes=6),
+    )
+
     assert [(trip.origin_display_name, trip.destination_display_name) for trip in trips] == [
         ("Home", "ACS Troy"),
         ("ACS Troy", "Home"),

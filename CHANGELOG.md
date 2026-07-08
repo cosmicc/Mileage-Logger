@@ -12,10 +12,14 @@
 - Changed waypoint dwell confirmation to use all available OwnTracks state evidence after an
   inside-radius arrival, including later same-waypoint departures, later next-waypoint arrivals,
   and the next processing pass after the dwell timer when no earlier event contradicts the visit.
+- Changed OwnTracks-named arrivals outside the saved waypoint radius to wait for later
+  same-waypoint state evidence before confirming a trip destination.
 
 ### Fixed
 - Fixed automatic trip detection so a same-waypoint `leave` after the dwell window confirms the
   prior waypoint arrival instead of rejecting it.
+- Fixed Home-to-work trips being lost when a named work waypoint arrival was outside the saved
+  waypoint radius but was later followed by a same-waypoint leave after the dwell window.
 - Fixed invalid username/password login attempts so the browser stays on the sign-in page and
   shows a top status-line error instead of being replaced by the public 401 error page.
 

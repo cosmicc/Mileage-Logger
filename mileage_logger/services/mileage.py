@@ -278,6 +278,21 @@ def _coordinates_clearly_away_from_site(site: Site, location: OwnTracksLocation)
     return distance_meters(site, location) >= confirmation_distance
 
 
+def _payload_identifies_site(location: OwnTracksLocation, site: Site) -> bool:
+    """Return true when OwnTracks explicitly labels a row as belonging to a saved site."""
+
+    region_id = _region_id(location)
+    if (
+        region_id is not None
+        and site.owntracks_region_id is not None
+        and region_id == site.owntracks_region_id
+    ):
+        return True
+
+    site_name = site.name.casefold()
+    return any(region_name.casefold() == site_name for region_name in _region_names(location))
+
+
 def _enter_transition_confirmed(
     enter_location: OwnTracksLocation,
     site: Site,
@@ -289,15 +304,16 @@ def _enter_transition_confirmed(
     *,
     as_of: datetime | None,
 ) -> bool:
-    """Confirm an enter event only when stored coordinates prove waypoint dwell."""
+    """Confirm an enter event when OwnTracks rows prove destination dwell."""
 
     dwell_time = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
     enter_time = datetime_to_utc(enter_location.captured_at)
     dwell_deadline = enter_time + dwell_time
+    arrival_coordinates_inside = _coordinates_inside_site(site, enter_location)
 
-    if not _coordinates_inside_site(site, enter_location):
+    if not arrival_coordinates_inside and not _payload_identifies_site(enter_location, site):
         trip_logger.debug(
-            "waypoint enter rejected reason=enter_coordinates_outside_radius site=%s "
+            "waypoint enter rejected reason=enter_unmatched_outside_radius site=%s "
             "captured_at=%s distance_m=%s radius_m=%s",
             site.name,
             enter_location.captured_at.isoformat(),
@@ -305,6 +321,16 @@ def _enter_transition_confirmed(
             site.radius_m,
         )
         return False
+
+    if not arrival_coordinates_inside:
+        trip_logger.debug(
+            "waypoint enter needs state confirmation reason=enter_coordinates_outside_radius "
+            "site=%s captured_at=%s distance_m=%s radius_m=%s",
+            site.name,
+            enter_location.captured_at.isoformat(),
+            distance_meters(site, enter_location).quantize(Decimal("0.1")),
+            site.radius_m,
+        )
 
     for candidate_location in locations[enter_index + 1 :]:
         candidate_time = datetime_to_utc(candidate_location.captured_at)
@@ -322,6 +348,15 @@ def _enter_transition_confirmed(
             and candidate_site.id == site.id
         ):
             if candidate_time >= dwell_deadline:
+                if not arrival_coordinates_inside:
+                    trip_logger.info(
+                        "waypoint enter confirmed reason=outside_enter_then_same_site_leave "
+                        "site=%s captured_at=%s leave_at=%s dwell_deadline=%s",
+                        site.name,
+                        enter_location.captured_at.isoformat(),
+                        candidate_location.captured_at.isoformat(),
+                        dwell_deadline.isoformat(),
+                    )
                 return True
             return False
 
@@ -330,7 +365,7 @@ def _enter_transition_confirmed(
             and candidate_site is not None
             and candidate_site.id != site.id
         ):
-            if candidate_time >= dwell_deadline:
+            if candidate_time >= dwell_deadline and arrival_coordinates_inside:
                 return True
             return False
 
@@ -353,10 +388,23 @@ def _enter_transition_confirmed(
             )
             return False
 
-    if as_of is not None and datetime_to_utc(as_of) >= dwell_deadline:
+    if (
+        as_of is not None
+        and arrival_coordinates_inside
+        and datetime_to_utc(as_of) >= dwell_deadline
+    ):
         return True
 
-    if as_of is not None:
+    if as_of is not None and datetime_to_utc(as_of) >= dwell_deadline:
+        trip_logger.debug(
+            "waypoint enter rejected reason=outside_radius_without_confirming_state site=%s "
+            "captured_at=%s dwell_deadline=%s as_of=%s",
+            site.name,
+            enter_location.captured_at.isoformat(),
+            dwell_deadline.isoformat(),
+            datetime_to_utc(as_of).isoformat(),
+        )
+    elif as_of is not None:
         trip_logger.debug(
             "waypoint enter pending reason=awaiting_coordinate_confirmation site=%s "
             "captured_at=%s dwell_deadline=%s as_of=%s",

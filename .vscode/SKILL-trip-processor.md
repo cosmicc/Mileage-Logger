@@ -32,16 +32,18 @@ A trip is created when:
 waypoint_leave_event (at time T1) 
   + waypoint_enter_event (at time T2) 
   + T2 > T1 
-  + destination arrival starts inside its saved radius
   + destination remains valid for ≥ OWNTRACKS_WAYPOINT_DWELL_MINUTES
   + NOT (origin == "Home" AND destination == "Home")
 ```
 
-OwnTracks region metadata is only a candidate signal. A destination visit starts from stored
-latitude/longitude inside the saved waypoint radius, then dwell confirmation can come from later
-coordinates inside the radius, a later same-waypoint `leave`, a later next-waypoint `enter`, or the
-next processing pass after the dwell timer when no earlier event contradicts the visit. `desc`,
-`rid`, or `inregions` labels alone must not override outside-radius coordinates.
+OwnTracks region metadata is only a candidate signal. A destination visit that starts from stored
+latitude/longitude inside the saved waypoint radius can be confirmed by later coordinates inside
+the radius, a later same-waypoint `leave`, a later next-waypoint `enter`, or the next processing
+pass after the dwell timer when no earlier event contradicts the visit. An OwnTracks-named arrival
+whose first coordinates are outside the saved radius can still be confirmed by later same-waypoint
+state evidence, such as a same-waypoint `leave` after the dwell window. `desc`, `rid`, or
+`inregions` labels alone must not override outside-radius coordinates without that later state
+confirmation.
 
 ### Key Entry Point
 
@@ -129,8 +131,8 @@ If user then enters "manual odometer: 50010.0":
 **1. No trips being generated**
 - Check `AUTOMATIC_TRIP_PROCESSING_ENABLED=true` in `.env`
 - Verify OwnTracks is sending transition events (not just locations)
-- Check minimum dwell time: the destination arrival must start inside the waypoint radius and stay
-  uncontradicted for at least 5 minutes
+- Check minimum dwell time: the destination arrival must stay uncontradicted for at least 5
+  minutes; outside-radius OwnTracks-named arrivals need later same-waypoint state evidence
 - Confirm waypoint names match exactly (case-sensitive)
 
 **2. Trips generated but with wrong mileage**
@@ -143,9 +145,10 @@ If user then enters "manual odometer: 50010.0":
 **3. Trip dwell time not met**
 - Default: `OWNTRACKS_WAYPOINT_DWELL_MINUTES=5`
 - If user drives through a waypoint quickly, trip won't generate
-- Check OwnTracks event timestamps: `tst` field must show an inside-radius arrival and no early
-  same-waypoint leave, next-waypoint arrival, or clearly-away movement before the dwell deadline.
-  A later same-waypoint leave after the dwell window confirms that earlier arrival.
+- Check OwnTracks event timestamps: `tst` field must show no early same-waypoint leave,
+  next-waypoint arrival, or clearly-away movement before the dwell deadline. A later
+  same-waypoint leave after the dwell window confirms that earlier arrival, including
+  OwnTracks-named arrivals whose first coordinates were outside the saved radius.
 
 ### Diagnostics Page
 

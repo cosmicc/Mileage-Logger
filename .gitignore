@@ -6,7 +6,7 @@ __pycache__/
 .venv/
 venv/
 .env.old
-.e
+.env
 reports/
 dist/
 build/
