@@ -4133,6 +4133,17 @@ def test_trips_page_shades_manual_trip_rows() -> None:
         assert response.status_code == 200
         assert 'class="trip-row trip-row-manual" data-trip-source="manual"' in response.text
         assert 'class="trip-row trip-row-auto" data-trip-source="auto"' in response.text
+        styles = Path("mileage_logger/web/static/styles.css").read_text()
+        assert (
+            ".trip-row-auto,\n.deleted-trip-row-auto {\n  background:\n    "
+            "linear-gradient(90deg, "
+            "rgba(75, 163, 255, 0.11)"
+        ) in styles
+        assert (
+            ".trip-row-manual,\n.deleted-trip-row-manual {\n  background:\n    "
+            "linear-gradient(90deg, "
+            "rgba(226, 173, 69, 0.13)"
+        ) in styles
     finally:
         app.dependency_overrides.clear()
 

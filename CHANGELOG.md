@@ -11,8 +11,8 @@
 
 ### Changed
 - Bumped the Mileage Logger package version to 1.3.3 for unreleased testing.
-- Changed the Work Trips table to lightly shade manually entered trip rows and shade deleted-trip
-  records by manual or automatic source.
+- Changed the Work Trips table to shade automatic trip rows blue, keep manual trip rows yellow,
+  and shade deleted-trip records by manual or automatic source.
 - Changed master odometer handling to roll the checkpoint forward to the latest trip end odometer
   only when that trip end is higher than the current master odometer, without ever rolling it back.
 - Changed waypoint dwell confirmation to use all available OwnTracks state evidence after an

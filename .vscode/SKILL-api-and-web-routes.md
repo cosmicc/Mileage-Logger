@@ -295,6 +295,8 @@ curl -X POST http://localhost:8000/api/owntracks \
 - `trips_content.html` shows compact selected-month cards directly below the month selector rule.
   Keep these scoped to the selected month: work trips plus non-work trips, work trips only,
   OwnTracks events by captured time, work trip count, reimbursement, and monthly average gas price.
+- Monthly Work Trips and Deleted Work Trip Records rows use source-based tinting: automatic rows
+  use a subtle blue and manual rows use a subtle yellow.
 - The Work Trips page order is selected-month cards, Monthly Work Trips, Add Work Trip, Extra
   Report Expenses, then Deleted Work Trip Records.
 - The extra report expenses card sits above Deleted Work Trip Records. It accepts a date, expense
