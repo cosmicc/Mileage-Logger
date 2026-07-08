@@ -1340,6 +1340,59 @@ def _latest_checkpoint(db: Session) -> TripProcessingCheckpoint | None:
     )
 
 
+def _latest_trip_with_end_odometer(db: Session) -> Trip | None:
+    """Return the latest chronological trip that has a saved end odometer."""
+
+    return db.scalar(
+        select(Trip)
+        .where(Trip.end_odometer_miles.is_not(None))
+        .order_by(Trip.ended_at.desc(), Trip.id.desc())
+        .limit(1)
+    )
+
+
+def sync_master_odometer_to_latest_trip_end(db: Session) -> bool:
+    """Move the master odometer forward when the latest trip end is ahead of it.
+
+    This is the only trip-row-driven checkpoint repair path. It never lowers the
+    master rolling OwnTracks odometer and does not make odometers a distance source.
+    """
+
+    db.flush()
+    checkpoint = _latest_checkpoint(db)
+    latest_trip = _latest_trip_with_end_odometer(db)
+    if (
+        checkpoint is None
+        or checkpoint.odometer_anchor_miles is None
+        or latest_trip is None
+        or latest_trip.end_odometer_miles is None
+    ):
+        return False
+
+    current_odometer = Decimal(checkpoint.odometer_anchor_miles).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    latest_trip_end_odometer = Decimal(latest_trip.end_odometer_miles).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    if latest_trip_end_odometer <= current_odometer:
+        return False
+
+    checkpoint.odometer_anchor_miles = latest_trip_end_odometer
+    checkpoint.odometer_anchor_recorded_at = datetime_to_utc(latest_trip.ended_at)
+    trip_logger.info(
+        "Rolled master odometer forward to latest trip end trip_id=%s "
+        "previous_odometer=%s odometer=%s recorded_at=%s",
+        latest_trip.id,
+        current_odometer,
+        latest_trip_end_odometer,
+        datetime_to_utc(latest_trip.ended_at).isoformat(),
+    )
+    return True
+
+
 def _month_resequence_anchor(db: Session, first_trip: Trip) -> Decimal:
     """Choose the stable odometer start point for resequencing a month."""
 
@@ -1444,6 +1497,7 @@ def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
         month_trips[0].start_odometer_miles,
         month_trips[-1].end_odometer_miles,
     )
+    sync_master_odometer_to_latest_trip_end(db)
     return len(month_trips)
 
 
@@ -1539,6 +1593,7 @@ def resequence_trip_odometers_from(
         ordered_trips[0].start_odometer_miles,
         ordered_trips[-1].end_odometer_miles,
     )
+    sync_master_odometer_to_latest_trip_end(db)
     return len(ordered_trips)
 
 
@@ -1608,6 +1663,7 @@ def backfill_missing_trip_odometers(db: Session) -> int:
 
     if updated_count:
         trip_logger.info("Backfilled missing trip odometers trips=%s", updated_count)
+        sync_master_odometer_to_latest_trip_end(db)
     return updated_count
 
 
@@ -1750,6 +1806,7 @@ def generate_trips(
         last_arrival = transition
         pending_leave = None
 
+    sync_master_odometer_to_latest_trip_end(db)
     db.commit()
     for trip in generated:
         db.refresh(trip)

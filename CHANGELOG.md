@@ -4,6 +4,8 @@
 
 ### Added
 - Added regression coverage for pending waypoint arrivals, delayed same-waypoint departures.
+- Added forward-only master odometer sync coverage for cases where the latest trip end is ahead of
+  the current rolling odometer.
 - Added the current app version below the Mileage Logger title in the authenticated desktop top
   navigation bar.
 
@@ -11,6 +13,8 @@
 - Bumped the Mileage Logger package version to 1.3.3 for unreleased testing.
 - Changed the Work Trips table to lightly shade manually entered trip rows and shade deleted-trip
   records by manual or automatic source.
+- Changed master odometer handling to roll the checkpoint forward to the latest trip end odometer
+  only when that trip end is higher than the current master odometer, without ever rolling it back.
 - Changed waypoint dwell confirmation to use all available OwnTracks state evidence after an
   inside-radius arrival, including later same-waypoint departures, later next-waypoint arrivals,
   and the next processing pass after the dwell timer when no earlier event contradicts the visit.

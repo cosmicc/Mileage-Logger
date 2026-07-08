@@ -207,9 +207,11 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
 - Manual odometer readings reset the anchor to an exact value
-- Trips do not update the master rolling odometer checkpoint. Only OwnTracks location processing
-  and manual odometer entries move that checkpoint; trip odometer resequencing is display state for
-  trip rows.
+- Trips do not normally update the master rolling odometer checkpoint. Only OwnTracks location
+  processing and manual odometer entries move that checkpoint; trip odometer resequencing is
+  display state for trip rows. The single exception is the forward-only sync repair: if the latest
+  chronological trip's end odometer is greater than the current master rolling odometer, the master
+  odometer is rolled forward to that trip end. This repair never rolls the master odometer back.
 - Manual trip starts use the current rolling OwnTracks odometer checkpoint before falling back to
   zero when no master checkpoint exists; later resequencing preserves existing positive non-trip
   odometer gaps between trips.

@@ -100,8 +100,11 @@ When trip processor runs:
    odometer
 7. Run the missing-trip-odometer backfill pass so existing rows with blank odometers can be filled
    from the master checkpoint when retained OwnTracks path data is available.
-8. Generated, edited, deleted, and resequenced trip rows do not update the master rolling
-   checkpoint. When the user manually enters odometer, reset anchor to exact value.
+8. Generated, edited, deleted, and resequenced trip rows do not normally update the master rolling
+   checkpoint. When the user manually enters odometer, reset anchor to exact value. The only
+   trip-row-driven repair is forward-only: if the latest chronological trip end odometer is greater
+   than the current master checkpoint, roll the checkpoint forward to that trip end. Never roll the
+   master checkpoint backward from trip rows.
 9. Before old raw OwnTracks rows are purged, refresh monthly OwnTracks summary rollups so older
    month web totals and event counts remain stable after raw location/event cleanup.
 

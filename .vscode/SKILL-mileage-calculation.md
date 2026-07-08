@@ -88,9 +88,11 @@ class TripProcessingCheckpoint(Base):
 4. **Sum point-to-point distances** for all other locations
 5. **Advance checkpoint**: `new_odometer = anchor + distance_sum`
 6. **Update `last_owntracks_location_id`** to latest processed location
-7. Trip creation, deletion, and resequencing must not update the master checkpoint. Trip
+7. Trip creation, deletion, and resequencing normally must not update the master checkpoint. Trip
    odometers are row display values; the checkpoint is moved only by OwnTracks location processing
-   or manual odometer entry.
+   or manual odometer entry. The one repair exception is forward-only: if the latest chronological
+   trip's end odometer is greater than the current master checkpoint, roll the master checkpoint
+   forward to that trip end and never roll it back from trip rows.
 
 ### Resetting the Anchor
 
@@ -296,15 +298,17 @@ This ensures:
 4. End odometer = start odometer + trip miles
 
 Resequencing changes trip row odometer display values only. It must not move the master rolling
-OwnTracks odometer checkpoint.
+OwnTracks odometer checkpoint except for the forward-only latest-trip-end sync repair when the
+latest trip end is greater than the current master checkpoint.
 
 ### Backfilling Blank Odometers
 
 `backfill_missing_trip_odometers(db)` fills existing trip rows that are missing start or end
 odometers when a master OwnTracks checkpoint and retained path rows can support the estimate. It
-does not alter trip distance, route fields, source fields, deleted-trip tombstones, or the master
-checkpoint. Automatic trip processing runs this repair pass so recently recorded rows with blank
-odometers are healed after deployment.
+does not alter trip distance, route fields, source fields, or deleted-trip tombstones. After trip
+odometers are repaired, the app may run the forward-only latest-trip-end sync so the master
+checkpoint is not behind the latest trip end. Automatic trip processing runs this repair pass so
+recently recorded rows with blank odometers are healed after deployment.
 
 ---
 

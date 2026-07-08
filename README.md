@@ -385,8 +385,10 @@ checkpoint when retained OwnTracks path rows support the estimate. Segments full
 saved waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics
 reset the checkpoint to the entered value and OwnTracks distance continues from that new rolling
 value.
-Trip creation, editing, deletion, and resequencing do not move the master rolling odometer
-checkpoint.
+Trip creation, editing, deletion, and resequencing do not normally move the master rolling odometer
+checkpoint. The only trip-row repair exception is forward-only: when the latest chronological work
+trip's end odometer is greater than the current master rolling odometer, the app rolls the master
+odometer forward to that trip end. The app never rolls the master odometer backward from trip rows.
 Dashboard total-driven cards and the Work Trips selected-month cards sum OwnTracks coordinate
 segments directly for the selected local day or month, so manual odometer resets do not affect work
 trip plus non-work trip totals.

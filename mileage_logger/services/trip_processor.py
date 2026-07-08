@@ -21,6 +21,7 @@ from mileage_logger.services.mileage import (
     generate_trips,
     owntracks_segment_miles,
     site_indexes,
+    sync_master_odometer_to_latest_trip_end,
 )
 from mileage_logger.services.retention import RetentionResult, purge_processed_owntracks_locations
 from mileage_logger.services.timezone import datetime_to_local_date, datetime_to_utc
@@ -315,7 +316,8 @@ def run_automatic_trip_processing(
             generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
 
         repaired_trip_count = backfill_missing_trip_odometers(db)
-        if repaired_trip_count:
+        odometer_sync_applied = sync_master_odometer_to_latest_trip_end(db)
+        if repaired_trip_count or odometer_sync_applied:
             db.commit()
 
         if new_locations:
