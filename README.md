@@ -365,8 +365,9 @@ is placed after the existing work trips on the selected local date, so backdated
 land at the end of that day and today's manual entries become the latest work trip for today. If
 the manual work trip is inserted before existing work trips, the app resequences that work trip and
 every later work trip so odometers remain cumulative across month boundaries while preserving
-existing positive odometer gaps between work trips for non-work trip driving. Deleting a
-work trip from the `Work Trips` page also saves an exact deleted-trip record so only that same
+existing positive odometer gaps between work trips for non-work trip driving. Manual work-trip rows
+are lightly shaded so they are easy to distinguish from automatic OwnTracks-generated rows. Deleting
+a work trip from the `Work Trips` page also saves an exact deleted-trip record so only that same
 OwnTracks transition pair is not generated again; future work trips with the same route are still
 generated normally.
 Automatic same-waypoint work trips under 1.0 mile are also removed with an exact suppression record

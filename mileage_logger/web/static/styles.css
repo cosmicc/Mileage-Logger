@@ -1152,6 +1152,16 @@ tbody tr:hover {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.trip-row-manual {
+  background:
+    linear-gradient(90deg, rgba(226, 173, 69, 0.13), rgba(226, 173, 69, 0.04) 42%, transparent);
+}
+
+.trip-row-manual:hover {
+  background:
+    linear-gradient(90deg, rgba(226, 173, 69, 0.18), rgba(226, 173, 69, 0.06) 48%, rgba(255, 255, 255, 0.025));
+}
+
 tbody tr:last-child td {
   border-bottom: 0;
 }

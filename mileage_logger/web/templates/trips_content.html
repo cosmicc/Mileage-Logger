@@ -77,7 +77,7 @@
     <tbody>
       {% for trip in trips %}
       {% set form_id = "trip-form-" ~ trip.id %}
-      <tr>
+      <tr class="trip-row {% if trip.source == 'manual' %}trip-row-manual{% else %}trip-row-auto{% endif %}" data-trip-source="{{ trip.source }}">
         <td>
           <form id="{{ form_id }}" action="/trips/{{ trip.id }}" method="post"></form>
           <span class="trip-date">{{ trip.trip_date }}</span>
