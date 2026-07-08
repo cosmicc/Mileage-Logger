@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.3 - Unreleased
+## 1.3.3 - 07.08.2026
 
 ### Added
 - Added regression coverage for pending waypoint arrivals, delayed same-waypoint departures.
@@ -10,7 +10,7 @@
   navigation bar.
 
 ### Changed
-- Bumped the Mileage Logger package version to 1.3.3 for unreleased testing.
+- Bumped the Mileage Logger package version to 1.3.3.
 - Changed the Work Trips table to shade automatic trip rows blue, keep manual trip rows yellow,
   and shade deleted-trip records by manual or automatic source.
 - Changed master odometer handling to roll the checkpoint forward to the latest trip end odometer
