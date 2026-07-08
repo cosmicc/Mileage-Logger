@@ -1162,6 +1162,26 @@ tbody tr:hover {
     linear-gradient(90deg, rgba(226, 173, 69, 0.18), rgba(226, 173, 69, 0.06) 48%, rgba(255, 255, 255, 0.025));
 }
 
+.deleted-trip-row-auto {
+  background:
+    linear-gradient(90deg, rgba(75, 163, 255, 0.11), rgba(75, 163, 255, 0.035) 42%, transparent);
+}
+
+.deleted-trip-row-auto:hover {
+  background:
+    linear-gradient(90deg, rgba(75, 163, 255, 0.16), rgba(75, 163, 255, 0.055) 48%, rgba(255, 255, 255, 0.025));
+}
+
+.deleted-trip-row-manual {
+  background:
+    linear-gradient(90deg, rgba(226, 173, 69, 0.13), rgba(226, 173, 69, 0.04) 42%, transparent);
+}
+
+.deleted-trip-row-manual:hover {
+  background:
+    linear-gradient(90deg, rgba(226, 173, 69, 0.18), rgba(226, 173, 69, 0.06) 48%, rgba(255, 255, 255, 0.025));
+}
+
 tbody tr:last-child td {
   border-bottom: 0;
 }

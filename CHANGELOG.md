@@ -9,8 +9,8 @@
 
 ### Changed
 - Bumped the Mileage Logger package version to 1.3.3 for unreleased testing.
-- Changed the Work Trips table to lightly shade manually entered trip rows so they stand apart
-  from automatic OwnTracks-generated rows.
+- Changed the Work Trips table to lightly shade manually entered trip rows and shade deleted-trip
+  records by manual or automatic source.
 - Changed waypoint dwell confirmation to use all available OwnTracks state evidence after an
   inside-radius arrival, including later same-waypoint departures, later next-waypoint arrivals,
   and the next processing pass after the dwell timer when no earlier event contradicts the visit.

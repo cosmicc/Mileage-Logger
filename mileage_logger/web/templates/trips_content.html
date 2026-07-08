@@ -257,7 +257,8 @@
     </thead>
     <tbody>
       {% for suppressed_trip in suppressed_trips %}
-      <tr>
+      {% set suppressed_source = suppressed_trip.source or "auto" %}
+      <tr class="deleted-trip-row {% if suppressed_source == 'manual' %}deleted-trip-row-manual{% else %}deleted-trip-row-auto{% endif %}" data-trip-source="{{ suppressed_source }}">
         <td>{{ suppressed_trip.trip_date }}</td>
         <td>{{ suppressed_trip.origin_name or "-" }}</td>
         <td>{{ suppressed_trip.destination_name or "-" }}</td>

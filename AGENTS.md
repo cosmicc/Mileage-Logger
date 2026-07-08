@@ -343,7 +343,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   New manual trips are placed after existing trips on the selected local date, and resequencing keeps
   existing positive odometer gaps between trips so non-trip driving remains represented. Manual
   work-trip rows use a subtle existing-palette tint so they are distinguishable from automatic
-  OwnTracks-generated rows without changing the table layout.
+  OwnTracks-generated rows without changing the table layout. Deleted Work Trip Records also use
+  source-based row tinting so manual deleted records and automatic deleted records remain visually
+  distinct.
 - Dashboard work trip plus non-work trip distance cards use OwnTracks path distance as the
   total-distance source but floor the combined total at the stored work trip total after
   one-decimal rounding, so the displayed non-work trip remainder is never negative.

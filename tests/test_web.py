@@ -4137,6 +4137,63 @@ def test_trips_page_shades_manual_trip_rows() -> None:
         app.dependency_overrides.clear()
 
 
+def test_trips_page_shades_deleted_trip_rows_by_source() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            home = _site("Home", "42.3314000", "-83.0458000")
+            client_site = _site("Client", "42.3440000", "-83.0600000")
+            db.add_all([home, client_site])
+            db.flush()
+            db.add_all(
+                [
+                    DeletedTrip(
+                        deleted_trip_id=101,
+                        trip_date=date(2026, 6, 10),
+                        origin_site_id=home.id,
+                        destination_site_id=client_site.id,
+                        started_at=datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 10, 13, 30, tzinfo=UTC),
+                        origin_name="Home",
+                        destination_name="Client",
+                        miles=Decimal("5.0"),
+                        source="auto",
+                        mileage_source="owntracks_path",
+                        reason="user_deleted",
+                    ),
+                    DeletedTrip(
+                        deleted_trip_id=102,
+                        trip_date=date(2026, 6, 11),
+                        origin_site_id=home.id,
+                        destination_site_id=client_site.id,
+                        started_at=datetime(2026, 6, 11, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 11, 13, 30, tzinfo=UTC),
+                        origin_name="Home",
+                        destination_name="Client",
+                        miles=Decimal("6.0"),
+                        source="manual",
+                        mileage_source="manual",
+                        reason="user_deleted",
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/trips/content?year=2026&month=6")
+
+        assert response.status_code == 200
+        assert (
+            'class="deleted-trip-row deleted-trip-row-auto" data-trip-source="auto"'
+            in response.text
+        )
+        assert (
+            'class="deleted-trip-row deleted-trip-row-manual" data-trip-source="manual"'
+            in response.text
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_trips_page_creates_and_deletes_monthly_report_expense() -> None:
     client, session_factory = _test_client_session()
     try:
