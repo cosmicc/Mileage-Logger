@@ -1194,6 +1194,18 @@ td input[type="text"] {
   min-width: 104px;
 }
 
+.miles-edit-cell {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.trip-edit-pill {
+  min-height: 23px;
+  padding-inline: 8px;
+}
+
 .waypoint-select {
   width: min(220px, 26vw);
   min-width: 170px;

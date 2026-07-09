@@ -245,8 +245,8 @@ curl -X POST http://localhost:8000/api/owntracks \
   `destination_site_id`, and mileage edits, so posted `trip_date`, free-text name, or odometer
   values must not move or rewrite those read-only fields.
 - Existing row From/To controls are waypoint dropdowns populated from saved `Site` rows. Server
-  handlers must validate submitted waypoint IDs, apply the selected waypoint IDs, names, and
-  coordinates to the `Trip`, and mark changed rows as manually reviewed.
+  handlers must validate submitted waypoint IDs and apply the selected waypoint IDs, names, and
+  coordinates to the `Trip` without changing the trip's creation source.
 - The Add Work Trip form defaults its date input to the app's `LOCAL_TIMEZONE` current date and uses
   the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
@@ -295,8 +295,9 @@ curl -X POST http://localhost:8000/api/owntracks \
 - `trips_content.html` shows compact selected-month cards directly below the month selector rule.
   Keep these scoped to the selected month: work trips plus non-work trips, work trips only,
   OwnTracks events by captured time, work trip count, reimbursement, and monthly average gas price.
-- Monthly Work Trips and Deleted Work Trip Records rows use source-based tinting: automatic rows
-  use a subtle blue and manual rows use a subtle yellow.
+- Monthly Work Trips and Deleted Work Trip Records rows use creation-source tinting: automatic rows
+  use a subtle blue, only trips created from Add Work Trip use a subtle yellow, and automatic rows
+  with corrected mileage show an Edited indicator beside the miles field.
 - The Work Trips page order is selected-month cards, Monthly Work Trips, Add Work Trip, Extra
   Report Expenses, then Deleted Work Trip Records.
 - The extra report expenses card sits above Deleted Work Trip Records. It accepts a date, expense

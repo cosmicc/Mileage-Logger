@@ -49,7 +49,11 @@ from mileage_logger.services.login_failures import (
     tail_login_failure_entries,
     tail_login_success_entries,
 )
-from mileage_logger.services.mileage import haversine_miles
+from mileage_logger.services.mileage import (
+    MANUAL_TRIP_NOTE,
+    WAYPOINT_TRIP_NOTE,
+    haversine_miles,
+)
 from mileage_logger.services.owntracks_buffer import OwnTracksBufferStats
 from mileage_logger.services.runtime_status import (
     RuntimeBufferStatus,
@@ -4130,6 +4134,40 @@ def test_trips_page_shades_manual_trip_rows() -> None:
                         destination_name="Client",
                         miles=Decimal("6.0"),
                         source="manual",
+                        notes=MANUAL_TRIP_NOTE,
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 12),
+                        origin_site_id=home.id,
+                        destination_site_id=client_site.id,
+                        started_at=datetime(2026, 6, 12, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 12, 13, 30, tzinfo=UTC),
+                        start_latitude=home.latitude,
+                        start_longitude=home.longitude,
+                        end_latitude=client_site.latitude,
+                        end_longitude=client_site.longitude,
+                        origin_name="Home",
+                        destination_name="Client",
+                        miles=Decimal("7.0"),
+                        mileage_source="manual",
+                        source="auto",
+                    ),
+                    Trip(
+                        trip_date=date(2026, 6, 13),
+                        origin_site_id=home.id,
+                        destination_site_id=client_site.id,
+                        started_at=datetime(2026, 6, 13, 13, 0, tzinfo=UTC),
+                        ended_at=datetime(2026, 6, 13, 13, 30, tzinfo=UTC),
+                        start_latitude=home.latitude,
+                        start_longitude=home.longitude,
+                        end_latitude=client_site.latitude,
+                        end_longitude=client_site.longitude,
+                        origin_name="Home",
+                        destination_name="Client",
+                        miles=Decimal("8.0"),
+                        mileage_source="manual",
+                        source="manual",
+                        notes=WAYPOINT_TRIP_NOTE,
                     ),
                 ]
             )
@@ -4138,8 +4176,11 @@ def test_trips_page_shades_manual_trip_rows() -> None:
         response = client.get("/trips/content?year=2026&month=6")
 
         assert response.status_code == 200
-        assert 'class="trip-row trip-row-manual" data-trip-source="manual"' in response.text
-        assert 'class="trip-row trip-row-auto" data-trip-source="auto"' in response.text
+        assert 'class="trip-row trip-row-manual"' in response.text
+        assert 'data-trip-source="manual"' in response.text
+        assert response.text.count('class="trip-row trip-row-auto"') == 3
+        assert response.text.count('data-trip-mileage-edited="true"') == 2
+        assert response.text.count("Edited") == 2
         styles = Path("mileage_logger/web/static/styles.css").read_text()
         assert (
             ".trip-row-auto,\n.deleted-trip-row-auto {\n  background:\n    "
@@ -4191,6 +4232,7 @@ def test_trips_page_shades_deleted_trip_rows_by_source() -> None:
                         miles=Decimal("6.0"),
                         source="manual",
                         mileage_source="manual",
+                        notes=MANUAL_TRIP_NOTE,
                         reason="user_deleted",
                     ),
                 ]
@@ -4573,6 +4615,9 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
         assert "2026-06-16" not in content_response.text
         assert "New Home" in content_response.text
         assert "New Client" in content_response.text
+        assert 'class="trip-row trip-row-auto"' in content_response.text
+        assert 'data-trip-mileage-edited="true"' in content_response.text
+        assert "Edited" in content_response.text
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
@@ -4588,7 +4633,7 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
             assert trip.end_odometer_miles == Decimal("1015.500")
             assert trip.start_odometer_source == "previous_trip"
             assert trip.end_odometer_source == "estimated"
-            assert trip.source == "manual"
+            assert trip.source == "auto"
             assert trip.mileage_source == "manual"
     finally:
         app.dependency_overrides.clear()

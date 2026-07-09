@@ -16,6 +16,7 @@ from mileage_logger.models import (
     TripProcessingCheckpoint,
 )
 from mileage_logger.services.mileage import (
+    AUTO_TRIP_SOURCE,
     MANUAL_TRIP_SOURCE,
     MILEAGE_SOURCE_ESTIMATED_ODOMETER,
     MILEAGE_SOURCE_MANUAL,
@@ -1673,7 +1674,7 @@ def test_manual_mileage_edit_is_preserved_without_reusing_future_matching_route(
     future_trips = generate_trips(db, second_day.date(), second_day.date())
 
     assert regenerated == []
-    assert first_trip.source == MANUAL_TRIP_SOURCE
+    assert first_trip.source == AUTO_TRIP_SOURCE
     assert first_trip.mileage_source == MILEAGE_SOURCE_MANUAL
     assert future_trips[0].miles == haversine_miles(
         home.latitude,
@@ -1682,6 +1683,23 @@ def test_manual_mileage_edit_is_preserved_without_reusing_future_matching_route(
         client.longitude,
     )
     assert future_trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
+
+
+def test_manual_trip_source_survives_later_distance_edit() -> None:
+    db = _session()
+    trip = create_manual_trip(
+        db,
+        trip_date=date(2026, 6, 12),
+        origin_name="Home",
+        destination_name="Client",
+        miles=Decimal("5.0"),
+    )
+
+    update_trip_details(trip, "Home", "Client", Decimal("6.25"))
+
+    assert trip.source == MANUAL_TRIP_SOURCE
+    assert trip.mileage_source == MILEAGE_SOURCE_MANUAL
+    assert trip.miles == Decimal("6.3")
 
 
 def test_generate_trips_does_not_delete_existing_auto_trips_without_source_events() -> None:

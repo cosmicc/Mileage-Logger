@@ -44,6 +44,7 @@ WAYPOINT_DEPARTURE_CONFIRMATION_DISTANCE_M = Decimal("500")
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
 MANUAL_TRIP_NOTE = "Manually added from Trips page."
+USER_EDITED_TRIP_NOTE = "Edited from Work Trips page."
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 TripGenerationKey = tuple[int, int, datetime, datetime]
 
@@ -580,7 +581,12 @@ def _preserved_trips_for_range(db: Session, start_date: date, end_date: date) ->
     return list(
         db.scalars(
             select(Trip)
-            .where(Trip.source != AUTO_TRIP_SOURCE)
+            .where(
+                or_(
+                    Trip.source != AUTO_TRIP_SOURCE,
+                    Trip.mileage_source == MILEAGE_SOURCE_MANUAL,
+                )
+            )
             .where(Trip.trip_date >= start_date)
             .where(Trip.trip_date <= end_date)
             .order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
@@ -810,10 +816,10 @@ def _should_skip_for_minimum_miles(origin: Site, destination: Site, miles: Decim
 
 
 def _mileage_source_rank(value: str | None) -> int:
+    if value == MILEAGE_SOURCE_MANUAL:
+        return 5
     if value == MILEAGE_SOURCE_OWNTRACKS_PATH:
         return 4
-    if value == MILEAGE_SOURCE_MANUAL:
-        return 3
     if value == MILEAGE_SOURCE_WAYPOINT_DISTANCE:
         return 2
     if value == MILEAGE_SOURCE_ESTIMATED_ODOMETER:
@@ -1855,9 +1861,17 @@ def generate_trips(
     return generated
 
 
-def mark_trip_manually_reviewed(trip: Trip) -> None:
+def mark_trip_user_edited(trip: Trip) -> None:
+    """Record user edits without changing how the trip was originally created."""
+
     if trip.source == AUTO_TRIP_SOURCE:
-        trip.source = MANUAL_TRIP_SOURCE
+        trip.notes = _append_note(trip.notes, USER_EDITED_TRIP_NOTE)
+
+
+def mark_trip_manually_reviewed(trip: Trip) -> None:
+    """Compatibility wrapper for older callers that recorded row edits."""
+
+    mark_trip_user_edited(trip)
 
 
 def suppress_trip_generation_for_deleted_trip(
@@ -2002,7 +2016,7 @@ def update_trip_details(
     if miles is not None:
         trip.miles = Decimal(miles).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
         trip.mileage_source = MILEAGE_SOURCE_MANUAL
-    mark_trip_manually_reviewed(trip)
+    mark_trip_user_edited(trip)
 
 
 def update_trip_location_names(trip: Trip, origin_name: str, destination_name: str) -> None:

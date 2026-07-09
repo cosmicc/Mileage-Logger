@@ -366,12 +366,14 @@ is placed after the existing work trips on the selected local date, so backdated
 land at the end of that day and today's manual entries become the latest work trip for today. If
 the manual work trip is inserted before existing work trips, the app resequences that work trip and
 every later work trip so odometers remain cumulative across month boundaries while preserving
-existing positive odometer gaps between work trips for non-work trip driving. Manual work-trip rows
-use a subtle yellow shade, and automatic OwnTracks-generated rows use the same subtle blue shade as
-automatic deleted records. Deleted work-trip records also keep source-based shading for manual and
-automatic entries. Deleting a work trip from the `Work Trips` page also saves an exact deleted-trip
-record so only that same OwnTracks transition pair is not generated again; future work trips with
-the same route are still generated normally.
+existing positive odometer gaps between work trips for non-work trip driving. Only work trips
+created from the Add Work Trip form use the subtle yellow manual-row shade. Automatic
+OwnTracks-generated rows use the same subtle blue shade as automatic deleted records, and an
+automatic row with corrected mileage shows an Edited indicator beside its miles field instead of
+becoming a manual-colored row. Deleted work-trip records also keep source-based shading for true
+manual entries and automatic entries. Deleting a work trip from the `Work Trips` page also saves an
+exact deleted-trip record so only that same OwnTracks transition pair is not generated again;
+future work trips with the same route are still generated normally.
 Automatic same-waypoint work trips under 1.0 mile are also removed with an exact suppression record
 so older invalid rows do not return from the same OwnTracks transition pair.
 The checkpoint odometer is advanced from OwnTracks path distance between received points even when

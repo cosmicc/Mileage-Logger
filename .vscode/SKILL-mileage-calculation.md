@@ -272,12 +272,14 @@ db.commit()
 Effects:
 - Updates trip fields
 - Sets `mileage_source="manual"`
+- Preserves the trip's creation `source`; an automatic trip with edited mileage remains an
+  automatic trip and displays an Edited indicator on the Trips page
 - **Re-sequences month's trips**: Recalculates all odometer chains for that month
 
 On the Trips page, existing row dates and odometers remain read-only. From/To edits are validated
 waypoint dropdown selections; changing them stores the selected waypoint IDs, names, and
-coordinates on the trip and marks the row as manually reviewed. The stored miles value still drives
-odometer resequencing.
+coordinates on the trip without converting the trip into a manual Add Work Trip entry. The stored
+miles value still drives odometer resequencing.
 
 ### Resequencing Logic
 

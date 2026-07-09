@@ -76,10 +76,11 @@ from mileage_logger.services.login_failures import (
     tail_login_success_entries,
 )
 from mileage_logger.services.mileage import (
+    MANUAL_TRIP_NOTE,
     MILEAGE_SOURCE_MANUAL,
     create_manual_trip,
     delete_trip,
-    mark_trip_manually_reviewed,
+    mark_trip_user_edited,
     monthly_miles,
     owntracks_segment_miles,
     resequence_month_trip_odometers,
@@ -752,6 +753,8 @@ def _trips_template_context(db: Session, *, year: int, month: int) -> dict[str, 
         "waypoints": waypoints,
         "waypoint_names": [waypoint.name for waypoint in waypoints],
         "suppressed_trips": suppressed_trips,
+        "manual_mileage_source": MILEAGE_SOURCE_MANUAL,
+        "manual_trip_note": MANUAL_TRIP_NOTE,
     }
 
 
@@ -1250,7 +1253,7 @@ def _update_trip_row_values(
         manual_review_needed = True
 
     if manual_review_needed:
-        mark_trip_manually_reviewed(trip)
+        mark_trip_user_edited(trip)
     return resequence_months
 
 
@@ -1527,7 +1530,7 @@ def _apply_trip_waypoints(trip: Trip, origin_site: Site, destination_site: Site)
     trip.end_latitude = destination_site.latitude
     trip.end_longitude = destination_site.longitude
     trip.mileage_source = MILEAGE_SOURCE_MANUAL
-    mark_trip_manually_reviewed(trip)
+    mark_trip_user_edited(trip)
     return True
 
 

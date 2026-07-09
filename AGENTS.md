@@ -345,10 +345,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   then resequence that trip and all later trips when the inserted date is before existing trip rows.
   New manual trips are placed after existing trips on the selected local date, and resequencing keeps
   existing positive odometer gaps between trips so non-trip driving remains represented. Monthly
-  Work Trips rows use source-based tinting without changing the table layout: automatic
-  OwnTracks-generated rows use the same subtle blue as automatic deleted records, and manual rows
-  use the existing subtle yellow. Deleted Work Trip Records also use source-based row tinting so
-  manual deleted records and automatic deleted records remain visually distinct.
+  Work Trips rows use creation-source tinting without changing the table layout: automatic
+  OwnTracks-generated rows use the same subtle blue as automatic deleted records, and only trips
+  created from the Add Work Trip form use the existing subtle yellow. Automatic rows with corrected
+  mileage show a compact Edited indicator beside the miles field instead of changing to the manual
+  tint. Deleted Work Trip Records also use creation-source tinting so true manual deleted records
+  and automatic deleted records remain visually distinct.
 - Dashboard work trip plus non-work trip distance cards use OwnTracks path distance as the
   total-distance source but floor the combined total at the stored work trip total after
   one-decimal rounding, so the displayed non-work trip remainder is never negative.
