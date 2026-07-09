@@ -191,7 +191,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
      `enter`, or the next processing pass after the dwell timer when no earlier event contradicts
      the visit. An OwnTracks-named arrival whose first coordinates are outside the saved radius
      still needs later same-waypoint state evidence, such as a same-waypoint `leave` after the dwell
-     window; the label alone is not enough.
+     window; the label alone is not enough. If an `enter` is rejected because the device leaves
+     before the dwell deadline, that later `leave` must not become the origin for a return trip.
    - Home → Home never generates a trip
    - Same-waypoint trips under 1.0 mile are invalid and are suppressed with an exact deleted-trip record
 3. Mileage is calculated from OwnTracks location updates between the two events
@@ -410,8 +411,10 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    consecutive count. Diagnostics paginates successful-login rows, failed-login rows, and
    app-managed Cloudflare blocks in compact 10-row pages; successful-login rows show a Password or
    Passkey method pill instead of an account column. On mobile, pagination keeps First, Previous,
-   Next, and Last in one full-width row with the page count as text below. Failed-login row block
-   buttons must use the failed-login table's corrected effective client IP.
+   Next, and Last in one full-width row with the page count as text below. Pagination controls
+   should progressively update only the active list and preserve the current scroll position while
+   keeping normal links as a fallback. Failed-login row block buttons must use the failed-login
+   table's corrected effective client IP.
 6. Diagnostics includes a Configure Passkey card for the single configured web user. Passkey
    creation requires an authenticated web session, lists configured passkeys, and removes only the
    selected local credential row. Passkey login failures must stay on the same failed-login audit,
@@ -438,7 +441,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    snapshots, and keep the monthly average based on the current app-local month. The detailed
    OwnTracks state-change log and recent OwnTracks database entries are paginated in compact 10-row
    pages with the same mobile full-width pagination row used by the login and Cloudflare block
-   lists.
+   lists. These paginated lists should update in place without a full-page refresh when JavaScript
+   is available.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
    readable event labels instead of the database row ID, raw receive timestamps, battery level, or
    MQTT topic details.

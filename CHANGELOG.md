@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.4 - Unreleased
+
+### Added
+- Added regression coverage for a short false waypoint visit where OwnTracks sends an `enter` and
+  `leave` before the configured dwell time.
+- Added progressive pagination behavior for paginated Waypoints and Diagnostics lists so page
+  buttons can update only the active list without a full browser navigation.
+
+### Changed
+- Bumped the Mileage Logger package version to 1.3.4 for unreleased development.
+- Changed paginated Waypoints and Diagnostics list controls to keep the current scroll position
+  while loading First, Previous, Next, and Last pages.
+- Changed trip generation so a waypoint `leave` cannot become a trip origin when that waypoint's
+  matching arrival was rejected for leaving before the dwell deadline.
+
+### Fixed
+- Fixed short false waypoint visits, such as a nearby stop that OwnTracks briefly labels as inside
+  a waypoint, from generating a return trip from that waypoint.
+- Fixed paginated lists jumping back to the top of the page when switching pages.
+
 ## 1.3.3 - 07.08.2026
 
 ### Added

@@ -708,7 +708,9 @@ was rejected; keep the user message pointed at `CLOUDFLARE_API_TOKEN`, the
 failed-login table, Cloudflare blocked-IP table, recent OwnTracks entries, and OwnTracks
 state-change log paginated at 10 visible rows per page so the cards stay compact.
 Their mobile pagination controls should keep First, Previous, Next, and Last in one full-width row
-with the page count rendered as plain text below the buttons.
+with the page count rendered as plain text below the buttons. Keep pagination links progressively
+enhanced so First, Previous, Next, and Last replace only the targeted list and preserve scroll
+position when JavaScript is available, while still working as normal links without JavaScript.
 The Recent OwnTracks Entries table should show original event time, capture-to-receive delay, and
 readable event labels instead of the database row ID, raw receive timestamps, battery level, or
 MQTT topic details.

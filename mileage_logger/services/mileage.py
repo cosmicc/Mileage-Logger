@@ -1712,11 +1712,29 @@ def generate_trips(
     home_site = _home_site(sites)
     pending_leave: WaypointTransition | None = None
     last_arrival: WaypointTransition | None = None
+    ignored_leave_site_ids: set[int] = set()
     generated: list[Trip] = []
 
     for transition in transitions:
         if transition.event == "leave":
             _odometer_for_transition(db, transition)
+            if (
+                pending_leave is not None
+                and pending_leave.site.id != transition.site.id
+            ) or (
+                last_arrival is not None
+                and last_arrival.site.id != transition.site.id
+            ):
+                trip_logger.debug(
+                    "waypoint leave skipped reason=no_confirmed_arrival site=%s "
+                    "captured_at=%s pending_origin=%s last_arrival=%s",
+                    transition.site.name,
+                    transition.location.captured_at.isoformat(),
+                    pending_leave.site.name if pending_leave is not None else "",
+                    last_arrival.site.name if last_arrival is not None else "",
+                )
+                ignored_leave_site_ids.add(transition.site.id)
+                continue
             pending_leave = transition
             continue
 
@@ -1754,7 +1772,11 @@ def generate_trips(
                     odometer_anchor.source if odometer_anchor is not None else None
                 ),
             )
-        elif last_arrival is not None and last_arrival.site.id != transition.site.id:
+        elif (
+            last_arrival is not None
+            and last_arrival.site.id != transition.site.id
+            and transition.site.id not in ignored_leave_site_ids
+        ):
             odometer_anchor = _odometer_anchor_for_trip_start(db, transition.location.captured_at)
             trip = _add_or_update_trip(
                 db,
@@ -1777,7 +1799,12 @@ def generate_trips(
                     odometer_anchor.source if odometer_anchor is not None else None
                 ),
             )
-        elif last_arrival is None and home_site is not None and home_site.id != transition.site.id:
+        elif (
+            last_arrival is None
+            and home_site is not None
+            and home_site.id != transition.site.id
+            and transition.site.id not in ignored_leave_site_ids
+        ):
             odometer_anchor = _odometer_anchor_for_trip_start(db, transition.location.captured_at)
             trip = _add_or_update_trip(
                 db,
@@ -1801,8 +1828,16 @@ def generate_trips(
                 ),
             )
         else:
+            if transition.site.id in ignored_leave_site_ids:
+                trip_logger.debug(
+                    "waypoint enter skipped reason=ignored_prior_leave site=%s "
+                    "captured_at=%s",
+                    transition.site.name,
+                    transition.location.captured_at.isoformat(),
+                )
             trip = None
 
+        ignored_leave_site_ids.discard(transition.site.id)
         last_arrival = transition
         pending_leave = None
 

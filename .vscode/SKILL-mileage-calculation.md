@@ -136,7 +136,9 @@ def generate_trips(
      can be confirmed by later coordinates inside the radius, a later same-waypoint `leave`, a later
      next-waypoint `enter`, or the next processing pass after the dwell timer when no earlier event
      contradicts the visit. An OwnTracks-named outside-radius arrival needs later same-waypoint
-     state evidence, such as a same-waypoint `leave` after the dwell window.
+     state evidence, such as a same-waypoint `leave` after the dwell window. If a same-waypoint
+     `leave` happens before the dwell deadline, that visit is rejected and the `leave` must not be
+     used as the origin for the next return trip.
    - Skip if both are "Home" waypoint
 3. **For each valid pair**:
    - Load location updates between T1 and T2

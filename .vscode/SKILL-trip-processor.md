@@ -36,6 +36,11 @@ waypoint_leave_event (at time T1)
   + NOT (origin == "Home" AND destination == "Home")
 ```
 
+A waypoint `leave` is a valid trip origin only when it is the first usable leave in the processed
+range or follows a dwell-confirmed arrival for that same waypoint. If a waypoint `enter` is rejected
+because the device leaves before the dwell deadline, the follow-up `leave` must not be reused as
+the origin for a return trip.
+
 OwnTracks region metadata is only a candidate signal. A destination visit that starts from stored
 latitude/longitude inside the saved waypoint radius can be confirmed by later coordinates inside
 the radius, a later same-waypoint `leave`, a later next-waypoint `enter`, or the next processing
@@ -151,7 +156,8 @@ If user then enters "manual odometer: 50010.0":
 - Check OwnTracks event timestamps: `tst` field must show no early same-waypoint leave,
   next-waypoint arrival, or clearly-away movement before the dwell deadline. A later
   same-waypoint leave after the dwell window confirms that earlier arrival, including
-  OwnTracks-named arrivals whose first coordinates were outside the saved radius.
+  OwnTracks-named arrivals whose first coordinates were outside the saved radius. An early
+  same-waypoint leave rejects the arrival and cannot become the next trip origin.
 
 ### Diagnostics Page
 

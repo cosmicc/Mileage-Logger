@@ -320,7 +320,8 @@ The app generates work trips directly from OwnTracks waypoint transitions:
   the saved radius, a later same-waypoint `leave` after the dwell window can still confirm the
   visit. OwnTracks region labels by themselves do not override coordinates outside the saved
   radius, and an early leave, early next-waypoint arrival, or clearly-away movement before the
-  dwell window rejects the visit.
+  dwell window rejects the visit. A rejected waypoint visit cannot become the origin for the next
+  return trip.
 - `Home` is the exact waypoint name for home.
 - `Home` to `Home` is never a trip.
 - Work trips between the same non-home waypoint are kept only when the calculated distance is at
@@ -421,9 +422,10 @@ cards for database, buffer, disk-space, login-lockout, or app-managed Cloudflare
 Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
-full-width row and the page count shown as text below. Recent OwnTracks entries show original event
-time, received delay, and a readable event label instead of the database row ID, raw receive
-timestamps, battery level, or MQTT topic details.
+full-width row and the page count shown as text below. Pagination buttons update only the active
+list and keep the current page position when JavaScript is available, with normal links as a
+fallback. Recent OwnTracks entries show original event time, received delay, and a readable event
+label instead of the database row ID, raw receive timestamps, battery level, or MQTT topic details.
 Successful-login attempts show Password or Passkey method pills instead of an account column. The
 OwnTracks state-change list omits the per-segment distance column and shows original event time,
 received delay, state, waypoint, source, duration, and rolling odometer when available.

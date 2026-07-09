@@ -2462,9 +2462,11 @@ def test_waypoints_page_paginates_twenty_per_page() -> None:
         assert "Showing 21-40" in response.text
         assert "of 45" in response.text
         assert "Page 2 of 3" in response.text
+        assert '<section id="waypoints-list" class="panel">' in response.text
         assert 'class="pagination-controls waypoint-pagination"' in response.text
         assert 'class="pagination-button-row"' in response.text
         assert 'class="pagination-status-text">Page 2 of 3</span>' in response.text
+        assert 'data-pagination-target="waypoints-list"' in response.text
         assert "OwnTracks Region ID" not in response.text
         assert "region-25" not in response.text
         assert "/waypoints?page=1" in response.text
@@ -2788,6 +2790,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         assert "Showing 1-10 of 12 from" in success_section
         assert 'class="pagination-button-row"' in success_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in success_section
+        assert 'data-pagination-target="login-successes"' in success_section
         assert success_section.count("<tr>") == 11
         assert "success-11" in success_section
         assert "success-02" in success_section
@@ -2813,6 +2816,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         assert "Showing 1-10 of 12 from" in login_section
         assert 'class="pagination-button-row"' in login_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in login_section
+        assert 'data-pagination-target="login-failures"' in login_section
         assert login_section.count("<tr>") == 11
         assert "user-11" in login_section
         assert "user-02" in login_section
@@ -2838,6 +2842,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         assert "Showing 1-10 of 12 app-managed Cloudflare" in cloudflare_section
         assert 'class="pagination-button-row"' in cloudflare_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in cloudflare_section
+        assert 'data-pagination-target="cloudflare-blocked-ips"' in cloudflare_section
         assert cloudflare_section.count("<tr>") == 11
         assert "198.51.100.111" in cloudflare_section
         assert "198.51.100.102" in cloudflare_section
@@ -3723,6 +3728,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         assert "Showing 1-10 of 12 state changes." in state_section
         assert 'class="pagination-button-row"' in state_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in state_section
+        assert 'data-pagination-target="owntracks-state-log"' in state_section
         assert state_section.count("<tr>") == 11
         assert "State 11" in state_section
         assert "State 02" in state_section
@@ -3748,6 +3754,7 @@ def test_diagnostics_paginates_owntracks_entries_and_state_changes() -> None:
         assert "Showing 1-10 of 12 entries." in entries_section
         assert 'class="pagination-button-row"' in entries_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in entries_section
+        assert 'data-pagination-target="owntracks-entries"' in entries_section
         assert "<th>ID</th>" not in entries_section
         assert "<th>Original</th>" in entries_section
         assert "<th>Received Delay</th>" in entries_section

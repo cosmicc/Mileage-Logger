@@ -622,6 +622,39 @@ def test_generate_trips_ignores_drive_through_waypoint_without_dwell() -> None:
     assert db.scalar(select(Trip.id)) is None
 
 
+def test_generate_trips_ignores_short_false_waypoint_visit_as_return_origin() -> None:
+    db = _session()
+    home_arrived = datetime(2026, 7, 8, 11, 27, 7, tzinfo=UTC)
+    home_leave = datetime(2026, 7, 8, 13, 11, 17, tzinfo=UTC)
+    star_noor_arrival = datetime(2026, 7, 8, 13, 31, 57, tzinfo=UTC)
+    star_noor_leave = datetime(2026, 7, 8, 13, 33, 40, tzinfo=UTC)
+    home_return = datetime(2026, 7, 8, 13, 52, 38, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458", "home-rid")
+    star_noor = _site("Star Noor", "42.3440", "-83.0600", "star-noor-rid")
+    db.add_all(
+        [
+            home,
+            star_noor,
+            _transition(home_arrived, home, "enter"),
+            _transition(home_leave, home, "leave"),
+            _transition(star_noor_arrival, star_noor, "enter"),
+            _transition(star_noor_leave, star_noor, "leave"),
+            _transition(home_return, home, "enter"),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(
+        db,
+        home_arrived.date(),
+        home_arrived.date(),
+        as_of=home_return + timedelta(minutes=6),
+    )
+
+    assert trips == []
+    assert db.scalar(select(Trip.id)) is None
+
+
 def test_generate_trips_estimates_odometer_from_checkpoint_anchor() -> None:
     db = _session()
     day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
