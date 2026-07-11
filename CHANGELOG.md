@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.3.4 - Unreleased
+## 1.3.4 - 07.11.2026
 
 ### Added
 - Added a `This is a public device` login option with a 15-minute inactivity timeout, browser-data
@@ -23,7 +23,7 @@
   `HOST_DATA_DIR`/`APP_DATA_DIR`, with automatic backups under `/data/backups`.
 - Changed Diagnostics login history and its JSON Lines export to read from PostgreSQL instead of a
   host log file, and removed the App Log panel, refresh button, download button, and file endpoint.
-- Bumped the Mileage Logger package version to 1.3.4 for unreleased development.
+- Bumped the Mileage Logger package version to 1.3.4.
 - Changed Work Trips row source handling so only trips created from the Add Work Trip form use the
   manual yellow row tint.
 - Changed paginated Waypoints and Diagnostics list controls to keep the current scroll position
