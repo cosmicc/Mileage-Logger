@@ -31,6 +31,7 @@ from mileage_logger.models import (
     Site,
     Trip,
     TripProcessingCheckpoint,
+    WebLoginAudit,
 )
 from mileage_logger.services.app_health import AppHealthIssue, AppHealthSnapshot
 from mileage_logger.services.backups import create_automatic_backup, list_automatic_backup_files
@@ -122,6 +123,26 @@ def _session() -> Session:
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)()
+
+
+def _store_login_audit(
+    db: Session,
+    payload: dict,
+    *,
+    entry_id: str = "a" * 64,
+) -> WebLoginAudit:
+    """Store a structured login audit fixture in the database."""
+
+    occurred_at = datetime.fromisoformat(payload["occurred_at_utc"].replace("Z", "+00:00"))
+    audit = WebLoginAudit(
+        entry_id=entry_id,
+        event=payload["event"],
+        occurred_at=occurred_at,
+        payload=payload,
+    )
+    db.add(audit)
+    db.commit()
+    return audit
 
 
 def _test_client_session(
@@ -281,13 +302,11 @@ def test_database_outage_limp_mode_hides_top_navigation(
     tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
         owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
         owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
     )
@@ -622,19 +641,17 @@ def test_web_login_leaves_api_routes_open(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
-def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None:
+def test_web_login_accepts_configured_credentials(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session(client_host="172.18.0.5")
+    client, session_factory = _test_client_session(client_host="172.18.0.5")
     try:
         login_response = client.post(
             "/login",
@@ -651,31 +668,31 @@ def test_web_login_accepts_configured_credentials(monkeypatch, tmp_path) -> None
         assert login_response.headers["location"] == "/trips?year=2026&month=6"
         assert page_response.status_code == 200
         assert "Monthly Work Trips" in page_response.text
-        success_entries = tail_login_success_entries(login_failure_log_path)
+        with session_factory() as db:
+            success_entries = tail_login_success_entries(db)
+            stored_payload = db.scalar(select(WebLoginAudit)).payload
         assert len(success_entries) == 1
         assert success_entries[0].username == "admin"
         assert success_entries[0].account == "admin"
         assert success_entries[0].authentication_method == "password"
         assert success_entries[0].authentication_method_label == "Password"
-        assert "secret-password" not in login_failure_log_path.read_text(encoding="utf-8")
+        assert "secret-password" not in json.dumps(stored_payload)
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
-def test_web_login_rejects_invalid_credentials(monkeypatch, tmp_path) -> None:
+def test_web_login_rejects_invalid_credentials(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session(client_host="172.18.0.5")
+    client, session_factory = _test_client_session(client_host="172.18.0.5")
     try:
         login_response = client.post(
             "/login",
@@ -694,25 +711,24 @@ def test_web_login_rejects_invalid_credentials(monkeypatch, tmp_path) -> None:
         username_index = login_response.text.index("Username")
         assert error_index < username_index
         assert page_response.status_code == 303
-        assert login_failure_log_path.exists()
+        with session_factory() as db:
+            assert db.scalar(select(func.count(WebLoginAudit.id))) == 1
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
 
 
-def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> None:
+def test_web_login_records_failed_attempt_audit_log(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session(client_host="172.18.0.5")
+    client, session_factory = _test_client_session(client_host="172.18.0.5")
     try:
         response = client.post(
             "/login",
@@ -730,8 +746,8 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
             },
         )
 
-        log_text = login_failure_log_path.read_text(encoding="utf-8")
-        payload = json.loads(log_text.splitlines()[0])
+        with session_factory() as db:
+            payload = db.scalar(select(WebLoginAudit)).payload
 
         assert response.status_code == 200
         assert payload["event"] == "web_login_failed"
@@ -743,7 +759,7 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
         assert payload["reason"] == "invalid_credentials"
         assert payload["next_url"] == "/diagnostics"
         assert payload["failed_count"] == 1
-        assert "wrong-password" not in log_text
+        assert "wrong-password" not in json.dumps(payload)
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
         app.dependency_overrides.clear()
@@ -751,20 +767,17 @@ def test_web_login_records_failed_attempt_audit_log(monkeypatch, tmp_path) -> No
 
 def test_web_login_uses_cloudflare_client_ip_when_header_is_present(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session(client_host="203.0.113.88")
+    client, session_factory = _test_client_session(client_host="203.0.113.88")
     try:
         response = client.post(
             "/login",
@@ -780,8 +793,8 @@ def test_web_login_uses_cloudflare_client_ip_when_header_is_present(
             },
         )
 
-        log_text = login_failure_log_path.read_text(encoding="utf-8")
-        payload = json.loads(log_text.splitlines()[0])
+        with session_factory() as db:
+            payload = db.scalar(select(WebLoginAudit)).payload
 
         assert response.status_code == 200
         assert payload["client_ip"] == "198.51.100.77"
@@ -793,10 +806,7 @@ def test_web_login_uses_cloudflare_client_ip_when_header_is_present(
         app.dependency_overrides.clear()
 
 
-def test_failed_login_entries_use_stored_effective_client_ip(
-    tmp_path,
-) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
+def test_failed_login_entries_use_stored_effective_client_ip() -> None:
     stale_payload = {
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
@@ -822,20 +832,18 @@ def test_failed_login_entries_use_stored_effective_client_ip(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(f"{json.dumps(stale_payload)}\n", encoding="utf-8")
     settings = Settings(database_url="sqlite://")
+    db = _session()
+    _store_login_audit(db, stale_payload)
 
-    entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
+    entries = tail_login_failure_entries(db, settings=settings)
 
     assert len(entries) == 1
     assert entries[0].client_ip == "198.51.100.77"
     assert entries[0].direct_client_ip == "172.18.0.5"
 
 
-def test_successful_login_entries_use_stored_effective_client_ip_for_diagnostics(
-    tmp_path,
-) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
+def test_successful_login_entries_use_stored_effective_client_ip_for_diagnostics() -> None:
     payload = {
         "event": "web_login_succeeded",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
@@ -856,24 +864,22 @@ def test_successful_login_entries_use_stored_effective_client_ip_for_diagnostics
         "username_truncated": False,
         "account": "admin",
     }
-    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
+    db = _session()
+    _store_login_audit(db, payload)
 
-    entries = tail_login_success_entries(login_failure_log_path)
+    entries = tail_login_success_entries(db)
 
     assert len(entries) == 1
     assert entries[0].client_ip == "172.18.0.5"
     assert entries[0].authentication_method == "password"
 
-    diagnostics_entries = tail_login_success_entries(login_failure_log_path, settings=Settings())
+    diagnostics_entries = tail_login_success_entries(db, settings=Settings())
 
     assert len(diagnostics_entries) == 1
     assert diagnostics_entries[0].client_ip == "172.18.0.5"
 
 
-def test_failed_login_entries_ignore_forwarding_headers_after_audit_write(
-    tmp_path,
-) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
+def test_failed_login_entries_ignore_forwarding_headers_after_audit_write() -> None:
     payload = {
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
@@ -899,10 +905,11 @@ def test_failed_login_entries_ignore_forwarding_headers_after_audit_write(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
     settings = Settings(database_url="sqlite://")
+    db = _session()
+    _store_login_audit(db, payload)
 
-    entries = tail_login_failure_entries(login_failure_log_path, settings=settings)
+    entries = tail_login_failure_entries(db, settings=settings)
 
     assert len(entries) == 1
     assert entries[0].client_ip == "203.0.113.88"
@@ -935,6 +942,112 @@ def test_web_login_page_does_not_disclose_app_name(monkeypatch) -> None:
         assert "<title>Sign In</title>" in response.text
     finally:
         FAILED_LOGIN_ATTEMPTS.clear()
+        app.dependency_overrides.clear()
+
+
+def test_public_device_checkbox_disables_and_restores_device_sign_in(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    try:
+        with session_factory() as db:
+            db.add(
+                PasskeyCredential(
+                    credential_id="public-device-passkey",
+                    user_handle="public-device-user",
+                    username="admin",
+                    public_key="public-key",
+                    transports=[],
+                )
+            )
+            db.commit()
+
+        response = client.get("/login")
+
+        assert response.status_code == 200
+        assert 'id="public-device-checkbox"' in response.text
+        assert "This is a public device" in response.text
+        assert 'aria-describedby="public-device-tooltip"' in response.text
+        assert 'class="public-device-tooltip" role="tooltip"' in response.text
+        assert "15 minutes of inactivity" in response.text
+        assert ".public-device-option:hover .public-device-tooltip" in response.text
+        assert ".public-device-option:focus-within .public-device-tooltip" in response.text
+        assert 'id="passkey-login-button"' in response.text
+        assert 'publicDeviceCheckbox.addEventListener("change"' in response.text
+        assert "button.disabled = publicDevice" in response.text
+        assert "Device Sign-In is unavailable on a public device." in response.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_public_device_session_expires_and_clears_browser_data(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    current_time = [1_000.0]
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.auth.time.time", lambda: current_time[0])
+    client, _ = _test_client_session()
+    try:
+        login_response = client.post(
+            "/login",
+            data={
+                "username": "admin",
+                "password": "secret-password",
+                "public_device": "true",
+            },
+            follow_redirects=False,
+        )
+        active_response = client.get("https://testserver/", follow_redirects=False)
+        current_time[0] += 901
+        expired_response = client.get(
+            "https://testserver/diagnostics",
+            follow_redirects=False,
+        )
+
+        assert login_response.status_code == 303
+        assert active_response.status_code == 200
+        assert "idleTimeoutMs = 900 * 1000" in active_response.text
+        assert 'href="/manifest.webmanifest"' not in active_response.text
+        assert expired_response.status_code == 303
+        assert expired_response.headers["location"] == "/login?public_timeout=1"
+        assert expired_response.headers["clear-site-data"] == '"cache", "cookies", "storage"'
+        assert "mileage_logger_session=null" in expired_response.headers["set-cookie"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_passkey_login_rejects_public_device_mode(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        secret_key=TEST_SECRET_KEY,
+        web_login_username="admin",
+        web_login_password="secret-password",
+    )
+    monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, _ = _test_client_session()
+    try:
+        response = client.post(
+            "/passkeys/login/options",
+            json={"next_url": "/", "public_device": True},
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "error": "Device Sign-In is unavailable on a public device."
+        }
+    finally:
         app.dependency_overrides.clear()
 
 
@@ -1012,15 +1125,13 @@ def test_passkey_login_options_stay_open_and_use_browser_origin(monkeypatch) -> 
         app.dependency_overrides.clear()
 
 
-def test_passkey_login_verify_authenticates_session(monkeypatch, tmp_path) -> None:
+def test_passkey_login_verify_authenticates_session(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -1054,7 +1165,8 @@ def test_passkey_login_verify_authenticates_session(monkeypatch, tmp_path) -> No
         assert verify_response.status_code == 200
         assert verify_response.json() == {"redirect_url": "/diagnostics"}
         assert diagnostics_response.status_code == 200
-        success_entries = tail_login_success_entries(login_failure_log_path)
+        with session_factory() as db:
+            success_entries = tail_login_success_entries(db)
         assert len(success_entries) == 1
         assert success_entries[0].username == "admin"
         assert success_entries[0].authentication_method == "passkey"
@@ -1070,19 +1182,17 @@ def test_passkey_login_verify_authenticates_session(monkeypatch, tmp_path) -> No
         app.dependency_overrides.clear()
 
 
-def test_failed_passkey_login_records_audit_entry(monkeypatch, tmp_path) -> None:
+def test_failed_passkey_login_records_audit_entry(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session()
+    client, session_factory = _test_client_session()
     try:
         def reject_passkey(_db, _request, _payload):
             from mileage_logger.services.passkeys import PasskeyCeremonyError
@@ -1099,7 +1209,8 @@ def test_failed_passkey_login_records_audit_entry(monkeypatch, tmp_path) -> None
         )
 
         assert response.status_code == 401
-        payload = json.loads(login_failure_log_path.read_text(encoding="utf-8").splitlines()[0])
+        with session_factory() as db:
+            payload = db.scalar(select(WebLoginAudit)).payload
         assert payload["event"] == "web_login_failed"
         assert payload["reason"] == "invalid_passkey"
         assert payload["password_length"] == 0
@@ -1108,15 +1219,13 @@ def test_failed_passkey_login_records_audit_entry(monkeypatch, tmp_path) -> None
         app.dependency_overrides.clear()
 
 
-def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> None:
+def test_web_layout_includes_mobile_install_metadata(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -1211,16 +1320,13 @@ def test_web_layout_includes_mobile_install_metadata(monkeypatch, tmp_path) -> N
 
 def test_login_page_has_no_top_navigation_for_unauthenticated_session(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -2097,9 +2203,8 @@ def test_dashboard_replaces_vehicle_mpg_with_location_state(monkeypatch) -> None
         app.dependency_overrides.clear()
 
 
-def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) -> None:
+def test_web_login_temporarily_locks_repeated_failures(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
@@ -2107,11 +2212,10 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
         web_login_password="secret-password",
         web_login_max_attempts=2,
         web_login_lockout_seconds=300,
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session()
+    client, session_factory = _test_client_session()
     try:
         for _ in range(2):
             response = client.post(
@@ -2135,10 +2239,11 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
 
         assert locked_response.status_code == 200
         assert "Login is temporarily unavailable." in locked_response.text
-        payloads = [
-            json.loads(line)
-            for line in login_failure_log_path.read_text(encoding="utf-8").splitlines()
-        ]
+        with session_factory() as db:
+            payloads = list(
+                db.scalars(select(WebLoginAudit).order_by(WebLoginAudit.id.asc()))
+            )
+            payloads = [audit.payload for audit in payloads]
         assert [payload["reason"] for payload in payloads] == [
             "invalid_credentials",
             "invalid_credentials",
@@ -2153,17 +2258,14 @@ def test_web_login_temporarily_locks_repeated_failures(monkeypatch, tmp_path) ->
 
 def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=10,
-        login_failure_log_path=str(login_failure_log_path),
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
@@ -2212,17 +2314,14 @@ def test_web_login_auto_blocks_cloudflare_ip_after_five_consecutive_failures(
 
 def test_cloudflare_header_controls_auto_block_when_present(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=10,
-        login_failure_log_path=str(login_failure_log_path),
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
@@ -2269,17 +2368,14 @@ def test_cloudflare_header_controls_auto_block_when_present(
 
 def test_successful_web_login_resets_consecutive_failures_before_auto_block(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
         web_login_max_attempts=10,
-        login_failure_log_path=str(login_failure_log_path),
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
@@ -2542,28 +2638,7 @@ def test_waypoints_page_deletes_waypoint_and_preserves_trip_history() -> None:
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_shows_single_colored_app_log_and_download(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    log_path = tmp_path / "app.log"
-    log_text = "\n".join(
-        [
-            "2026-06-13 09:00:00 EDT DEBUG [app] details",
-            "2026-06-13 09:01:00 EDT INFO [app] started",
-            "2026-06-13 09:02:00 EDT WARNING [app] slow",
-            "2026-06-13 09:03:00 EDT ERROR [app] failed",
-        ]
-    )
-    log_path.write_text(log_text, encoding="utf-8")
-    monkeypatch.setattr(
-        "mileage_logger.web.routes.get_settings",
-        lambda: Settings(
-            database_url="sqlite://",
-            log_dir=str(tmp_path),
-            log_level="debug",
-        ),
-    )
+def test_diagnostics_uses_console_logging_without_app_log_panel() -> None:
     client, _ = _test_client_session()
     try:
         response = client.get("/diagnostics")
@@ -2572,29 +2647,18 @@ def test_diagnostics_shows_single_colored_app_log_and_download(
         assert response.status_code == 200
         assert "App Version" in response.text
         assert __version__ in response.text
-        assert "App Log" in response.text
-        assert "Refresh App Log" in response.text
-        assert "Trip Calculation Log" not in response.text
-        assert "Gas Price Query Log" not in response.text
-        assert 'class="log-line log-line-debug"' in response.text
-        assert 'class="log-line log-line-info"' in response.text
-        assert 'class="log-line log-line-warning"' in response.text
-        assert 'class="log-line log-line-error"' in response.text
-        assert "Download App Log" in response.text
-        assert download_response.status_code == 200
-        assert download_response.text == log_text
-        assert "attachment" in download_response.headers["content-disposition"]
-        assert "app.log" in download_response.headers["content-disposition"]
-        assert download_response.headers["cache-control"] == "no-store"
+        assert "Console only" in response.text
+        assert "App Log" not in response.text
+        assert "Refresh App Log" not in response.text
+        assert "Download App Log" not in response.text
+        assert download_response.status_code == 404
     finally:
         app.dependency_overrides.clear()
 
 
 def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
-    tmp_path,
     monkeypatch,
 ) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
     success_payload = {
         "event": "web_login_succeeded",
         "occurred_at_utc": "2026-06-19T11:59:00Z",
@@ -2639,20 +2703,15 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(
-        f"{json.dumps(success_payload)}\n{json.dumps(payload)}\n",
-        encoding="utf-8",
-    )
     monkeypatch.setattr(
         "mileage_logger.web.routes.get_settings",
-        lambda: Settings(
-            database_url="sqlite://",
-            log_dir=str(tmp_path),
-            login_failure_log_path=str(login_failure_log_path),
-        ),
+        lambda: Settings(database_url="sqlite://"),
     )
-    client, _ = _test_client_session()
+    client, session_factory = _test_client_session()
     try:
+        with session_factory() as db:
+            _store_login_audit(db, success_payload, entry_id="1" * 64)
+            _store_login_audit(db, payload, entry_id="2" * 64)
         response = client.get("/diagnostics")
         download_response = client.get("/diagnostics/logs/login-failures")
 
@@ -2679,7 +2738,7 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
         assert download_response.status_code == 200
         assert "web_login_failed" in download_response.text
         assert "attachment" in download_response.headers["content-disposition"]
-        assert "mileage-logger-login-failures.log" in download_response.headers[
+        assert "mileage-logger-login-audits.jsonl" in download_response.headers[
             "content-disposition"
         ]
         assert download_response.headers["cache-control"] == "no-store"
@@ -2688,10 +2747,8 @@ def test_diagnostics_shows_failed_login_attempts_without_footer_actions(
 
 
 def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
-    tmp_path,
     monkeypatch,
 ) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
     success_lines = []
     for index in range(12):
         success_lines.append(
@@ -2749,21 +2806,25 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
                 }
             )
         )
-    login_failure_log_path.write_text(
-        "\n".join([*success_lines, *lines]),
-        encoding="utf-8",
-    )
     monkeypatch.setattr(
         "mileage_logger.web.routes.get_settings",
-        lambda: Settings(
-            database_url="sqlite://",
-            log_dir=str(tmp_path),
-            login_failure_log_path=str(login_failure_log_path),
-        ),
+        lambda: Settings(database_url="sqlite://"),
     )
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
+            for index, line in enumerate(success_lines):
+                _store_login_audit(
+                    db,
+                    json.loads(line),
+                    entry_id=f"{index + 1:064x}",
+                )
+            for index, line in enumerate(lines):
+                _store_login_audit(
+                    db,
+                    json.loads(line),
+                    entry_id=f"{index + 101:064x}",
+                )
             for index in range(12):
                 db.add(
                     CloudflareIPBlock(
@@ -2791,7 +2852,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="login-successes" class="panel">',
             '<section id="login-failures" class="panel">',
         )
-        assert "Showing 1-10 of 12 from" in success_section
+        assert "Showing 1-10 of 12 stored in PostgreSQL" in success_section
         assert 'class="pagination-button-row"' in success_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in success_section
         assert 'data-pagination-target="login-successes"' in success_section
@@ -2807,7 +2868,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="login-successes" class="panel">',
             '<section id="login-failures" class="panel">',
         )
-        assert "Showing 11-12 of 12 from" in second_success_section
+        assert "Showing 11-12 of 12 stored in PostgreSQL" in second_success_section
         assert "success-01" in second_success_section
         assert "success-00" in second_success_section
         assert "success-02" not in second_success_section
@@ -2817,7 +2878,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="login-failures" class="panel">',
             '<section id="cloudflare-blocked-ips" class="panel">',
         )
-        assert "Showing 1-10 of 12 from" in login_section
+        assert "Showing 1-10 of 12 stored in PostgreSQL" in login_section
         assert 'class="pagination-button-row"' in login_section
         assert 'class="pagination-status-text">Page 1 of 2</span>' in login_section
         assert 'data-pagination-target="login-failures"' in login_section
@@ -2833,7 +2894,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
             '<section id="login-failures" class="panel">',
             '<section id="cloudflare-blocked-ips" class="panel">',
         )
-        assert "Showing 11-12 of 12 from" in second_login_section
+        assert "Showing 11-12 of 12 stored in PostgreSQL" in second_login_section
         assert "user-01" in second_login_section
         assert "user-00" in second_login_section
         assert "user-02" not in second_login_section
@@ -2841,7 +2902,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         cloudflare_section = _html_section(
             response.text,
             '<section id="cloudflare-blocked-ips" class="panel">',
-            '<section id="app-log" class="panel log-panel">',
+            '<section id="data-backup" class="panel">',
         )
         assert "Showing 1-10 of 12 app-managed Cloudflare" in cloudflare_section
         assert 'class="pagination-button-row"' in cloudflare_section
@@ -2862,7 +2923,7 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
         second_cloudflare_section = _html_section(
             second_cloudflare_page.text,
             '<section id="cloudflare-blocked-ips" class="panel">',
-            '<section id="app-log" class="panel log-panel">',
+            '<section id="data-backup" class="panel">',
         )
         assert "Showing 11-12 of 12 app-managed Cloudflare" in second_cloudflare_section
         assert "198.51.100.101" in second_cloudflare_section
@@ -2873,10 +2934,8 @@ def test_diagnostics_paginates_failed_logins_and_cloudflare_blocks(
 
 
 def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
-    tmp_path,
     monkeypatch,
 ) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
     payload = {
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-27T12:00:00Z",
@@ -2902,18 +2961,17 @@ def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(login_failure_log_path),
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="token",
         cloudflare_zone_id="zone",
     )
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
-    client, _ = _test_client_session()
+    client, session_factory = _test_client_session()
     try:
+        with session_factory() as db:
+            _store_login_audit(db, payload)
         response = client.get("/diagnostics")
 
         assert response.status_code == 200
@@ -2931,7 +2989,6 @@ def test_diagnostics_failed_login_block_button_uses_resolved_client_ip(
 
 def test_diagnostics_passkey_card_lists_registers_and_removes_passkeys(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
@@ -2939,8 +2996,6 @@ def test_diagnostics_passkey_card_lists_registers_and_removes_passkeys(
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(tmp_path / "login-failures.log"),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -3003,12 +3058,10 @@ def test_diagnostics_passkey_card_lists_registers_and_removes_passkeys(
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
-    tmp_path,
+def test_diagnostics_hides_failed_login_entry_without_deleting_audit(
     monkeypatch,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     payload = {
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-19T12:00:00Z",
@@ -3034,20 +3087,18 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    raw_log_line = f"{json.dumps(payload)}\n"
-    login_failure_log_path.write_text(raw_log_line, encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(login_failure_log_path),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
     client, session_factory = _test_client_session()
     try:
+        with session_factory() as db:
+            _store_login_audit(db, payload)
         login_response = client.post(
             "/login",
             data={
@@ -3058,9 +3109,9 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
             follow_redirects=False,
         )
         assert login_response.status_code == 303
-        log_text_before_hide = login_failure_log_path.read_text(encoding="utf-8")
-        assert raw_log_line in log_text_before_hide
-        entry = tail_login_failure_entries(login_failure_log_path)[0]
+        with session_factory() as db:
+            entry = tail_login_failure_entries(db)[0]
+            audit_count_before_hide = db.scalar(select(func.count(WebLoginAudit.id)))
 
         response = client.post(
             "/diagnostics/login-failures/hide",
@@ -3075,8 +3126,8 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
 
         assert response.status_code == 303
         assert "203.0.113.10" not in diagnostics_response.text
-        assert login_failure_log_path.read_text(encoding="utf-8") == log_text_before_hide
         with session_factory() as db:
+            assert db.scalar(select(func.count(WebLoginAudit.id))) == audit_count_before_hide
             hidden_entry = db.scalar(select(HiddenLoginFailure))
             assert hidden_entry is not None
             assert hidden_entry.entry_id == entry.entry_id
@@ -3087,11 +3138,9 @@ def test_diagnostics_hides_failed_login_entry_without_rewriting_log(
 
 
 def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_block(
-    tmp_path,
     monkeypatch,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
-    login_failure_log_path = tmp_path / "login-failures.log"
     payload = {
         "event": "web_login_failed",
         "occurred_at_utc": "2026-06-19T12:00:00Z",
@@ -3117,14 +3166,11 @@ def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_bloc
         "lockout_applied": False,
         "lockout_remaining_seconds": 0,
     }
-    login_failure_log_path.write_text(f"{json.dumps(payload)}\n", encoding="utf-8")
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(login_failure_log_path),
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
@@ -3151,6 +3197,8 @@ def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_bloc
     )
     client, session_factory = _test_client_session()
     try:
+        with session_factory() as db:
+            _store_login_audit(db, payload)
         login_response = client.post(
             "/login",
             data={
@@ -3200,17 +3248,13 @@ def test_diagnostics_cloudflare_block_buttons_create_and_remove_app_managed_bloc
 
 
 def test_diagnostics_manual_cloudflare_block_form_validates_and_records_reason(
-    tmp_path,
     monkeypatch,
 ) -> None:
-    login_failure_log_path = tmp_path / "login-failures.log"
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(login_failure_log_path),
         cloudflare_ip_blocking_enabled=True,
         cloudflare_api_token="test-token",
         cloudflare_zone_id="test-zone",
@@ -3314,14 +3358,12 @@ def test_diagnostics_manual_cloudflare_block_form_validates_and_records_reason(
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch, tmp_path) -> None:
+def test_diagnostics_full_backup_download_and_restore_round_trip(monkeypatch) -> None:
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(tmp_path / "login-failures.log"),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -3426,8 +3468,6 @@ def test_diagnostics_restores_retained_automatic_backup(monkeypatch, tmp_path) -
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(tmp_path / "login-failures.log"),
         automatic_backup_dir=str(tmp_path / "backups"),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
@@ -3550,14 +3590,12 @@ def test_automatic_backup_retention_keeps_one_day_of_six_hour_and_prior_daily(
         assert f"mileage-logger-auto-backup-20260620-{hour:02d}0000Z.json.gz" in retained_filenames
 
 
-def test_diagnostics_full_restore_requires_confirmation(monkeypatch, tmp_path) -> None:
+def test_diagnostics_full_restore_requires_confirmation(monkeypatch) -> None:
     settings = Settings(
         database_url="sqlite://",
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        log_dir=str(tmp_path),
-        login_failure_log_path=str(tmp_path / "login-failures.log"),
     )
     monkeypatch.setattr("mileage_logger.web.auth.get_settings", lambda: settings)
     monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
@@ -3596,20 +3634,18 @@ def test_diagnostics_full_restore_requires_confirmation(monkeypatch, tmp_path) -
         app.dependency_overrides.clear()
 
 
-def test_app_log_download_redacts_sensitive_query_values(tmp_path, monkeypatch) -> None:
-    log_path = tmp_path / "app.log"
-    log_path.write_text(
-        "2026-06-13 09:00:00 EDT INFO [httpx] GET "
-        "https://api.example.test/path?api_key=secret-value&series=test",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        "mileage_logger.web.routes.get_settings",
-        lambda: Settings(database_url="sqlite://", log_dir=str(tmp_path)),
-    )
-    client, _ = _test_client_session()
+def test_login_audit_export_redacts_sensitive_query_values() -> None:
+    payload = {
+        "event": "web_login_failed",
+        "occurred_at_utc": "2026-06-27T12:00:00Z",
+        "occurred_at_local": "2026-06-27T08:00:00-04:00",
+        "username": "api_key=secret-value",
+    }
+    client, session_factory = _test_client_session()
     try:
-        response = client.get("/diagnostics/logs/app")
+        with session_factory() as db:
+            _store_login_audit(db, payload)
+        response = client.get("/diagnostics/logs/login-failures")
 
         assert response.status_code == 200
         assert "api_key=***" in response.text
@@ -4983,8 +5019,6 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                 page=1,
                 total_pages=1,
             ),
-            "app_log_lines": [],
-            "login_failure_log_path": "/tmp/mileage-logger-login-failures.log",
             "login_success_entries": [],
             "login_success_entries_page": SimpleNamespace(
                 first_item=0,
@@ -5121,9 +5155,10 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "Total Records" in database_summary
     assert "42 records" in database_summary
 
-    app_log_start = rendered.index('<section id="app-log" class="panel log-panel">')
     backup_start = rendered.index('<section id="data-backup" class="panel">')
-    assert app_log_start < backup_start
+    cloudflare_start = rendered.index('<section id="cloudflare-blocked-ips" class="panel">')
+    assert cloudflare_start < backup_start
+    assert "App Log" not in rendered
     assert "Full Data Backup" in rendered[backup_start:]
 
 
@@ -5160,30 +5195,29 @@ def test_diagnostics_compact_table_and_log_styles() -> None:
     assert ".pagination-button-row .button-link" in stylesheet
     assert "flex: 1 1 0;" in stylesheet
     assert "text-overflow: ellipsis;" in stylesheet
-    assert ".log-view {\n  height: 450px;" in stylesheet
-    assert "  .log-view {\n    height: 42vh;" in stylesheet
+    assert ".log-view" not in stylesheet
 
 
 def test_diagnostics_disk_usage_combines_paths_on_same_drive(tmp_path) -> None:
-    log_dir = tmp_path / "logs"
-    backup_dir = log_dir / "backups"
+    data_dir = tmp_path / "data"
+    backup_dir = data_dir / "backups"
     other_dir = tmp_path / "other"
     backup_dir.mkdir(parents=True)
     other_dir.mkdir()
 
     def fake_disk_usage(path):
-        if path in {log_dir, backup_dir}:
+        if path in {data_dir, backup_dir}:
             return SimpleNamespace(total=1_000, used=600, free=400)
         return SimpleNamespace(total=2_000, used=500, free=1_500)
 
     disk_usages = _diagnostic_disk_usages(
-        (str(log_dir), str(backup_dir), str(other_dir)),
+        (str(data_dir), str(backup_dir), str(other_dir)),
         disk_usage_func=fake_disk_usage,
     )
 
     assert len(disk_usages) == 2
     combined_disk = next(item for item in disk_usages if item.total_bytes == 1_000)
-    assert combined_disk.paths == (str(log_dir), str(backup_dir))
+    assert combined_disk.paths == (str(data_dir), str(backup_dir))
     assert combined_disk.used_bytes == 600
     assert combined_disk.free_bytes == 400
     assert combined_disk.used_percent_style == "60.0%"

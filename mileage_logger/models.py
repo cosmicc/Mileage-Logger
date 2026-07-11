@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -83,6 +84,36 @@ class Site(Base):
 
 class Trip(Base):
     __tablename__ = "trips"
+    __table_args__ = (
+        Index(
+            "uq_trips_auto_generation_signature",
+            "origin_site_id",
+            "destination_site_id",
+            "started_at",
+            "ended_at",
+            unique=True,
+            postgresql_where=text("source = 'auto'"),
+            sqlite_where=text("source = 'auto'"),
+        ),
+        Index(
+            "uq_trips_auto_recorded_values",
+            "trip_date",
+            "origin_site_id",
+            "destination_site_id",
+            "miles",
+            "start_odometer_miles",
+            "end_odometer_miles",
+            unique=True,
+            postgresql_where=text(
+                "source = 'auto' AND start_odometer_miles IS NOT NULL "
+                "AND end_odometer_miles IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "source = 'auto' AND start_odometer_miles IS NOT NULL "
+                "AND end_odometer_miles IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     trip_date: Mapped[date] = mapped_column(Date, index=True)
@@ -343,7 +374,7 @@ class CloudflareIPBlock(Base):
 
 
 class HiddenLoginFailure(Base):
-    """Failed-login audit entry hidden from the Diagnostics list while preserving raw logs."""
+    """Failed-login audit entry hidden from the Diagnostics list without deleting its audit row."""
 
     __tablename__ = "hidden_login_failures"
 
@@ -352,6 +383,22 @@ class HiddenLoginFailure(Base):
     client_ip: Mapped[str] = mapped_column(String(45), default="")
     occurred_at_utc: Mapped[str] = mapped_column(String(40), default="")
     hidden_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class WebLoginAudit(Base):
+    """Database-backed structured audit record for a web login attempt."""
+
+    __tablename__ = "web_login_audits"
+    __table_args__ = (
+        Index("ix_web_login_audits_event_occurred_at", "event", "occurred_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entry_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    event: Mapped[str] = mapped_column(String(40), index=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class PasskeyCredential(Base):

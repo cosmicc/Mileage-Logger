@@ -348,6 +348,13 @@ class DeletedTrip(Base):
 - Later, OwnTracks resends the same events (offline buffer)
 - Trip processor re-detects the same transition pair
 
+The live `trips` table has partial unique indexes for automatic rows on the source-event signature
+`(origin_site_id, destination_site_id, started_at, ended_at)` and the nonblank recorded-value
+signature `(trip_date, origin_site_id, destination_site_id, miles, start_odometer_miles,
+end_odometer_miles)`. Keep the application lookup and database constraints aligned. The migration
+deletes later exact automatic duplicates while retaining the oldest row; it does not constrain
+manual trips.
+
 ---
 
 ## Waypoint Matching

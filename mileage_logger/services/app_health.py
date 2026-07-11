@@ -172,8 +172,7 @@ def _health_storage_paths(settings: Settings) -> tuple[str, ...]:
 
     path_candidates = [
         str(Path.cwd()),
-        settings.log_dir,
-        str(Path(settings.login_failure_log_path).expanduser().parent),
+        settings.app_data_dir,
         settings.automatic_backup_dir,
         str(Path(settings.owntracks_buffer_path).expanduser().parent),
         str(Path(settings.owntracks_buffer_fallback_path).expanduser().parent),

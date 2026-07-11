@@ -107,9 +107,8 @@ class Settings(BaseSettings):
     gas_snapshot_interval_seconds: int = Field(default=86400, ge=60)
     gas_snapshot_run_on_startup: bool = True
 
-    log_dir: str = "logs"
+    app_data_dir: str = "data"
     log_level: LogLevel = "info"
-    login_failure_log_path: str = "/var/log/mileage-logger-login-failures.log"
     max_backup_restore_bytes: int = Field(default=250 * 1024 * 1024, ge=1)
     automatic_backups_enabled: bool = True
     automatic_backup_dir: str = ""
@@ -243,12 +242,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def default_automatic_backup_dir(self) -> Self:
-        """Default automatic backups under the configured runtime log directory."""
+        """Default persistent runtime state under the application data directory."""
 
         if not self.automatic_backup_dir.strip():
-            self.automatic_backup_dir = f"{self.log_dir.rstrip('/')}/backups"
+            self.automatic_backup_dir = f"{self.app_data_dir.rstrip('/')}/backups"
         if not self.app_health_state_path.strip():
-            self.app_health_state_path = f"{self.log_dir.rstrip('/')}/app-health-state.json"
+            self.app_health_state_path = f"{self.app_data_dir.rstrip('/')}/app-health-state.json"
         return self
 
 

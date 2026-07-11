@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session, joinedload
 from mileage_logger import __version__ as APP_VERSION
 from mileage_logger.config import get_settings
 from mileage_logger.database import get_db
-from mileage_logger.logging_config import redact_sensitive_text
 from mileage_logger.models import (
     AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
     Base,
@@ -70,6 +69,7 @@ from mileage_logger.services.gas_prices import (
     refresh_current_monthly_price,
 )
 from mileage_logger.services.login_failures import (
+    login_audit_json_lines,
     record_web_login_failure,
     record_web_login_success,
     tail_login_failure_entries,
@@ -116,6 +116,8 @@ from mileage_logger.services.timezone import (
 from mileage_logger.services.trip_processor import update_odometer_anchor_from_reading
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 from mileage_logger.web.auth import (
+    PUBLIC_DEVICE_IDLE_TIMEOUT_SECONDS,
+    add_public_device_clear_site_data,
     authenticate_web_credentials,
     clear_login_failures,
     clear_request_authentication,
@@ -125,7 +127,9 @@ from mileage_logger.web.auth import (
     login_lockout_remaining_seconds,
     mark_request_authenticated,
     record_login_failure,
+    record_public_device_activity,
     request_is_authenticated,
+    request_is_public_device,
     valid_next_path,
     web_login_enabled,
 )
@@ -199,23 +203,14 @@ templates.env.filters["odometer_source"] = _format_odometer_source
 templates.env.filters["owntracks_entry_event_label"] = owntracks_entry_event_label
 templates.env.filters["owntracks_entry_received_delay"] = owntracks_entry_received_delay_display
 templates.env.globals["request_is_authenticated"] = request_is_authenticated
+templates.env.globals["request_is_public_device"] = request_is_public_device
 templates.env.globals["web_login_enabled"] = web_login_enabled
 templates.env.globals["app_version"] = APP_VERSION
+templates.env.globals["public_device_idle_timeout_seconds"] = (
+    PUBLIC_DEVICE_IDLE_TIMEOUT_SECONDS
+)
 WAYPOINT_PAGE_SIZE = 20
 DISTANCE_PRECISION = Decimal("0.1")
-LOG_LINE_LEVEL_RE = re.compile(r"\s(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+\[")
-LOG_LEVEL_VALUES = {
-    "debug": 10,
-    "info": 20,
-    "warning": 30,
-}
-LOG_LINE_LEVEL_VALUES = {
-    "DEBUG": 10,
-    "INFO": 20,
-    "WARNING": 30,
-    "ERROR": 40,
-    "CRITICAL": 50,
-}
 
 
 @router.get("/manifest.webmanifest", include_in_schema=False)
@@ -270,13 +265,6 @@ def apple_touch_icon() -> FileResponse:
         media_type="image/png",
         headers={"Cache-Control": "no-store"},
     )
-
-
-@dataclass(frozen=True)
-class LogLine:
-    text: str
-    level: str
-    css_class: str
 
 
 @dataclass(frozen=True)
@@ -996,8 +984,7 @@ def _diagnostic_storage_paths(settings) -> tuple[str, ...]:
 
     path_candidates = [
         str(Path.cwd()),
-        settings.log_dir,
-        str(Path(settings.login_failure_log_path).expanduser().parent),
+        settings.app_data_dir,
         settings.automatic_backup_dir,
         str(Path(settings.owntracks_buffer_path).expanduser().parent),
         str(Path(settings.owntracks_buffer_fallback_path).expanduser().parent),
@@ -1324,6 +1311,7 @@ def _record_failed_passkey_login(
         attempt_state = record_login_failure(request, settings)
     lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
     record_web_login_failure(
+        db=db,
         request=request,
         username=settings.web_login_username,
         password="",
@@ -1341,6 +1329,7 @@ def _record_failed_passkey_login(
         attempt_state.failed_count if attempt_state else 0,
         settings,
     )
+    db.commit()
 
 
 def _cloudflare_block_for_ip(db: Session, ip_address: str) -> CloudflareIPBlock | None:
@@ -1443,41 +1432,6 @@ def _maybe_auto_block_failed_login_ip(
         )
     except CloudflareBlockError as exc:
         logger.warning("Could not auto-block failed login IP at Cloudflare: %s", exc)
-
-
-def _log_line_is_visible(line: str, min_level: int) -> bool:
-    match = LOG_LINE_LEVEL_RE.search(line)
-    if match is None:
-        return False
-    return LOG_LINE_LEVEL_VALUES[match.group(1)] >= min_level
-
-
-def _log_line_entry(line: str) -> LogLine:
-    match = LOG_LINE_LEVEL_RE.search(line)
-    level = match.group(1).lower() if match else "debug"
-    css_level = "error" if level in {"error", "critical"} else level
-    return LogLine(
-        text=line,
-        level=level,
-        css_class=f"log-line-{css_level}",
-    )
-
-
-def _tail_file(path: Path, max_lines: int = 200, log_level: str = "info") -> list[LogLine]:
-    if not path.exists():
-        return []
-    with path.open("rb") as file:
-        file.seek(0, 2)
-        size = file.tell()
-        file.seek(max(size - 80_000, 0))
-        text = file.read().decode("utf-8", errors="replace")
-    min_level = LOG_LEVEL_VALUES[log_level]
-    visible_lines = [
-        redact_sensitive_text(line)
-        for line in text.splitlines()
-        if _log_line_is_visible(line, min_level)
-    ]
-    return [_log_line_entry(line) for line in reversed(visible_lines[-max_lines:])]
 
 
 def _waypoint_ordering():
@@ -1619,6 +1573,7 @@ def _masked_database_url(url: str) -> str:
 def login_page(
     request: Request,
     next: str = Query(default="/"),
+    public_timeout: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> Response:
     settings = get_settings()
@@ -1630,7 +1585,12 @@ def login_page(
         "login.html",
         {
             "next_url": safe_next,
-            "login_error": "",
+            "login_error": (
+                "Public-device session ended after 15 minutes of inactivity."
+                if public_timeout
+                else ""
+            ),
+            "public_device": False,
             "passkey_login_available": passkey_login_available(db),
         },
     )
@@ -1646,6 +1606,11 @@ async def passkey_login_options(
     settings = get_settings()
     payload = await _json_object_payload(request)
     safe_next = valid_next_path(str(payload.get("next_url") or "/"))
+    if payload.get("public_device") is True:
+        return _passkey_error_response(
+            "Device Sign-In is unavailable on a public device.",
+            400,
+        )
     if not web_login_enabled(settings):
         return _passkey_error_response("Web login is not configured.", 404)
     if login_is_locked(request, settings):
@@ -1680,6 +1645,11 @@ async def passkey_login_verify(
     settings = get_settings()
     payload = await _json_object_payload(request)
     safe_next = valid_next_path(str(payload.get("next_url") or "/"))
+    if payload.get("public_device") is True:
+        return _passkey_error_response(
+            "Device Sign-In is unavailable on a public device.",
+            400,
+        )
     if not web_login_enabled(settings):
         return _passkey_error_response("Web login is not configured.", 404)
     if login_is_locked(request, settings):
@@ -1707,6 +1677,7 @@ async def passkey_login_verify(
         return _passkey_error_response("Device sign-in failed.", 401)
 
     record_web_login_success(
+        db=db,
         request=request,
         username=settings.web_login_username,
         account=settings.web_login_username,
@@ -1715,7 +1686,7 @@ async def passkey_login_verify(
         settings=settings,
     )
     clear_login_failures(request, settings)
-    mark_request_authenticated(request)
+    mark_request_authenticated(request, public_device=False)
     db.commit()
     logger.info("Web passkey login succeeded passkey_id=%s", passkey.id)
     return JSONResponse({"redirect_url": safe_next})
@@ -1727,6 +1698,7 @@ def login_form(
     username: str = Form(...),
     password: str = Form(...),
     next_url: str = Form(default="/"),
+    public_device: bool = Form(default=False),
     db: Session = Depends(get_db),
 ) -> Response:
     settings = get_settings()
@@ -1737,6 +1709,7 @@ def login_form(
         attempt_state = login_failure_state(request, settings)
         lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
         record_web_login_failure(
+            db=db,
             request=request,
             username=username,
             password=password,
@@ -1754,6 +1727,7 @@ def login_form(
             attempt_state.failed_count if attempt_state else 0,
             settings,
         )
+        db.commit()
         logger.warning("Web login rejected reason=locked_out")
         return templates.TemplateResponse(
             request,
@@ -1761,11 +1735,13 @@ def login_form(
             {
                 "next_url": safe_next,
                 "login_error": "Login is temporarily unavailable.",
+                "public_device": public_device,
                 "passkey_login_available": passkey_login_available(db),
             },
         )
     if authenticate_web_credentials(username, password, settings):
         record_web_login_success(
+            db=db,
             request=request,
             username=username,
             account=settings.web_login_username,
@@ -1774,13 +1750,15 @@ def login_form(
             settings=settings,
         )
         clear_login_failures(request, settings)
-        mark_request_authenticated(request)
+        mark_request_authenticated(request, public_device=public_device)
+        db.commit()
         logger.info("Web login succeeded")
         return RedirectResponse(url=safe_next, status_code=303)
 
     attempt_state = record_login_failure(request, settings)
     lockout_remaining_seconds = login_lockout_remaining_seconds(attempt_state)
     record_web_login_failure(
+        db=db,
         request=request,
         username=username,
         password=password,
@@ -1793,6 +1771,7 @@ def login_form(
         settings=settings,
     )
     _maybe_auto_block_failed_login_ip(db, request, attempt_state.failed_count, settings)
+    db.commit()
     logger.warning("Web login failed")
     return templates.TemplateResponse(
         request,
@@ -1800,6 +1779,7 @@ def login_form(
         {
             "next_url": safe_next,
             "login_error": "Invalid username or password.",
+            "public_device": public_device,
             "passkey_login_available": passkey_login_available(db),
         },
     )
@@ -1807,8 +1787,20 @@ def login_form(
 
 @router.post("/logout")
 def logout_form(request: Request) -> RedirectResponse:
+    public_device = request_is_public_device(request)
     clear_request_authentication(request)
-    return RedirectResponse(url="/login", status_code=303)
+    response = RedirectResponse(url="/login", status_code=303)
+    if public_device:
+        return add_public_device_clear_site_data(response)
+    return response
+
+
+@router.post("/session/activity", status_code=204)
+def public_device_activity(request: Request) -> Response:
+    """Refresh the authenticated public-device session after browser activity."""
+
+    record_public_device_activity(request)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 def _dashboard_template_context(db: Session) -> dict:
@@ -2279,8 +2271,6 @@ def diagnostics(
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     settings = get_settings()
-    log_dir = Path(settings.log_dir)
-    login_failure_log_path = Path(settings.login_failure_log_path)
     latest_location = db.scalar(
         select(OwnTracksLocation).order_by(OwnTracksLocation.captured_at.desc()).limit(1)
     )
@@ -2318,13 +2308,13 @@ def diagnostics(
     gas_price_extremes = _diagnostic_gas_price_extremes(db)
     hidden_login_failure_ids = set(db.scalars(select(HiddenLoginFailure.entry_id)))
     login_failure_entries = tail_login_failure_entries(
-        login_failure_log_path,
+        db,
         max_entries=DIAGNOSTICS_LOGIN_FAILURE_MAX_ENTRIES,
         hidden_entry_ids=hidden_login_failure_ids,
         settings=settings,
     )
     login_success_entries = tail_login_success_entries(
-        login_failure_log_path,
+        db,
         max_entries=DIAGNOSTICS_LOGIN_SUCCESS_MAX_ENTRIES,
         settings=settings,
     )
@@ -2403,8 +2393,6 @@ def diagnostics(
             "movement_state": movement_diagnostics.current_state,
             "movement_state_changes": movement_state_changes,
             "movement_state_changes_page": movement_state_changes_page,
-            "app_log_lines": _tail_file(log_dir / "app.log", log_level=settings.log_level),
-            "login_failure_log_path": login_failure_log_path,
             "login_success_entries": login_success_entries,
             "login_success_entries_page": login_success_entries_page,
             "login_failure_entries": login_failure_entries,
@@ -2711,7 +2699,9 @@ async def restore_full_backup_form(
             "data-backup",
             {
                 "restore_test": "fail",
-                "restore_message": "Restore failed. Check the app log before trying again.",
+                "restore_message": (
+                    "Restore failed. Check the container console logs before trying again."
+                ),
             },
         )
 
@@ -2817,7 +2807,9 @@ def restore_automatic_backup_form(
             "automatic-backups",
             {
                 "restore_test": "fail",
-                "restore_message": "Restore failed. Check the app log before trying again.",
+                "restore_message": (
+                    "Restore failed. Check the container console logs before trying again."
+                ),
             },
         )
 
@@ -2835,15 +2827,14 @@ def restore_automatic_backup_form(
 
 
 @router.get("/diagnostics/logs/login-failures")
-def download_login_failure_log() -> Response:
-    log_path = Path(get_settings().login_failure_log_path)
-    if not log_path.exists():
-        raise HTTPException(status_code=404, detail="Login audit log not found")
+def download_login_failure_log(db: Session = Depends(get_db)) -> Response:
+    """Export database-backed login audit records as JSON Lines."""
+
     return Response(
-        content=redact_sensitive_text(log_path.read_text(encoding="utf-8", errors="replace")),
+        content=login_audit_json_lines(db),
         media_type="application/jsonl; charset=utf-8",
         headers={
-            "Content-Disposition": 'attachment; filename="mileage-logger-login-failures.log"',
+            "Content-Disposition": 'attachment; filename="mileage-logger-login-audits.jsonl"',
             "Cache-Control": "no-store",
         },
     )
@@ -2898,7 +2889,9 @@ def test_eia_api() -> RedirectResponse:
             "api-tests",
             {
                 "eia_test": "fail",
-                "eia_message": "EIA test failed. Check the API key, series ID, and app log.",
+                "eia_message": (
+                    "EIA test failed. Check the API key, series ID, and container console logs."
+                ),
             },
         )
 
@@ -2908,21 +2901,6 @@ def test_eia_api() -> RedirectResponse:
             "eia_test": "pass",
             "eia_message": "EIA returned a current regular gas price reading.",
             "eia_value": f"${reading.price_per_gallon:.3f} on {reading.observed_on}",
-        },
-    )
-
-
-@router.get("/diagnostics/logs/app")
-def download_app_log() -> Response:
-    log_path = Path(get_settings().log_dir) / "app.log"
-    if not log_path.exists():
-        raise HTTPException(status_code=404, detail="App log not found")
-    return Response(
-        content=redact_sensitive_text(log_path.read_text(encoding="utf-8", errors="replace")),
-        media_type="text/plain; charset=utf-8",
-        headers={
-            "Content-Disposition": 'attachment; filename="app.log"',
-            "Cache-Control": "no-store",
         },
     )
 

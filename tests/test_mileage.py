@@ -1,7 +1,9 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from mileage_logger.models import (
@@ -1024,6 +1026,58 @@ def test_generate_trips_reuses_existing_auto_estimated_trip() -> None:
     )
     assert all_trips[0].start_odometer_miles == Decimal("1000.0")
     assert all_trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
+
+
+def test_database_rejects_duplicate_automatic_trip_generation_signature() -> None:
+    db = _session()
+    started_at = datetime(2026, 7, 10, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all([home, client])
+    db.flush()
+
+    def automatic_trip() -> Trip:
+        return Trip(
+            trip_date=started_at.date(),
+            origin_site_id=home.id,
+            destination_site_id=client.id,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=20),
+            start_latitude=home.latitude,
+            start_longitude=home.longitude,
+            end_latitude=client.latitude,
+            end_longitude=client.longitude,
+            origin_name=home.name,
+            destination_name=client.name,
+            miles=Decimal("5.0"),
+            start_odometer_miles=Decimal("1000.0"),
+            end_odometer_miles=Decimal("1005.0"),
+            mileage_source=MILEAGE_SOURCE_OWNTRACKS_PATH,
+            source=AUTO_TRIP_SOURCE,
+            notes="",
+        )
+
+    db.add(automatic_trip())
+    db.commit()
+    db.add(automatic_trip())
+
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+    db.rollback()
+    duplicate_recorded_values = automatic_trip()
+    duplicate_recorded_values.started_at += timedelta(minutes=1)
+    duplicate_recorded_values.ended_at += timedelta(minutes=1)
+    db.add(duplicate_recorded_values)
+    with pytest.raises(IntegrityError):
+        db.commit()
+
+    db.rollback()
+    manual_trip = automatic_trip()
+    manual_trip.source = MANUAL_TRIP_SOURCE
+    db.add(manual_trip)
+    db.commit()
+    assert len(list(db.scalars(select(Trip)))) == 2
 
 
 def test_generate_trips_does_not_rewrite_existing_waypoint_distance_trip() -> None:

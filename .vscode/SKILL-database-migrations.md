@@ -206,7 +206,11 @@ def downgrade() -> None:
 
 **HiddenLoginFailure** (`hidden_login_failures` table)
 - Diagnostics-only suppression list for failed-login audit entry IDs
-- Hides rows from the UI while preserving the raw JSON-lines audit log download
+- Hides rows from the UI while preserving the database audit row
+
+**WebLoginAudit** (`web_login_audits` table)
+- Stores structured successful and failed web-login audit payloads in PostgreSQL
+- Uses a stable 64-character entry ID for Diagnostics hide actions and JSON Lines export
 
 ---
 

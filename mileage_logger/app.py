@@ -41,8 +41,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    log_path = configure_logging("app")
-    logger.info("Starting Mileage Logger app, log_path=%s", log_path)
+    configure_logging("app")
+    logger.info("Starting Mileage Logger app with console logging")
     if settings.create_tables_on_startup:
         try:
             Base.metadata.create_all(bind=engine)

@@ -174,7 +174,9 @@ Enable debug logging to see trip calculation details:
 LOG_LEVEL=debug
 ```
 
-Logs go to `mileage_logger.trip_calculation` logger. Check file at `LOG_DIR/logs/`.
+Logs go to the `mileage_logger.trip_calculation` logger through the root console handler. Use
+`docker compose logs -f app`
+or `docker service logs -f <stack>_app`; do not add a trip-calculation file handler.
 
 ---
 

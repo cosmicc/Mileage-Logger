@@ -10,6 +10,10 @@ from fastapi.responses import RedirectResponse
 from mileage_logger.config import Settings, get_settings
 
 WEB_AUTH_SESSION_KEY = "web_authenticated"
+WEB_AUTH_PUBLIC_DEVICE_KEY = "web_public_device"
+WEB_AUTH_LAST_ACTIVITY_KEY = "web_last_activity"
+PUBLIC_DEVICE_IDLE_TIMEOUT_SECONDS = 15 * 60
+PUBLIC_DEVICE_CLEAR_SITE_DATA = '"cache", "cookies", "storage"'
 WEB_AUTH_OPEN_PATHS = {
     "/apple-touch-icon.png",
     "/login",
@@ -181,6 +185,15 @@ def request_is_authenticated(request: Request) -> bool:
     return request.session.get(WEB_AUTH_SESSION_KEY) is True
 
 
+def request_is_public_device(request: Request) -> bool:
+    """Return whether the authenticated session requested public-device protections."""
+
+    return bool(
+        request_is_authenticated(request)
+        and request.session.get(WEB_AUTH_PUBLIC_DEVICE_KEY) is True
+    )
+
+
 def authenticate_web_credentials(
     username: str,
     password: str,
@@ -194,16 +207,48 @@ def authenticate_web_credentials(
     return username_matches and password_matches
 
 
-def mark_request_authenticated(request: Request) -> None:
-    """Mark the current signed session as authenticated for web UI pages."""
+def mark_request_authenticated(request: Request, *, public_device: bool = False) -> None:
+    """Mark the signed session as authenticated and apply its device privacy mode."""
 
     request.session[WEB_AUTH_SESSION_KEY] = True
+    request.session[WEB_AUTH_PUBLIC_DEVICE_KEY] = public_device
+    if public_device:
+        request.session[WEB_AUTH_LAST_ACTIVITY_KEY] = time.time()
+    else:
+        request.session.pop(WEB_AUTH_LAST_ACTIVITY_KEY, None)
+
+
+def record_public_device_activity(request: Request) -> None:
+    """Refresh the public-device idle timer after verified browser activity."""
+
+    if request_is_public_device(request):
+        request.session[WEB_AUTH_LAST_ACTIVITY_KEY] = time.time()
+
+
+def public_device_session_expired(request: Request) -> bool:
+    """Return whether a public-device session exceeded its inactivity limit."""
+
+    if not request_is_public_device(request):
+        return False
+    try:
+        last_activity = float(request.session.get(WEB_AUTH_LAST_ACTIVITY_KEY, 0))
+    except (TypeError, ValueError):
+        return True
+    return time.time() - last_activity >= PUBLIC_DEVICE_IDLE_TIMEOUT_SECONDS
 
 
 def clear_request_authentication(request: Request) -> None:
-    """Remove web UI authentication state from the current signed session."""
+    """Clear all web UI session state so the signed session cookie is deleted."""
 
-    request.session.pop(WEB_AUTH_SESSION_KEY, None)
+    request.session.clear()
+
+
+def add_public_device_clear_site_data(response: RedirectResponse) -> RedirectResponse:
+    """Ask supported browsers to remove cached and stored site data."""
+
+    response.headers["Clear-Site-Data"] = PUBLIC_DEVICE_CLEAR_SITE_DATA
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 async def enforce_web_login(request: Request, call_next):
@@ -219,5 +264,10 @@ async def enforce_web_login(request: Request, call_next):
     if path.startswith("/static/") or path in WEB_AUTH_OPEN_PATHS:
         return await call_next(request)
     if request_is_authenticated(request):
+        if public_device_session_expired(request):
+            clear_request_authentication(request)
+            return add_public_device_clear_site_data(
+                RedirectResponse(url="/login?public_timeout=1", status_code=303)
+            )
         return await call_next(request)
     return login_redirect_for_request(request)

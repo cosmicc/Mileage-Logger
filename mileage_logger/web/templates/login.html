@@ -29,6 +29,21 @@
             Password
             <input type="password" name="password" autocomplete="current-password" required>
           </label>
+          <label class="checkbox-label public-device-option">
+            <input
+              type="checkbox"
+              id="public-device-checkbox"
+              name="public_device"
+              value="true"
+              aria-describedby="public-device-tooltip"
+              {% if public_device %}checked{% endif %}
+            >
+            <span>This is a public device</span>
+            <span class="public-device-info" aria-hidden="true">i</span>
+            <span id="public-device-tooltip" class="public-device-tooltip" role="tooltip">
+              Signs out after 15 minutes of inactivity and clears this site's browser data.
+            </span>
+          </label>
           <button type="submit">Continue</button>
         </form>
         {% if passkey_login_available %}
@@ -38,24 +53,33 @@
           id="passkey-login-button"
           class="passkey-login-button"
           data-next-url="{{ next_url }}"
+          {% if public_device %}disabled aria-disabled="true"{% endif %}
         >Device Sign-In</button>
+        <p id="passkey-public-device-message" class="public-device-help" {% if not public_device %}hidden{% endif %}>
+          Device Sign-In is unavailable on a public device.
+        </p>
         <p id="passkey-login-error" class="form-error" hidden></p>
         {% endif %}
       </section>
     </main>
-    <script>
-      if ("serviceWorker" in navigator && window.isSecureContext) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(() => {});
-        });
-      }
-    </script>
     {% if passkey_login_available %}
     <script>
       (() => {
         const button = document.getElementById("passkey-login-button");
         const errorMessage = document.getElementById("passkey-login-error");
+        const publicDeviceCheckbox = document.getElementById("public-device-checkbox");
+        const publicDeviceMessage = document.getElementById("passkey-public-device-message");
         const nextUrl = button.dataset.nextUrl || "/";
+
+        const updatePasskeyAvailability = () => {
+          const publicDevice = publicDeviceCheckbox.checked;
+          button.disabled = publicDevice;
+          button.setAttribute("aria-disabled", publicDevice ? "true" : "false");
+          publicDeviceMessage.hidden = !publicDevice;
+          if (publicDevice) {
+            errorMessage.hidden = true;
+          }
+        };
 
         const showError = (message) => {
           errorMessage.textContent = message;
@@ -112,13 +136,19 @@
         };
 
         const signInWithPasskey = async () => {
+          if (publicDeviceCheckbox.checked) {
+            return;
+          }
           errorMessage.hidden = true;
           button.disabled = true;
           try {
             const optionsResponse = await fetch("/passkeys/login/options", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ next_url: nextUrl }),
+              body: JSON.stringify({
+                next_url: nextUrl,
+                public_device: publicDeviceCheckbox.checked,
+              }),
             });
             if (!optionsResponse.ok) {
               throw new Error("Device sign-in is unavailable.");
@@ -128,7 +158,11 @@
             const verifyResponse = await fetch("/passkeys/login/verify", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ ...credentialToJson(credential), next_url: nextUrl }),
+              body: JSON.stringify({
+                ...credentialToJson(credential),
+                next_url: nextUrl,
+                public_device: publicDeviceCheckbox.checked,
+              }),
             });
             const result = await verifyResponse.json().catch(() => ({}));
             if (!verifyResponse.ok) {
@@ -138,7 +172,7 @@
           } catch (error) {
             showError(error.message || "Device sign-in failed.");
           } finally {
-            button.disabled = false;
+            updatePasskeyAvailability();
           }
         };
 
@@ -147,6 +181,8 @@
           showError("Device sign-in is unavailable in this browser.");
           return;
         }
+        publicDeviceCheckbox.addEventListener("change", updatePasskeyAvailability);
+        updatePasskeyAvailability();
         button.addEventListener("click", signInWithPasskey);
       })();
     </script>

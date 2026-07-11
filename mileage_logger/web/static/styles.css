@@ -818,6 +818,74 @@ p {
   width: 100%;
 }
 
+.login-form .public-device-option {
+  position: relative;
+  width: fit-content;
+  cursor: help;
+  font-weight: 800;
+}
+
+.login-form .public-device-option input {
+  width: 20px;
+}
+
+.public-device-info {
+  display: inline-grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border: 1px solid var(--muted);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+  text-transform: none;
+}
+
+.public-device-tooltip {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 10px);
+  left: 0;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 96px));
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  text-transform: none;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  visibility: hidden;
+}
+
+.public-device-option:hover .public-device-tooltip,
+.public-device-option:focus-within .public-device-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.public-device-help {
+  margin: -10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.passkey-login-button + .public-device-help {
+  margin-top: 10px;
+  text-align: center;
+}
+
 .form-error {
   margin: 0;
   color: #fca5a5;
@@ -1628,49 +1696,6 @@ td input[type="text"] {
   white-space: pre-wrap;
 }
 
-.log-view {
-  height: 450px;
-  margin: 0;
-  overflow: auto;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #0d0c0a;
-  color: #d8d0c1;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-}
-
-.log-line {
-  color: var(--muted);
-}
-
-.log-line-debug {
-  color: #86efac;
-}
-
-.log-line-info {
-  color: #f8fafc;
-}
-
-.log-line-warning {
-  color: #facc15;
-}
-
-.log-line-error {
-  color: #f87171;
-}
-
-.log-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
 ::selection {
   background: rgba(59, 130, 246, 0.32);
   color: var(--text);
@@ -1882,9 +1907,6 @@ td input[type="text"] {
     min-width: min(100%, 220px);
   }
 
-  .log-view {
-    height: 42vh;
-  }
 }
 
 @media (max-width: 560px) {

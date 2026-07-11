@@ -22,7 +22,7 @@ COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
 RUN pip install . \
     && chmod +x /usr/local/bin/docker-entrypoint \
     && useradd --system --home-dir /app --shell /usr/sbin/nologin app \
-    && mkdir -p /data/logs \
+    && mkdir -p /data/backups \
     && chown -R app:app /app /data
 
 EXPOSE 8000

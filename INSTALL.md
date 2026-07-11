@@ -8,7 +8,8 @@ This app is intended to run as a Docker Compose stack on an Ubuntu server. The s
 - `nginx`: web service reverse proxy that serves the web app on HTTP port `80`.
 - `cloudflared`: Cloudflare Tunnel connector for public HTTPS access.
 - Daily Michigan gas price snapshots run as a background scheduler in the app container.
-- Host log bind mounts for diagnostics logs and failed web-login audit records.
+- Console-only app logging for Docker or Swarm log collection.
+- A host app-data bind mount for automatic backups and health-monitor state.
 
 ## Requirements
 
@@ -74,24 +75,19 @@ The generated `.env` keeps `COMPOSE_PROFILES=local-postgres`, which deploys the 
 PostgreSQL container. For a central PostgreSQL server, set `COMPOSE_PROFILES=` and update
 `DATABASE_URL` before deploying.
 
-It also tries to prepare `HOST_LOG_DIR`, the default `backups/` directory inside it, the web-login
-audit log file inside that directory, the persistent `HOST_OWNTRACKS_BUFFER_DIR`, and the optional
-`HOST_LOGIN_FAILURE_LOG_PATH` symlink on the Docker host. If your user cannot write to `/var/log`
-or `/var/lib`, create them before starting Docker:
+It also tries to prepare `HOST_DATA_DIR`, the default `backups/` directory inside it, and the
+persistent `HOST_OWNTRACKS_BUFFER_DIR`. If your user cannot write to `/var/lib`, create them before
+starting Docker:
 
 ```bash
-sudo install -d -m 0750 /var/log/mileage-logger
+sudo install -d -m 0750 /var/lib/mileage-logger
 sudo install -d -m 0750 /var/lib/mileage-logger/owntracks-buffer
-sudo install -m 0640 /dev/null /var/log/mileage-logger/mileage-logger-login-failures.log
-sudo ln -sfn /var/log/mileage-logger/mileage-logger-login-failures.log /var/log/mileage-logger-login-failures.log
 ```
 
-If an earlier failed container start created `/var/log/mileage-logger-login-failures.log` as a
-directory, remove that empty directory before creating the symlink:
-
-```bash
-sudo rmdir /var/log/mileage-logger-login-failures.log
-```
+When upgrading from an earlier release, move retained automatic backups from
+`/var/log/mileage-logger/backups` to `/var/lib/mileage-logger/backups` before the first v1.3.4
+deployment, or set `HOST_DATA_DIR` to the existing host directory. Earlier login audit log files
+are no longer read or written; new login audits begin in PostgreSQL after the migration.
 
 Review the file before starting, and set `CLOUDFLARED_TUNNEL_TOKEN` to the token from the
 Cloudflare dashboard:
@@ -131,7 +127,7 @@ APP_HEALTH_DB_LATENCY_WARNING_MS=500
 APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
 APP_HEALTH_DISK_WARNING_PERCENT=85.0
 APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
-APP_HEALTH_STATE_PATH=/data/logs/app-health-state.json
+APP_HEALTH_STATE_PATH=/data/app-health-state.json
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
 OWNTRACKS_SYNC_WAYPOINTS=true
@@ -144,12 +140,11 @@ OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
 OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
 OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
 OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
-LOG_DIR=/data/logs
-HOST_LOG_DIR=/var/log/mileage-logger
-HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+APP_DATA_DIR=/data
+HOST_DATA_DIR=/var/lib/mileage-logger
 HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
-AUTOMATIC_BACKUP_DIR=/data/logs/backups
+AUTOMATIC_BACKUP_DIR=/data/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
@@ -384,7 +379,7 @@ The Swarm stack intentionally does not publish nginx directly. If you add a publ
 remember Swarm publishes it on the node interface, not as the normal Compose-only
 `127.0.0.1:${HTTP_PORT}` binding.
 
-Keep `HOST_LOG_DIR` and `HOST_OWNTRACKS_BUFFER_DIR` available on the Swarm node that runs the app
+Keep `HOST_DATA_DIR` and `HOST_OWNTRACKS_BUFFER_DIR` available on the Swarm node that runs the app
 task. Named volumes such as `owntracks_buffer_fallback` and `postgres_data` are node-local unless
 your Swarm volume driver provides shared storage.
 
@@ -394,7 +389,7 @@ The diagnostics page is available at:
 http://your-server/diagnostics
 ```
 
-It shows app status, recent database records, failed web-login attempts, and recent app logs.
+It shows app status, recent database records, and database-backed web-login audits.
 
 ## Configure OwnTracks
 
@@ -573,13 +568,13 @@ APP_HEALTH_DB_LATENCY_WARNING_MS=500
 APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
 APP_HEALTH_DISK_WARNING_PERCENT=85.0
 APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
-APP_HEALTH_STATE_PATH=/data/logs/app-health-state.json
+APP_HEALTH_STATE_PATH=/data/app-health-state.json
 HTTP_PORT=80
-HOST_LOG_DIR=/var/log/mileage-logger
-HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+APP_DATA_DIR=/data
+HOST_DATA_DIR=/var/lib/mileage-logger
 HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
-AUTOMATIC_BACKUP_DIR=/data/logs/backups
+AUTOMATIC_BACKUP_DIR=/data/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
 ```
 
@@ -593,15 +588,16 @@ use `WEB_API_KEY` instead of the web login, while the public web service exposes
 endpoints so OwnTracks can continue to use its existing API authentication. Set
 `WEB_SESSION_COOKIE_SECURE=false` only when testing over plain HTTP. The login page does not reveal
 the app name before authentication and temporarily locks out repeated failed attempts. Successful
-logins, failed login attempts, and lockout rejections are written as structured JSON-lines records
-to `/data/logs/mileage-logger-login-failures.log` inside the app container, which is backed by
-`HOST_LOG_DIR` on the Docker host. `HOST_LOGIN_FAILURE_LOG_PATH` is an optional host symlink alias.
-The submitted password value is never stored; failed-login entries record only its length.
+logins, failed login attempts, and lockout rejections are stored as structured PostgreSQL audit
+rows. The submitted password value is never stored; failed-login entries record only its length.
 Diagnostics resolves successful-login and failed-login rows from trusted forwarded metadata, so the
 failed-login block button targets the real browser IP.
 Diagnostics has a Configure Passkey card for the single configured web-login user. After creating a
 passkey, the login page shows Device Sign-In. Failed passkey assertions are logged and counted
 through the same lockout and Cloudflare auto-block path as failed password logins.
+Selecting `This is a public device` disables Device Sign-In and applies a 15-minute inactivity
+timeout. Timeout or logout clears the signed session cookie, browser cache, service worker, and
+site storage for that public-device session.
 When `CLOUDFLARE_IP_BLOCKING_ENABLED=true`, Diagnostics can create and remove app-managed
 Cloudflare zone IP Access Rule blocks using `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
 `CLOUDFLARE_API_TOKEN` must be a Cloudflare API token with `Account Firewall Access Rules Write`
@@ -715,10 +711,9 @@ reimbursement gallons * Michigan monthly average gas price = total reimbursement
 PDF reports use a portrait page layout and are generated only when you click `Download PDF Report`;
 they are streamed to the browser and are not saved on the server.
 
-Runtime logs are written to `/data/logs` inside the app container, and Docker binds that directory
-to `HOST_LOG_DIR` on the server. The web-login audit file is stored in the same mounted directory
-as `mileage-logger-login-failures.log`; do not bind-mount that file individually because Docker
-can create a directory at the source path and prevent the container from starting.
+Runtime, request, worker, trip-calculation, and debug logs are written only to container
+stdout/stderr. Use `docker compose logs -f app` for Compose or
+`docker service logs -f <stack>_app` for Swarm. No application log file is created.
 Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also sets the container `TZ`
 value from `LOCAL_TIMEZONE`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.
@@ -794,7 +789,8 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mileage-logger-gas-snapshot.timer
 ```
 
-You can also view recent app logs and web-login audit records from the in-app `Diagnostics` page.
+You can view database-backed web-login audit records from the in-app `Diagnostics` page and use
+Docker's log commands for application output.
 
 ## MQTT Mode
 
@@ -877,7 +873,7 @@ table rows in one transaction. Backup files contain sensitive location history a
 securely.
 
 The app also creates one automatic startup full-data backup and then 6-hour full-data backups by
-default. In Docker they are stored under `/data/logs/backups`, backed by `HOST_LOG_DIR` on the
+default. In Docker they are stored under `/data/backups`, backed by `HOST_DATA_DIR` on the
 host, unless `AUTOMATIC_BACKUP_DIR` is set to another private path. Diagnostics labels startup
 backups, lists retained automatic backups, and can restore a selected file after you type
 `RESTORE`. Retention keeps the newest 4 recent automatic backups plus one daily backup for each of

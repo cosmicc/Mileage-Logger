@@ -1,14 +1,12 @@
 import logging
 import re
+import sys
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
 from mileage_logger.config import Settings, get_settings
 from mileage_logger.services.timezone import local_timezone
 
 TRIP_CALCULATION_LOGGER = "mileage_logger.trip_calculation"
-LOGIN_FAILURE_LOGGER = "mileage_logger.login_failures"
 SENSITIVE_QUERY_VALUE_RE = re.compile(
     r"(?i)(\b(?:api_key|apikey|access_token|refresh_token|token|client_secret|password)=)"
     r"([^&\s\"']+)"
@@ -43,72 +41,16 @@ class LocalTimezoneFormatter(logging.Formatter):
         return value.isoformat(timespec="seconds")
 
 
-def _configure_named_file_logger(
-    *,
-    logger_name: str,
-    log_path: Path,
-    marker: str,
-    formatter: logging.Formatter,
-    level: int,
-    propagate: bool = True,
-) -> None:
-    named_logger = logging.getLogger(logger_name)
-    named_logger.setLevel(level)
-    named_logger.propagate = propagate
-
-    for handler in named_logger.handlers:
-        if getattr(handler, "_mileage_logger_marker", "") == marker:
-            handler_path = Path(getattr(handler, "baseFilename", ""))
-            if handler_path == log_path:
-                handler.setLevel(level)
-                handler.setFormatter(formatter)
-                return
-            named_logger.removeHandler(handler)
-            handler.close()
-
-    file_handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3)
-    file_handler.setLevel(level)
-    file_handler.setFormatter(formatter)
-    file_handler._mileage_logger_marker = marker  # type: ignore[attr-defined]
-    named_logger.addHandler(file_handler)
-
-
 def log_level_value(settings: Settings | None = None) -> int:
     settings = settings or get_settings()
     return LOG_LEVEL_VALUES[settings.log_level]
 
 
-def configure_login_failure_logging(settings: Settings | None = None) -> Path | None:
-    """Configure the dedicated structured web-login audit log."""
+def configure_logging(process_name: str) -> None:
+    """Configure application logging on standard output for container collection."""
 
-    active_settings = settings or get_settings()
-    log_path = Path(active_settings.login_failure_log_path)
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        _configure_named_file_logger(
-            logger_name=LOGIN_FAILURE_LOGGER,
-            log_path=log_path,
-            marker="mileage_logger_login_failure_file",
-            formatter=logging.Formatter("%(message)s"),
-            level=logging.INFO,
-            propagate=False,
-        )
-    except OSError:
-        logging.getLogger(__name__).error(
-            "Could not configure login audit log path=%s",
-            log_path,
-            exc_info=True,
-        )
-        return None
-    return log_path
-
-
-def configure_logging(process_name: str) -> Path:
     settings = get_settings()
     level = log_level_value(settings)
-    log_dir = Path(settings.log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"{process_name}.log"
 
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
@@ -117,33 +59,24 @@ def configure_logging(process_name: str) -> Path:
     logging.getLogger("requests").setLevel(max(level, logging.WARNING))
     logging.getLogger("urllib3").setLevel(max(level, logging.WARNING))
 
-    marker = f"mileage_logger_{process_name}_file"
+    marker = f"mileage_logger_{process_name}_console"
     formatter = LocalTimezoneFormatter(
         "%(asctime)s %(levelname)s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S %Z",
     )
 
-    trip_log_path = log_dir / "trip-calculation.log"
-    _configure_named_file_logger(
-        logger_name=TRIP_CALCULATION_LOGGER,
-        log_path=trip_log_path,
-        marker="mileage_logger_trip_calculation_file",
-        formatter=formatter,
-        level=level,
-    )
+    trip_logger = logging.getLogger(TRIP_CALCULATION_LOGGER)
+    trip_logger.setLevel(level)
+    trip_logger.propagate = True
 
     for handler in root_logger.handlers:
         if getattr(handler, "_mileage_logger_marker", "") == marker:
             handler.setLevel(level)
             handler.setFormatter(formatter)
-            configure_login_failure_logging(settings)
-            return log_path
+            return
 
-    file_handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3)
-    file_handler.setLevel(level)
-    file_handler.setFormatter(formatter)
-    file_handler._mileage_logger_marker = marker  # type: ignore[attr-defined]
-    root_logger.addHandler(file_handler)
-
-    configure_login_failure_logging(settings)
-    return log_path
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    console_handler._mileage_logger_marker = marker  # type: ignore[attr-defined]
+    root_logger.addHandler(console_handler)

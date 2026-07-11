@@ -2,30 +2,25 @@
 
 import json
 import logging
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from hashlib import sha256
-from pathlib import Path
 from typing import Any
 
 from fastapi import Request
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from mileage_logger.config import Settings, get_settings
-from mileage_logger.logging_config import (
-    LOGIN_FAILURE_LOGGER,
-    configure_login_failure_logging,
-    redact_sensitive_text,
-)
+from mileage_logger.logging_config import redact_sensitive_text
+from mileage_logger.models import WebLoginAudit
 from mileage_logger.services.timezone import datetime_to_local
 from mileage_logger.web.auth import login_client_key
 
-logger = logging.getLogger(__name__)
-audit_logger = logging.getLogger(LOGIN_FAILURE_LOGGER)
-audit_logger.propagate = False
+audit_logger = logging.getLogger("mileage_logger.login_audit")
 
 MAX_TEXT_FIELD_LENGTH = 512
 MAX_USERNAME_LOG_LENGTH = 256
-LOGIN_FAILURE_TAIL_BYTES = 160_000
 
 
 @dataclass(frozen=True)
@@ -209,6 +204,7 @@ def _build_login_failure_payload(
 
 def record_web_login_failure(
     *,
+    db: Session,
     request: Request,
     username: str,
     password: str,
@@ -220,16 +216,9 @@ def record_web_login_failure(
     next_url: str,
     settings: Settings | None = None,
 ) -> None:
-    """Append a structured failed-login audit record without storing the password value."""
+    """Store and emit a structured failed-login audit without the password value."""
 
     active_settings = settings or get_settings()
-    log_path = configure_login_failure_logging(active_settings)
-    if log_path is None:
-        logger.error(
-            "Failed web-login audit entry was not written; login_failure_log_path is unavailable"
-        )
-        return
-
     payload = _build_login_failure_payload(
         request=request,
         username=username,
@@ -242,7 +231,8 @@ def record_web_login_failure(
         next_url=next_url,
         settings=active_settings,
     )
-    audit_logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+    _store_login_audit(db, payload)
+    audit_logger.warning(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 
 
 def _build_login_success_payload(
@@ -271,6 +261,7 @@ def _build_login_success_payload(
 
 def record_web_login_success(
     *,
+    db: Session,
     request: Request,
     username: str,
     account: str,
@@ -278,16 +269,9 @@ def record_web_login_success(
     next_url: str,
     settings: Settings | None = None,
 ) -> None:
-    """Append a structured successful-login audit record without storing the password value."""
+    """Store and emit a structured successful-login audit without storing the password value."""
 
     active_settings = settings or get_settings()
-    log_path = configure_login_failure_logging(active_settings)
-    if log_path is None:
-        logger.error(
-            "Successful web-login audit entry was not written; login audit log path is unavailable"
-        )
-        return
-
     payload = _build_login_success_payload(
         request=request,
         username=username,
@@ -296,13 +280,26 @@ def record_web_login_success(
         next_url=next_url,
         settings=active_settings,
     )
+    _store_login_audit(db, payload)
     audit_logger.info(json.dumps(payload, separators=(",", ":"), sort_keys=True))
 
 
-def _entry_id_from_line(line: str) -> str:
-    """Return a stable identifier for one raw login-failure log line."""
+def _store_login_audit(db: Session, payload: dict[str, Any]) -> WebLoginAudit:
+    """Add one structured login audit to the current database transaction."""
 
-    return sha256(line.encode("utf-8", errors="replace")).hexdigest()
+    occurred_at_text = str(payload.get("occurred_at_utc") or "")
+    try:
+        occurred_at = datetime.fromisoformat(occurred_at_text.replace("Z", "+00:00"))
+    except ValueError:
+        occurred_at = datetime.now(UTC)
+    audit = WebLoginAudit(
+        entry_id=secrets.token_hex(32),
+        event=_bounded_text(payload.get("event", ""), max_length=40),
+        occurred_at=occurred_at,
+        payload=payload,
+    )
+    db.add(audit)
+    return audit
 
 
 def _entry_from_payload(
@@ -376,64 +373,64 @@ def _success_entry_from_payload(
 
 
 def tail_login_failure_entries(
-    path: Path,
+    db: Session,
     max_entries: int = 50,
     hidden_entry_ids: set[str] | None = None,
     settings: Settings | None = None,
 ) -> list[LoginFailureEntry]:
-    """Read recent structured login-failure audit records newest-first."""
+    """Read recent structured failed-login audit records newest-first."""
 
-    if not path.exists():
-        return []
-    with path.open("rb") as file:
-        file.seek(0, 2)
-        size = file.tell()
-        file.seek(max(size - LOGIN_FAILURE_TAIL_BYTES, 0))
-        text = file.read().decode("utf-8", errors="replace")
-
-    entries: list[LoginFailureEntry] = []
     hidden_ids = hidden_entry_ids or set()
-    for line in reversed(text.splitlines()):
-        if len(entries) >= max_entries:
-            break
-        entry_id = _entry_id_from_line(line)
-        if entry_id in hidden_ids:
-            continue
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict) or payload.get("event") != "web_login_failed":
-            continue
-        entries.append(_entry_from_payload(payload, entry_id=entry_id, settings=settings))
-    return entries
+    statement = (
+        select(WebLoginAudit)
+        .where(WebLoginAudit.event == "web_login_failed")
+        .order_by(WebLoginAudit.occurred_at.desc(), WebLoginAudit.id.desc())
+        .limit(max_entries)
+    )
+    if hidden_ids:
+        statement = statement.where(WebLoginAudit.entry_id.not_in(hidden_ids))
+    audits = list(db.scalars(statement))
+    return [
+        _entry_from_payload(audit.payload, entry_id=audit.entry_id, settings=settings)
+        for audit in audits
+    ]
 
 
 def tail_login_success_entries(
-    path: Path,
+    db: Session,
     max_entries: int = 50,
     settings: Settings | None = None,
 ) -> list[LoginSuccessEntry]:
     """Read recent structured successful-login audit records newest-first."""
 
-    if not path.exists():
-        return []
-    with path.open("rb") as file:
-        file.seek(0, 2)
-        size = file.tell()
-        file.seek(max(size - LOGIN_FAILURE_TAIL_BYTES, 0))
-        text = file.read().decode("utf-8", errors="replace")
+    audits = list(
+        db.scalars(
+            select(WebLoginAudit)
+            .where(WebLoginAudit.event == "web_login_succeeded")
+            .order_by(WebLoginAudit.occurred_at.desc(), WebLoginAudit.id.desc())
+            .limit(max_entries)
+        )
+    )
+    return [
+        _success_entry_from_payload(audit.payload, entry_id=audit.entry_id, settings=settings)
+        for audit in audits
+    ]
 
-    entries: list[LoginSuccessEntry] = []
-    for line in reversed(text.splitlines()):
-        if len(entries) >= max_entries:
-            break
-        entry_id = _entry_id_from_line(line)
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict) or payload.get("event") != "web_login_succeeded":
-            continue
-        entries.append(_success_entry_from_payload(payload, entry_id=entry_id, settings=settings))
-    return entries
+
+def login_audit_json_lines(db: Session, max_entries: int = 10_000) -> str:
+    """Serialize recent database-backed login audits as newest-first JSON Lines."""
+
+    audits = list(
+        db.scalars(
+            select(WebLoginAudit)
+            .order_by(WebLoginAudit.occurred_at.desc(), WebLoginAudit.id.desc())
+            .limit(max_entries)
+        )
+    )
+    serialized_lines = (
+        redact_sensitive_text(
+            json.dumps(audit.payload, separators=(",", ":"), sort_keys=True)
+        )
+        for audit in audits
+    )
+    return "".join(f"{line}\n" for line in serialized_lines)

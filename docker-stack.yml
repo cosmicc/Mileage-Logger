@@ -36,7 +36,7 @@ services:
       APP_HEALTH_DB_LATENCY_CRITICAL_MS: "${APP_HEALTH_DB_LATENCY_CRITICAL_MS:-2000}"
       APP_HEALTH_DISK_WARNING_PERCENT: "${APP_HEALTH_DISK_WARNING_PERCENT:-85.0}"
       APP_HEALTH_DISK_CRITICAL_PERCENT: "${APP_HEALTH_DISK_CRITICAL_PERCENT:-95.0}"
-      APP_HEALTH_STATE_PATH: "${APP_HEALTH_STATE_PATH:-/data/logs/app-health-state.json}"
+      APP_HEALTH_STATE_PATH: "${APP_HEALTH_STATE_PATH:-/data/app-health-state.json}"
       WEB_API_KEY: "${WEB_API_KEY:?WEB_API_KEY must be set for non-OwnTracks API access}"
       CREATE_TABLES_ON_STARTUP: "${CREATE_TABLES_ON_STARTUP:-false}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger}"
@@ -79,13 +79,12 @@ services:
       GAS_SNAPSHOT_ENABLED: "${GAS_SNAPSHOT_ENABLED:-true}"
       GAS_SNAPSHOT_INTERVAL_SECONDS: "${GAS_SNAPSHOT_INTERVAL_SECONDS:-86400}"
       GAS_SNAPSHOT_RUN_ON_STARTUP: "${GAS_SNAPSHOT_RUN_ON_STARTUP:-true}"
-      LOG_DIR: /data/logs
-      LOGIN_FAILURE_LOG_PATH: /data/logs/mileage-logger-login-failures.log
+      APP_DATA_DIR: /data
       MAX_BACKUP_RESTORE_BYTES: "${MAX_BACKUP_RESTORE_BYTES:-262144000}"
       AUTOMATIC_BACKUPS_ENABLED: "${AUTOMATIC_BACKUPS_ENABLED:-true}"
-      AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/logs/backups}"
+      AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/backups}"
     volumes:
-      - ${HOST_LOG_DIR:-/var/log/mileage-logger}:/data/logs
+      - ${HOST_DATA_DIR:-/var/lib/mileage-logger}:/data
       - ${HOST_OWNTRACKS_BUFFER_DIR:-/var/lib/mileage-logger/owntracks-buffer}:/data/owntracks-buffer
       - owntracks_buffer_fallback:/data/owntracks-buffer-fallback
     healthcheck:

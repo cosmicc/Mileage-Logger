@@ -105,7 +105,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   receive order.
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
-- Writes structured JSON-lines records for successful and failed web UI login attempts
+- Stores structured PostgreSQL records for successful and failed web UI login attempts and emits
+  the same safe audit events through console logging
 - Saves client IP details, submitted username, authentication method for successful logins,
   failed-login password length, user agent, request path, lockout state, and UTC/local timestamps
   without storing the raw password
@@ -117,6 +118,10 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   intentionally has no separate footer refresh or download buttons
 - Invalid username/password browser form responses stay on `login.html` with a top status-line
   error and HTTP 200 so public browser error pages do not replace the form.
+- Public-device password sessions expire after 15 minutes without browser activity, clear the
+  signed session cookie and browser site data on timeout or logout, skip service-worker
+  registration, and disable Device Sign-In while the login checkbox is selected. Keep the option's
+  explanation in an accessible tooltip shown when the full checkbox row is hovered or focused.
 - Diagnostics shows the stored effective IP for successful-login and failed-login rows. Failed-login
   row block buttons must use that same visible, blockable client IP.
 
@@ -205,6 +210,12 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    prior trip end odometers as the source for a new trip start.
 6. Trip is stored and shown on `/trips` page for review/editing
 
+Exact automatic generation signatures are unique at the PostgreSQL layer by origin waypoint,
+destination waypoint, start time, and end time. Automatic rows also have a unique recorded-value
+signature by local day, route, distance, and nonblank start/end odometers. The v1.3.4 migration
+keeps the oldest existing automatic row for either duplicate signature before adding the partial
+unique indexes; manual trips are not restricted by those indexes.
+
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
 - Manual odometer readings reset the anchor to an exact value
@@ -235,8 +246,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`, `DATABASE_POOL_RECYCLE_SECONDS`,
   `DATABASE_CONNECT_TIMEOUT_SECONDS`, `DATABASE_RUN_MIGRATIONS_ON_RECONNECT`, `VEHICLE_MPG`,
   `REPORT_DISPLAY_NAME`,
-  `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`,
-  `LOGIN_FAILURE_LOG_PATH`, `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
+  `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`, `APP_DATA_DIR`,
+  `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
@@ -394,17 +405,15 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   each other in the first outage-status row.
 
 ### Debugging Trip Generation
-1. Check `/diagnostics` page for OwnTracks state, recent events, and logs
-2. View app logs: `docker compose logs -f app`
-3. App logs are stored at `LOG_DIR`; Docker binds `/data/logs` to the host path in
-   `HOST_LOG_DIR` so the Docker server can view `app.log`, `trip-calculation.log`, and worker logs.
-4. Successful and failed web login attempts are written to `LOGIN_FAILURE_LOG_PATH` and shown on
-   `/diagnostics` in separate compact tables.
-   In Docker, this is `/data/logs/mileage-logger-login-failures.log`, backed by `HOST_LOG_DIR`.
-   `HOST_LOGIN_FAILURE_LOG_PATH` may point to a host symlink such as
-   `/var/log/mileage-logger-login-failures.log`.
-5. Diagnostics can hide individual failed-login rows from the UI while preserving the raw audit log
-   download. When Cloudflare IP blocking is enabled and configured, Diagnostics can block/unblock
+1. Check `/diagnostics` page for OwnTracks state and recent events.
+2. View Compose logs with `docker compose logs -f app`; use
+   `docker service logs -f <stack>_app` for Swarm.
+3. All runtime, request, worker, trip-calculation, and debug logs go to stdout/stderr only. Do not
+   add file handlers or in-app application-log viewers/downloads.
+4. Successful and failed web login attempts are stored in `web_login_audits` and shown on
+   `/diagnostics` in separate compact tables. Password values are never stored.
+5. Diagnostics can hide individual failed-login rows from the UI while preserving the database
+   audit row and JSON Lines export. When Cloudflare IP blocking is enabled and configured, Diagnostics can block/unblock
    failed-login IPs and manually entered valid IPs through app-managed Cloudflare zone IP Access
    Rules. Manual blocks require a reason, automatic blocks record the failed-login threshold
    reason, and the app-managed blocked-IP list shows each reason with an Auto or Manual pill plus a
@@ -422,7 +431,7 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    selected local credential row. Passkey login failures must stay on the same failed-login audit,
    lockout, and Cloudflare auto-block path as password login failures.
 7. Use Diagnostics `Download Full Backup` before destructive deployment or database work. The
-   backup/restore card is at the bottom of the page under App Log, and the manual full-backup
+   backup/restore card is at the bottom of the page, and the manual full-backup
    download control sits with the lower upload-restore controls. Restore replaces all app table
    data from a validated `.json.gz` backup and is enabled only when web login is configured.
    Diagnostics also lists retained automatic backups from `AUTOMATIC_BACKUP_DIR`; each retained
@@ -534,12 +543,11 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   browser origin is the public HTTPS URL or set `PASSKEY_ORIGIN` and `PASSKEY_RP_ID` explicitly.
 - Diagnostics includes authenticated full data backup and restore controls for app database rows
   and saved OwnTracks waypoint export. Automatic 6-hour backups are stored under
-  `AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups`; treat backup files as sensitive location
+  `AUTOMATIC_BACKUP_DIR`, defaulting to `APP_DATA_DIR/backups`; treat backup files as sensitive location
   history. Retained automatic backups can be downloaded individually from Diagnostics after web
   login.
-- Runtime app logs and web-login audit records are host bind-mounted through `HOST_LOG_DIR`.
-  Do not bind-mount the login audit log as an individual file; use the host symlink documented in
-  `INSTALL.md` if `/var/log/mileage-logger-login-failures.log` is needed.
+- Persistent backups and app-health state are host bind-mounted through `HOST_DATA_DIR`; runtime
+  logging remains console-only and login audits remain in PostgreSQL.
 - The OwnTracks primary buffer is host bind-mounted through `HOST_OWNTRACKS_BUFFER_DIR`; treat it
   as sensitive location data and keep it across normal rebuilds until buffered rows have replayed.
   The fallback buffer is a local Docker named volume and should also be retained during rebuilds.

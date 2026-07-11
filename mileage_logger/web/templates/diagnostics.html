@@ -29,7 +29,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
 <section class="page-header">
   <div>
     <h1>Diagnostics</h1>
-    <p>Runtime status, data counts, and recent app log entries.</p>
+    <p>Runtime status, data counts, and operational diagnostics.</p>
   </div>
 </section>
 
@@ -57,8 +57,8 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       <dd>{{ settings.app_env }}</dd>
       <dt>Database</dt>
       <dd>{{ database_url }}</dd>
-      <dt>Log Directory</dt>
-      <dd>{{ settings.log_dir }}</dd>
+      <dt>Logging</dt>
+      <dd>Console only</dd>
       <dt>Log Level</dt>
       <dd>{{ settings.log_level|upper }}</dd>
       <dt>MQTT Enabled</dt>
@@ -476,7 +476,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <div>
       <h2>Successful Login Attempts</h2>
       <p class="panel-meta">
-        {{ showing_meta(login_success_entries_page) }} from {{ login_failure_log_path }}.
+        {{ showing_meta(login_success_entries_page) }} stored in PostgreSQL.
       </p>
     </div>
     {{ pagination_controls(login_success_entries_page, "login_successes_page", "login-successes", "Successful login attempt pages") }}
@@ -538,7 +538,7 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
     <div>
       <h2>Failed Login Attempts</h2>
       <p class="panel-meta">
-        {{ showing_meta(login_failure_entries_page) }} from {{ login_failure_log_path }}. Password values are not stored.
+        {{ showing_meta(login_failure_entries_page) }} stored in PostgreSQL. Password values are not stored.
       </p>
     </div>
     {{ pagination_controls(login_failure_entries_page, "login_failures_page", "login-failures", "Failed login attempt pages") }}
@@ -749,22 +749,6 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
       {% endfor %}
     </tbody>
   </table>
-</section>
-
-<section id="app-log" class="panel log-panel">
-  <div class="panel-toolbar">
-    <div>
-      <h2>App Log</h2>
-      <p class="panel-meta">Newest first, filtered at {{ settings.log_level|upper }} level.</p>
-    </div>
-  </div>
-  <pre class="log-view">{% for line in app_log_lines %}<span class="log-line {{ line.css_class }}" data-level="{{ line.level }}">{{ line.text }}</span>
-{% else %}<span class="log-line log-line-debug">No app log entries found.</span>
-{% endfor %}</pre>
-  <div class="log-actions">
-    <a class="button-link secondary" href="/diagnostics#app-log">Refresh App Log</a>
-    <a class="button-link secondary" href="/diagnostics/logs/app">Download App Log</a>
-  </div>
 </section>
 
 <section id="data-backup" class="panel">

@@ -5,8 +5,11 @@ import pytest
 from pydantic import ValidationError
 
 from mileage_logger.config import Settings
-from mileage_logger.logging_config import LocalTimezoneFormatter, log_level_value
-from mileage_logger.web.routes import _log_line_is_visible, _tail_file
+from mileage_logger.logging_config import (
+    LocalTimezoneFormatter,
+    configure_logging,
+    log_level_value,
+)
 
 
 def test_log_level_normalizes_supported_values() -> None:
@@ -70,18 +73,6 @@ def test_production_requires_web_login_and_changed_secret_key() -> None:
     )
 
     assert settings.app_env == "production"
-
-
-def test_log_line_visibility_uses_threshold_but_keeps_errors() -> None:
-    assert _log_line_is_visible("2026-06-13 09:00:00 EDT INFO [app] started", logging.INFO)
-    assert not _log_line_is_visible(
-        "2026-06-13 09:00:00 EDT INFO [app] started",
-        logging.WARNING,
-    )
-    assert _log_line_is_visible(
-        "2026-06-13 09:00:00 EDT ERROR [app] failed",
-        logging.WARNING,
-    )
 
 
 def test_formatter_adds_level_to_exception_traceback_lines() -> None:
@@ -150,40 +141,32 @@ def test_formatter_redacts_bearer_tokens() -> None:
     assert "secret-provider-token" not in formatted
 
 
-def test_tail_file_returns_level_classes_newest_first(tmp_path) -> None:
-    log_path = tmp_path / "app.log"
-    log_path.write_text(
-        "\n".join(
-            [
-                "2026-06-13 09:00:00 EDT DEBUG [app] details",
-                "2026-06-13 09:01:00 EDT INFO [app] started",
-                "2026-06-13 09:02:00 EDT WARNING [app] slow",
-                "2026-06-13 09:03:00 EDT ERROR [app] failed",
-            ]
-        ),
-        encoding="utf-8",
-    )
+def test_configure_logging_uses_console_without_file_handlers(monkeypatch) -> None:
+    settings = Settings(log_level="debug")
+    monkeypatch.setattr("mileage_logger.logging_config.get_settings", lambda: settings)
 
-    entries = _tail_file(log_path, max_lines=10, log_level="debug")
+    configure_logging("test-console")
 
-    assert [entry.level for entry in entries] == ["error", "warning", "info", "debug"]
-    assert [entry.css_class for entry in entries] == [
-        "log-line-error",
-        "log-line-warning",
-        "log-line-info",
-        "log-line-debug",
+    root_logger = logging.getLogger()
+    handlers = [
+        handler
+        for handler in root_logger.handlers
+        if getattr(handler, "_mileage_logger_marker", "")
+        == "mileage_logger_test-console_console"
     ]
+    try:
+        assert len(handlers) == 1
+        assert isinstance(handlers[0], logging.StreamHandler)
+        assert not isinstance(handlers[0], logging.FileHandler)
+        assert handlers[0].stream is sys.stdout
+    finally:
+        for handler in handlers:
+            root_logger.removeHandler(handler)
+            handler.close()
 
 
-def test_tail_file_redacts_sensitive_query_values(tmp_path) -> None:
-    log_path = tmp_path / "app.log"
-    log_path.write_text(
-        "2026-06-13 09:00:00 EDT INFO [httpx] GET "
-        "https://api.example.test/path?api_key=secret-value&series=test",
-        encoding="utf-8",
-    )
+def test_runtime_state_defaults_under_app_data_directory() -> None:
+    settings = Settings(app_data_dir="/data")
 
-    entries = _tail_file(log_path, max_lines=10, log_level="debug")
-
-    assert entries[0].text.endswith("api_key=***&series=test")
-    assert "secret-value" not in entries[0].text
+    assert settings.automatic_backup_dir == "/data/backups"
+    assert settings.app_health_state_path == "/data/app-health-state.json"

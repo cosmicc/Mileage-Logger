@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
   {% set hide_app_chrome = limp_mode_active | default(false) %}
+  {% set public_device_session = request is defined and request_is_public_device(request) %}
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,7 +13,7 @@
     <meta name="apple-mobile-web-app-title" content="Mileage Logger">
     <meta name="application-name" content="Mileage Logger">
     {% if not hide_app_chrome %}
-    <link rel="manifest" href="/manifest.webmanifest">
+    {% if not public_device_session %}<link rel="manifest" href="/manifest.webmanifest">{% endif %}
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="icon" href="/static/icons/mileage-logger-icon.svg?v=1.3.2-icon5" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -132,11 +133,85 @@
     </main>
     {% if not hide_app_chrome %}
     <script>
+      {% if public_device_session %}
+      (() => {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.getRegistrations().then((registrations) => {
+            registrations.forEach((registration) => registration.unregister());
+          }).catch(() => {});
+        }
+        if ("caches" in window) {
+          caches.keys().then((names) => {
+            names.forEach((name) => caches.delete(name));
+          }).catch(() => {});
+        }
+        try {
+          window.localStorage.clear();
+          window.sessionStorage.clear();
+        } catch (error) {
+          // Storage can be unavailable in hardened or private browser modes.
+        }
+      })();
+      {% else %}
       if ("serviceWorker" in navigator && window.isSecureContext) {
         window.addEventListener("load", () => {
           navigator.serviceWorker.register("/service-worker.js", { scope: "/" }).catch(() => {});
         });
       }
+      {% endif %}
+
+      {% if public_device_session %}
+      (() => {
+        const idleTimeoutMs = {{ public_device_idle_timeout_seconds }} * 1000;
+        const heartbeatIntervalMs = 30 * 1000;
+        let idleTimer;
+        let lastHeartbeatAt = 0;
+
+        const finishPublicSession = () => {
+          fetch("/logout", {
+            method: "POST",
+            credentials: "same-origin",
+            keepalive: true,
+          }).finally(() => {
+            window.location.replace("/login?public_timeout=1");
+          });
+        };
+
+        const scheduleIdleTimeout = () => {
+          window.clearTimeout(idleTimer);
+          idleTimer = window.setTimeout(finishPublicSession, idleTimeoutMs);
+        };
+
+        const recordActivity = () => {
+          scheduleIdleTimeout();
+          const now = Date.now();
+          if (now - lastHeartbeatAt < heartbeatIntervalMs) {
+            return;
+          }
+          lastHeartbeatAt = now;
+          fetch("/session/activity", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "fetch" },
+            keepalive: true,
+          }).then((response) => {
+            if (response.redirected || response.status === 401 || response.status === 403) {
+              window.location.replace("/login?public_timeout=1");
+            }
+          }).catch(() => {});
+        };
+
+        ["pointerdown", "keydown", "touchstart", "scroll"].forEach((eventName) => {
+          window.addEventListener(eventName, recordActivity, { passive: true });
+        });
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            recordActivity();
+          }
+        });
+        scheduleIdleTimeout();
+      })();
+      {% endif %}
 
       (() => {
         const paginationLinkSelector = "a[data-pagination-target]";

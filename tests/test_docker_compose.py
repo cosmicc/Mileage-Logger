@@ -76,7 +76,7 @@ def test_app_container_exposes_pushover_health_settings() -> None:
         )
         assert (
             'APP_HEALTH_STATE_PATH: "${APP_HEALTH_STATE_PATH:-'
-            '/data/logs/app-health-state.json}"'
+            '/data/app-health-state.json}"'
             in app_block
         )
 
@@ -85,6 +85,25 @@ def test_app_container_exposes_pushover_health_settings() -> None:
     assert "PUSHOVER_USER=" in env_text
     assert "APP_HEALTH_DB_LATENCY_WARNING_MS=500" in env_text
     assert "APP_HEALTH_DISK_CRITICAL_PERCENT=95.0" in env_text
+
+
+def test_app_container_uses_persistent_data_mount_without_file_log_settings() -> None:
+    compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
+    stack_text = STACK_FILE.read_text(encoding="utf-8")
+    env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
+
+    for deployment_text in (compose_text, stack_text):
+        app_block = _service_block(deployment_text, "app")
+        assert "APP_DATA_DIR: /data" in app_block
+        assert 'AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/backups}"' in app_block
+        assert "${HOST_DATA_DIR:-/var/lib/mileage-logger}:/data" in app_block
+        assert "LOG_DIR" not in app_block
+        assert "LOGIN_FAILURE_LOG_PATH" not in app_block
+
+    assert "APP_DATA_DIR=/data" in env_text
+    assert "HOST_DATA_DIR=/var/lib/mileage-logger" in env_text
+    assert "LOG_DIR=" not in env_text
+    assert "LOGIN_FAILURE_LOG_PATH=" not in env_text
 
 
 def test_bundled_postgres_is_default_optional_compose_profile() -> None:

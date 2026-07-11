@@ -55,15 +55,15 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
 - Web service reverse proxy on port `80`.
 - Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
-- Persistent Docker volume for database data and host bind mounts for runtime logs.
+- Persistent Docker volume for database data and a host bind mount for backups and health state.
 - Persistent host bind mount for the local OwnTracks outage buffer so accepted phone data survives
   image rebuilds and container replacement.
-- In-app diagnostics page for app logs, trip calculation logs, successful and failed web-login
-  audit records, and OwnTracks state in the configured local timezone. The top Diagnostics cards
+- In-app diagnostics page for database-backed successful and failed web-login audit records and
+  OwnTracks state in the configured local timezone. The top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
   space readings, database latency includes a green/yellow/red status dot, a yellow or red degraded
   banner appears when monitored app-health checks need attention, detailed lists use compact 10-row
-  pages, and Full Data Backup stays at the bottom under the App Log.
+  pages, and Full Data Backup stays at the bottom.
 - Dashboard Work Trips counts for today, the current Monday-Sunday week, and the current month.
 - Authenticated desktop navigation shows the current app version under the Mileage Logger title and
   uses centered blue raised icon-and-label buttons matching the mobile web-app layout, where
@@ -71,8 +71,7 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
   for phone system navigation without opting into edge-to-edge phone drawing. App buttons use a
   raised treatment, brighten on hover, and press inward when clicked. The login page does not show
   the shared top navigation.
-- Web-login audit records shown on Diagnostics and written into the host log directory, with an
-  optional `/var/log/mileage-logger-login-failures.log` host symlink.
+- Console-only app logging for Docker Compose and Docker Swarm log collection.
 - Optional web UI IP allowlist while keeping only the OwnTracks ingestion API public.
 
 Create a production `.env` with generated passwords:
@@ -88,20 +87,13 @@ start the stack:
 docker compose up -d --build
 ```
 
-`scripts/init_docker_env.sh` tries to create the host log directory, host OwnTracks buffer
-directory, web-login audit log file, and the short `/var/log/mileage-logger-login-failures.log`
-symlink. If your user cannot write to `/var/log` or `/var/lib`, create them before starting
-Docker:
+`scripts/init_docker_env.sh` tries to create the host app-data and OwnTracks buffer directories.
+If your user cannot write to `/var/lib`, create them before starting Docker:
 
 ```bash
-sudo install -d -m 0750 /var/log/mileage-logger
+sudo install -d -m 0750 /var/lib/mileage-logger
 sudo install -d -m 0750 /var/lib/mileage-logger/owntracks-buffer
-sudo install -m 0640 /dev/null /var/log/mileage-logger/mileage-logger-login-failures.log
-sudo ln -sfn /var/log/mileage-logger/mileage-logger-login-failures.log /var/log/mileage-logger-login-failures.log
 ```
-
-If an earlier failed start created `/var/log/mileage-logger-login-failures.log` as a directory,
-remove that empty directory first:
 
 ```bash
 sudo rmdir /var/log/mileage-logger-login-failures.log
@@ -227,13 +219,19 @@ with a top status-line error, and temporarily locks out repeated failed attempts
 `SECRET_KEY` must be changed from `change-me`; production Docker starts fail closed if the login
 credentials or session secret are missing. Docker publishes the web service only on `127.0.0.1`, so public
 access should come through the bundled Cloudflare Tunnel service.
-Each successful login, failed login attempt, and lockout rejection is appended to
-`LOGIN_FAILURE_LOG_PATH` as a structured JSON-lines audit record. Failed entries include client IP
+Each successful login, failed login attempt, and lockout rejection is stored in PostgreSQL as a
+structured audit record. Failed entries include client IP
 details, submitted username, password length, user agent, request path, reason, attempt count,
 lockout state, and timestamps. Successful entries include client IP details, submitted username,
 authentication method, web client, request path, and timestamps. The raw submitted password is
 never stored. Diagnostics uses the stored effective client IP for successful-login and failed-login
 rows, and the failed-login block button targets that same IP.
+
+The login form also offers `This is a public device`, off by default. Public-device sessions
+disable Device Sign-In, expire after 15 minutes without browser activity, do not register the web
+app service worker, and clear the session cookie, browser cache, and site storage at timeout or
+logout. Unchecking the option immediately restores Device Sign-In. Hover over or keyboard-focus the
+public-device option to see this explanation on the login page.
 
 Diagnostics includes a Configure Passkey card for the single configured web-login user. Sign in
 with the normal username/password once, create a passkey from Diagnostics, then use Device Sign-In
@@ -267,15 +265,15 @@ export the saved list as OwnTracks waypoint JSON for backup/import.
 
 ## Full Data Backup And Restore
 
-Diagnostics includes a full app data backup and restore panel at the bottom of the page under the
-App Log when `WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. The manual
+Diagnostics includes a full app data backup and restore panel at the bottom of the page when
+`WEB_LOGIN_USERNAME` and `WEB_LOGIN_PASSWORD` are configured. The manual
 `Download Full Backup` action sits with the lower upload-restore controls and creates a `.json.gz`
 file containing all Mileage Logger database tables plus an OwnTracks waypoint export. Treat this
 file as sensitive location history.
 
 The app also creates automatic full-data backups every 6 hours when
 `AUTOMATIC_BACKUPS_ENABLED=true`, which is the default. Automatic backups are stored in
-`AUTOMATIC_BACKUP_DIR`, defaulting to `LOG_DIR/backups` such as `/data/logs/backups` in Docker.
+`AUTOMATIC_BACKUP_DIR`, defaulting to `APP_DATA_DIR/backups` such as `/data/backups` in Docker.
 Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
 retention policy keeps the newest 4 recent automatic backups plus one daily backup for each of the
 prior 2 days. Startup-created automatic backups are labeled in the table. Each listed automatic
@@ -287,7 +285,7 @@ file first, then replaces the current app table rows in one transaction. Restore
 a merge: matching existing rows are overwritten from the backup and should not create duplicates.
 Uploaded restore files and retained automatic backup files are limited by
 `MAX_BACKUP_RESTORE_BYTES`, default `262144000` bytes. In-app restore does not restore Docker
-volumes, PostgreSQL users, passwords, or host log files.
+volumes, PostgreSQL users, passwords, or Docker-managed console log history.
 
 ## MQTT Setup
 
@@ -336,6 +334,8 @@ stored in `owntracks_locations` and immediately triggers trip recalculation for 
 `LOCAL_TIMEZONE` day when PostgreSQL is reachable. During a database outage, the payload is stored
 in the persistent OwnTracks buffer first, then replayed later through the same processing path.
 When the app sees a qualifying trip, it writes the generated row to `trips`.
+PostgreSQL enforces one automatic row for each exact source-event signature and rejects a second
+automatic row with the same day, route, distance, and nonblank start/end odometer interval.
 OwnTracks `tst` event time is the authoritative timestamp for trip dates and ordering; the server
 receive time is kept separately for diagnostics because phone data can be buffered.
 The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
@@ -522,13 +522,13 @@ APP_HEALTH_DB_LATENCY_WARNING_MS=500
 APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
 APP_HEALTH_DISK_WARNING_PERCENT=85.0
 APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
-APP_HEALTH_STATE_PATH=/data/logs/app-health-state.json
+APP_HEALTH_STATE_PATH=/data/app-health-state.json
 HTTP_PORT=80
-HOST_LOG_DIR=/var/log/mileage-logger
-HOST_LOGIN_FAILURE_LOG_PATH=/var/log/mileage-logger-login-failures.log
+APP_DATA_DIR=/data
+HOST_DATA_DIR=/var/lib/mileage-logger
 HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
-AUTOMATIC_BACKUP_DIR=/data/logs/backups
+AUTOMATIC_BACKUP_DIR=/data/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
 REPORT_DISPLAY_NAME=
 GAS_SNAPSHOT_ENABLED=true
@@ -565,19 +565,17 @@ latency, OwnTracks buffer state and queued payloads, runtime disk usage, active 
 lockouts, and app-managed Cloudflare blocks. It sends a degraded or unavailable notification when
 the monitored issue set changes, and one restored notification when all monitored checks are
 healthy again.
-Docker binds `/data/logs` to `HOST_LOG_DIR` so the Docker host can read `app.log`,
-`trip-calculation.log`, worker logs, gas snapshot logs, and
-`mileage-logger-login-failures.log` directly. The app writes web-login audit records inside the
-mounted log directory; `HOST_LOGIN_FAILURE_LOG_PATH` is only a host-side symlink alias for the
-shorter `/var/log/mileage-logger-login-failures.log` path. Successful and failed login entries are
-shown separately in Diagnostics.
+The app writes all runtime, request, worker, trip-calculation, and debug logging to container
+stdout/stderr. Use `docker compose logs -f app` for Compose or
+`docker service logs -f <stack>_app` for Swarm. Successful and failed login audits are stored in
+PostgreSQL and shown separately in Diagnostics; no audit or application log file is created.
 Docker also binds `/data/owntracks-buffer` to `HOST_OWNTRACKS_BUFFER_DIR` and keeps
 `/data/owntracks-buffer-fallback` in the local `owntracks_buffer_fallback` named volume. Keep both
 stores mounted and access-restricted because they can contain buffered location history while
 PostgreSQL is offline. Do not delete either store during rebuilds unless you have confirmed the
 buffer is empty or you are intentionally discarding unreplayed OwnTracks payloads.
-Automatic backups default to `/data/logs/backups`, which is inside the same `HOST_LOG_DIR` bind
-mount, and are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
+Automatic backups default to `/data/backups`, which is inside the `HOST_DATA_DIR` bind mount, and
+are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
 are truncated in the Diagnostics table but remain visible on hover and available to download.
 Backups created by the app startup pass are labeled as startup backups.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least

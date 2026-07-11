@@ -454,11 +454,11 @@ def protected_page(request: Request) -> TemplateResponse:
 3. System checks against `WEB_LOGIN_USERNAME` / `WEB_LOGIN_PASSWORD`
 4. On match: Session cookie set, user allowed access
 5. Failed attempts: Temporary lockout (`WEB_LOGIN_MAX_ATTEMPTS` x `WEB_LOGIN_LOCKOUT_SECONDS`)
-   and a structured JSON-lines audit record written to `LOGIN_FAILURE_LOG_PATH`
+   and a structured audit record written to PostgreSQL
 6. Invalid username/password and lockout browser form responses render `login.html` with a top
    status-line error and HTTP 200 so public browser error pages do not replace the form
-7. Lockout rejections are also failed login attempts and must be written to the same audit log
-8. Successful login appends a structured audit record to the login audit file, then clears the
+7. Lockout rejections are also failed login attempts and must be written to the same audit table
+8. Successful login stores a structured PostgreSQL audit row, then clears the
    in-memory consecutive-failure state for that client IP
 9. When Cloudflare IP blocking is enabled, the app creates an app-managed Cloudflare zone IP
    Access Rule after `CLOUDFLARE_AUTO_BLOCK_FAILED_LOGIN_ATTEMPTS` consecutive failures for the
@@ -467,8 +467,12 @@ def protected_page(request: Request) -> TemplateResponse:
 10. Passkey login uses `/passkeys/login/options` and `/passkeys/login/verify` as unauthenticated
    ceremony endpoints for the login page. Registration and deletion stay behind authenticated
    Diagnostics routes under `/diagnostics/passkeys/...`.
+11. `This is a public device` applies only to password login. It disables Device Sign-In while
+    checked, creates a 15-minute browser-activity session, skips service-worker registration, and
+    clears cookies/cache/storage on timeout or logout. Keep its explanation in an accessible
+    tooltip that appears when the full checkbox row is hovered or keyboard-focused.
 
-The login audit log must never store the submitted password value. Keep failed-login submitted
+The login audit table must never store the submitted password value. Keep failed-login submitted
 username, password length, client IP/header details, user agent, request path, reason, attempt
 count, lockout state, and UTC/local timestamps available for Diagnostics. Keep successful-login
 submitted username, authentication method, client IP/header details, user agent, request path, and
@@ -484,7 +488,7 @@ The app has one configured web user, so passkeys are stored for `WEB_LOGIN_USERN
 login credentials or session secret are missing. The bundled web service config is loopback-only and
 passes Cloudflare's `CF-Connecting-IP` through when present. The app uses that effective client IP
 for login audit rows, lockouts, and Cloudflare auto-block identity.
-When rendering Diagnostics from the audit log, use the stored effective client IP for
+When rendering Diagnostics from the audit table, use the stored effective client IP for
 successful-login and failed-login rows. Failed-login row block buttons must use the same visible,
 blockable client IP.
 Passkey verification must use the public browser origin. Prefer explicit `PASSKEY_ORIGIN` and
@@ -672,16 +676,19 @@ logger = logging.getLogger(__name__)  # Gets "mileage_logger.api.routes"
 @router.post("/trips/{trip_id}")
 def update_trip(...):
     logger.info("Updated trip trip_id=%s miles=%s", trip_id, update.miles)
-    # Shows in logs and `/diagnostics` page
+    # Collected from container stdout/stderr
 ```
 
-The Diagnostics page reads `LOGIN_FAILURE_LOG_PATH` through
+All application logging is console-only so Docker Compose and Docker Swarm can own retention and
+delivery. Do not add `FileHandler`, `RotatingFileHandler`, or Diagnostics app-log panels/downloads.
+
+The Diagnostics page reads `web_login_audits` through
 `mileage_logger.services.login_failures.tail_login_success_entries()` and
 `tail_login_failure_entries()`. When changing login, diagnostics, or web authentication behavior,
 preserve the successful-login table above the failed-login table, the failed-login table actions,
-and the compatibility `/diagnostics/logs/login-failures` raw audit download endpoint. Individual
-failed-login rows may be hidden from the Diagnostics table through `hidden_login_failures`, but the
-raw JSON-lines audit log must remain intact. Keep the Diagnostics card actions scoped to the
+and the compatibility `/diagnostics/logs/login-failures` database-backed JSON Lines export endpoint.
+Individual failed-login rows may be hidden from the Diagnostics table through
+`hidden_login_failures`, but the source audit row must remain intact. Keep the Diagnostics card actions scoped to the
 individual failed-login rows rather than adding separate footer refresh or download buttons.
 The Configure Passkey Diagnostics card creates one new WebAuthn credential at a time, lists stored
 credentials, and removes only the selected `passkey_credentials` row. Keep the top Diagnostics

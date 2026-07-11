@@ -3,6 +3,11 @@
 ## 1.3.4 - Unreleased
 
 ### Added
+- Added a `This is a public device` login option with a 15-minute inactivity timeout, browser-data
+  cleanup on timeout/logout, and immediate Device Sign-In disabling while selected.
+- Added PostgreSQL-backed successful and failed web-login audit records for Diagnostics.
+- Added database-level partial unique indexes for automatic source-event signatures and identical
+  day/route/distance/odometer intervals.
 - Added regression coverage for a short false waypoint visit where OwnTracks sends an `enter` and
   `leave` before the configured dwell time.
 - Added a compact Edited indicator for automatic Work Trips rows whose saved mileage was corrected.
@@ -10,6 +15,14 @@
   buttons can update only the active list without a full browser navigation.
 
 ### Changed
+- Changed the public-device login explanation from persistent text to an accessible tooltip shown
+  when the checkbox row is hovered or keyboard-focused.
+- Changed all application, request, worker, trip-calculation, and debug logging to console-only
+  output for Docker Compose and Docker Swarm log collection.
+- Changed persistent runtime storage from log-oriented `HOST_LOG_DIR`/`LOG_DIR` paths to
+  `HOST_DATA_DIR`/`APP_DATA_DIR`, with automatic backups under `/data/backups`.
+- Changed Diagnostics login history and its JSON Lines export to read from PostgreSQL instead of a
+  host log file, and removed the App Log panel, refresh button, download button, and file endpoint.
 - Bumped the Mileage Logger package version to 1.3.4 for unreleased development.
 - Changed Work Trips row source handling so only trips created from the Add Work Trip form use the
   manual yellow row tint.
@@ -19,6 +32,9 @@
   matching arrival was rejected for leaving before the dwell deadline.
 
 ### Fixed
+- Fixed exact automatic trips being recorded more than once by keeping the oldest existing
+  duplicate during migration and rejecting future duplicate event or recorded-value signatures in
+  PostgreSQL.
 - Fixed automatic Work Trips turning into manual-colored rows when only their distance was edited.
 - Fixed short false waypoint visits, such as a nearby stop that OwnTracks briefly labels as inside
   a waypoint, from generating a return trip from that waypoint.
