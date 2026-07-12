@@ -3,6 +3,7 @@
 services:
   app:
     image: "${APP_IMAGE:-mileage-logger-app:latest}"
+    user: "${APP_UID:-1000}:${APP_GID:-100}"
     environment:
       APP_NAME: "${APP_NAME:-Mileage Logger}"
       APP_ENV: "${APP_ENV:-production}"

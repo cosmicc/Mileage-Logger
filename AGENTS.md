@@ -482,6 +482,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - `.github/workflows/publish-swarm-images.yml` publishes app and nginx images to GHCR on relevant
   `main` changes. Keep the package-version tag, `latest`, and immutable full-commit-SHA tag aligned,
   and keep `.env.docker.example`, README, and INSTALL examples on the current released version.
+- The Swarm app task runs with configurable `APP_UID`/`APP_GID` defaults of `1000:100`. Its shared
+  `HOST_DATA_DIR` and backup directory must already be writable by that identity because a
+  non-root Swarm task does not run the entrypoint's root-only path ownership preparation.
 - The bundled `postgres` service remains the default database target when
   `COMPOSE_PROFILES=local-postgres`, but app startup and migrations wait on the configured
   `DATABASE_URL` instead of depending on the bundled local database container's health. For a

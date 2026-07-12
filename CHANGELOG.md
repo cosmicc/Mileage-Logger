@@ -20,6 +20,8 @@
   browser service-unavailable page, health alerts, and paused database-writing schedulers.
 - Changed Docker Compose and Swarm storage to require only the app data mount for backups and
   health state.
+- Changed the Swarm app task to use configurable `APP_UID` and `APP_GID` values so shared-storage
+  ownership can be matched without running the application as root.
 - Changed upgrades to require the former server-side OwnTracks queues to be fully drained before
   deploying this HTTP-only ingestion path.
 

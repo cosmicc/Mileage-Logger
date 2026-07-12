@@ -374,6 +374,9 @@ remember Swarm publishes it on the node interface, not as the normal Compose-onl
 
 Keep `HOST_DATA_DIR` available on every Swarm node that can run the app task. The optional
 `postgres_data` named volume is node-local unless your Swarm volume driver provides shared storage.
+The Swarm app task runs as `${APP_UID:-1000}:${APP_GID:-100}`. Set `APP_UID` and `APP_GID` in the
+Portainer stack environment when your shared-storage ownership differs, and ensure both
+`HOST_DATA_DIR` and its `backups/` directory already exist and are writable by that identity.
 
 The diagnostics page is available at:
 

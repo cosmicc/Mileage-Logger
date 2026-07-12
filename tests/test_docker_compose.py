@@ -149,6 +149,7 @@ def test_swarm_stack_avoids_compose_only_features() -> None:
     assert "\n    network_mode:" not in stack_text
     assert "\n    restart:" not in stack_text
     assert 'image: "${APP_IMAGE:-mileage-logger-app:latest}"' in app_block
+    assert 'user: "${APP_UID:-1000}:${APP_GID:-100}"' in app_block
     assert 'image: "${NGINX_IMAGE:-mileage-logger-nginx:latest}"' in nginx_block
     assert "ports:" not in nginx_block
     assert "TUNNEL_TOKEN:" in cloudflared_block
@@ -166,6 +167,8 @@ def test_swarm_stack_has_optional_local_postgres_overlay() -> None:
     assert "postgres_data:/var/lib/postgresql/data" in local_postgres_text
     assert "APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0" in env_text
     assert "NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0" in env_text
+    assert "APP_UID=1000" in env_text
+    assert "APP_GID=100" in env_text
 
 
 def test_swarm_image_workflow_publishes_versioned_and_immutable_tags() -> None:

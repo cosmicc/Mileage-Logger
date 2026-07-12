@@ -138,6 +138,8 @@ stack for remote PostgreSQL. Add
 [docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
 PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel
 origin service as `http://nginx` so cloudflared reaches nginx over the stack overlay network.
+The Swarm app task defaults to `APP_UID=1000` and `APP_GID=100`; make the shared `HOST_DATA_DIR`
+and its `backups/` directory writable by that identity on every eligible node.
 
 OwnTracks HTTP mode should point at:
 
