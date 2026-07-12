@@ -479,6 +479,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   `profiles`, conditional `depends_on`, and loopback-only port binding assumptions. Use prebuilt
   `APP_IMAGE` and `NGINX_IMAGE` tags, and configure Cloudflare Tunnel to target `http://nginx`
   over the stack overlay network.
+- `.github/workflows/publish-swarm-images.yml` publishes app and nginx images to GHCR on relevant
+  `main` changes. Keep the package-version tag, `latest`, and immutable full-commit-SHA tag aligned,
+  and keep `.env.docker.example`, README, and INSTALL examples on the current released version.
 - The bundled `postgres` service remains the default database target when
   `COMPOSE_PROFILES=local-postgres`, but app startup and migrations wait on the configured
   `DATABASE_URL` instead of depending on the bundled local database container's health. For a

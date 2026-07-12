@@ -3,6 +3,8 @@
 ## 1.4.0 - 07.11.2026
 
 ### Added
+- Added a GitHub Actions workflow that publishes versioned, `latest`, and immutable commit-SHA app
+  and nginx container images to GitHub Container Registry for multi-node Swarm deployments.
 - Added retry-safe OwnTracks HTTP outage responses with `503 Service Unavailable`,
   `Retry-After: 30`, and no-store caching so mobile devices retain messages until PostgreSQL
   returns.

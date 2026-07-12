@@ -130,8 +130,11 @@ entrypoint is waiting before limp mode starts.
 
 Docker Swarm deployments use [docker-stack.yml](docker-stack.yml) instead of `docker-compose.yml`.
 Swarm cannot build images, use Compose profiles, or keep the normal Compose loopback-only port
-binding. Build/tag `APP_IMAGE` and `NGINX_IMAGE` first, set Swarm environment variables through
-Portainer or the shell, and deploy the base stack for remote PostgreSQL. Add
+binding. The `Build and publish Swarm images` GitHub workflow publishes versioned, `latest`, and
+commit-SHA app and nginx images to GHCR. Set `APP_IMAGE` to
+`ghcr.io/cosmicc/mileage-logger-app:1.4.0` and `NGINX_IMAGE` to
+`ghcr.io/cosmicc/mileage-logger-nginx:1.4.0` through Portainer or the shell, and deploy the base
+stack for remote PostgreSQL. Add
 [docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
 PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel
 origin service as `http://nginx` so cloudflared reaches nginx over the stack overlay network.

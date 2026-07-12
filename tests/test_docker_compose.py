@@ -5,6 +5,7 @@ COMPOSE_FILE = Path("docker-compose.yml")
 STACK_FILE = Path("docker-stack.yml")
 STACK_LOCAL_POSTGRES_FILE = Path("docker-stack.local-postgres.yml")
 DOCKER_ENV_FILE = Path(".env.docker.example")
+SWARM_IMAGE_WORKFLOW_FILE = Path(".github/workflows/publish-swarm-images.yml")
 
 
 def _service_block(compose_text: str, service_name: str) -> str:
@@ -163,5 +164,17 @@ def test_swarm_stack_has_optional_local_postgres_overlay() -> None:
     assert "\n  postgres:" not in stack_text
     assert "\n  postgres:" in local_postgres_text
     assert "postgres_data:/var/lib/postgresql/data" in local_postgres_text
-    assert "APP_IMAGE=mileage-logger-app:latest" in env_text
-    assert "NGINX_IMAGE=mileage-logger-nginx:latest" in env_text
+    assert "APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0" in env_text
+    assert "NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0" in env_text
+
+
+def test_swarm_image_workflow_publishes_versioned_and_immutable_tags() -> None:
+    workflow_text = SWARM_IMAGE_WORKFLOW_FILE.read_text(encoding="utf-8")
+
+    assert "packages: write" in workflow_text
+    assert "ghcr.io/cosmicc/mileage-logger-app" in workflow_text
+    assert "ghcr.io/cosmicc/mileage-logger-nginx" in workflow_text
+    assert 'open("pyproject.toml", "rb")' in workflow_text
+    assert "type=raw,value=latest" in workflow_text
+    assert "type=raw,value=${{ steps.version.outputs.version }}" in workflow_text
+    assert "type=sha,prefix=sha-,format=long" in workflow_text

@@ -328,16 +328,17 @@ Portainer standalone stacks.
 
 Swarm does not build images during `docker stack deploy`, does not support Compose profiles, and
 does not preserve the normal Compose loopback-only nginx port binding. The Swarm stack therefore
-uses image tags and overlay networking. Build the images on a single-node Swarm, or push them to a
-registry reachable by every Swarm node:
+uses image tags and overlay networking. The `Build and publish Swarm images` GitHub workflow
+publishes the app and nginx images to GHCR with the package version, `latest`, and an immutable
+commit-SHA tag. For v1.4.0, use:
 
 ```bash
-docker build -t mileage-logger-app:latest .
-docker build -t mileage-logger-nginx:latest -f deploy/nginx/Dockerfile .
+APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0
+NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0
 ```
 
-For a multi-node Swarm, push those images to a registry and set `APP_IMAGE` and `NGINX_IMAGE` to
-the registry tags.
+If the GHCR packages are private, configure GHCR registry credentials in Portainer or authenticate
+the Swarm deployment with a GitHub token that can read packages.
 
 `docker stack deploy` does not accept `--env-file`. In Portainer Swarm mode, enter the variables
 from `.env.docker.example` in the stack environment editor. From the command line, export the
@@ -346,8 +347,8 @@ needed variables in the shell before deploying.
 Remote PostgreSQL Swarm deployment:
 
 ```bash
-export APP_IMAGE=mileage-logger-app:latest
-export NGINX_IMAGE=mileage-logger-nginx:latest
+export APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0
+export NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0
 export DATABASE_URL=postgresql+psycopg://mileage:url_encoded_password@central-db-host:5432/mileage_logger
 docker stack deploy -c docker-stack.yml mileage-logger
 ```
@@ -355,8 +356,8 @@ docker stack deploy -c docker-stack.yml mileage-logger
 Bundled PostgreSQL Swarm deployment:
 
 ```bash
-export APP_IMAGE=mileage-logger-app:latest
-export NGINX_IMAGE=mileage-logger-nginx:latest
+export APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0
+export NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0
 export DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage_logger
 docker stack deploy -c docker-stack.yml -c docker-stack.local-postgres.yml mileage-logger
 ```
