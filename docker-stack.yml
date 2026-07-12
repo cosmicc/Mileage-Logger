@@ -37,7 +37,7 @@ services:
       APP_HEALTH_DISK_WARNING_PERCENT: "${APP_HEALTH_DISK_WARNING_PERCENT:-85.0}"
       APP_HEALTH_DISK_CRITICAL_PERCENT: "${APP_HEALTH_DISK_CRITICAL_PERCENT:-95.0}"
       APP_HEALTH_STATE_PATH: "${APP_HEALTH_STATE_PATH:-/data/app-health-state.json}"
-      WEB_API_KEY: "${WEB_API_KEY:?WEB_API_KEY must be set for non-OwnTracks API access}"
+      WEB_API_KEY: "${WEB_API_KEY:?WEB_API_KEY must be set for protected API access}"
       CREATE_TABLES_ON_STARTUP: "${CREATE_TABLES_ON_STARTUP:-false}"
       DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://mileage:mileage@postgres:5432/mileage_logger}"
       DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-5}"
@@ -57,18 +57,6 @@ services:
       OWNTRACKS_LOCATION_RETENTION_DAYS: "${OWNTRACKS_LOCATION_RETENTION_DAYS:-90}"
       OWNTRACKS_WAYPOINT_DWELL_MINUTES: "${OWNTRACKS_WAYPOINT_DWELL_MINUTES:-5}"
       OWNTRACKS_TRAVEL_DISTANCE_M: "${OWNTRACKS_TRAVEL_DISTANCE_M:-50.0}"
-      OWNTRACKS_BUFFER_ENABLED: "${OWNTRACKS_BUFFER_ENABLED:-true}"
-      OWNTRACKS_BUFFER_PATH: "${OWNTRACKS_BUFFER_PATH:-/data/owntracks-buffer/owntracks-buffer.sqlite3}"
-      OWNTRACKS_BUFFER_FALLBACK_PATH: "${OWNTRACKS_BUFFER_FALLBACK_PATH:-/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3}"
-      OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS: "${OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS:-15}"
-      OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE: "${OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE:-100}"
-      DATABASE_RUN_MIGRATIONS_ON_RECONNECT: "${DATABASE_RUN_MIGRATIONS_ON_RECONNECT:-true}"
-      MQTT_ENABLED: "${MQTT_ENABLED:-false}"
-      MQTT_HOST: "${MQTT_HOST:-localhost}"
-      MQTT_PORT: "${MQTT_PORT:-1883}"
-      MQTT_USERNAME: "${MQTT_USERNAME:-}"
-      MQTT_PASSWORD: "${MQTT_PASSWORD:-}"
-      MQTT_TOPIC: "${MQTT_TOPIC:-owntracks/#}"
       GAS_PRICE_STATE: "${GAS_PRICE_STATE:-MI}"
       GAS_PRICE_BUFFER: "${GAS_PRICE_BUFFER:-0.50}"
       GAS_PRICE_SOURCE: "${GAS_PRICE_SOURCE:-aaa_current}"
@@ -85,8 +73,6 @@ services:
       AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/backups}"
     volumes:
       - ${HOST_DATA_DIR:-/var/lib/mileage-logger}:/data
-      - ${HOST_OWNTRACKS_BUFFER_DIR:-/var/lib/mileage-logger/owntracks-buffer}:/data/owntracks-buffer
-      - owntracks_buffer_fallback:/data/owntracks-buffer-fallback
     healthcheck:
       test:
         [
@@ -134,6 +120,3 @@ services:
       update_config:
         parallelism: 1
         order: stop-first
-
-volumes:
-  owntracks_buffer_fallback:

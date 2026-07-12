@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.4.0 - 07.11.2026
+
+### Added
+- Added retry-safe OwnTracks HTTP outage responses with `503 Service Unavailable`,
+  `Retry-After: 30`, and no-store caching so mobile devices retain messages until PostgreSQL
+  returns.
+- Added exact HTTP retry detection so a resent OwnTracks event does not create a duplicate raw
+  location row.
+
+### Changed
+- Bumped the Mileage Logger package version to 1.4.0 for the HTTP-only OwnTracks ingestion and
+  Swarm deployment changes.
+- Changed OwnTracks ingestion to HTTP-only direct PostgreSQL storage, returning `200 []` only
+  after migrations are ready and the payload commit succeeds.
+- Changed database-outage mode to rely on the OwnTracks mobile app's queue while preserving the
+  browser service-unavailable page, health alerts, and paused database-writing schedulers.
+- Changed Docker Compose and Swarm storage to require only the app data mount for backups and
+  health state.
+- Changed upgrades to require the former server-side OwnTracks queues to be fully drained before
+  deploying this HTTP-only ingestion path.
+
+### Fixed
+- Removed the MQTT dependency, worker, configuration, and documentation because MQTT ingestion is
+  no longer supported.
+- Removed the server-side SQLite OwnTracks buffers, replay worker, mounts, health signals, and
+  Diagnostics queue indicators.
+- Fixed the Swarm `WEB_API_KEY` interpolation message so the legacy stack parser preserves the
+  configured secret instead of rendering a predictable literal value.
+
 ## 1.3.4 - 07.11.2026
 
 ### Added

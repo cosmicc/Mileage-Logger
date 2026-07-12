@@ -6,8 +6,9 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mileage_logger.api.deps import verify_owntracks_auth
+from mileage_logger.api.deps import OWNTRACKS_RETRY_HEADERS, verify_owntracks_auth
 from mileage_logger.database import SessionLocal, get_db, is_database_unavailable_error
+from mileage_logger.database_migrations import run_migrations_once_on_reconnect
 from mileage_logger.models import OwnTracksLocation, Site, Trip
 from mileage_logger.schemas import MonthlyGasPriceCreate, TripUpdate, WaypointRead
 from mileage_logger.services.gas_prices import (
@@ -22,9 +23,9 @@ from mileage_logger.services.owntracks import (
     OwnTracksError,
     UnsupportedOwnTracksType,
     decrypt_owntracks_payload,
+    process_owntracks_payload,
     validate_owntracks_payload_for_ingest,
 )
-from mileage_logger.services.owntracks_buffer import ingest_or_buffer_owntracks_payload
 from mileage_logger.services.pdf import generate_monthly_pdf
 from mileage_logger.services.timezone import datetime_to_local
 from mileage_logger.services.waypoints import owntracks_waypoints_json
@@ -60,14 +61,20 @@ async def owntracks_http(
         user = request.headers.get("x-limit-u") or request.query_params.get("u")
         device = request.headers.get("x-limit-d") or request.query_params.get("d")
         validate_owntracks_payload_for_ingest(body, topic=topic, user=user, device=device)
-        outcome = ingest_or_buffer_owntracks_payload(
-            body,
-            topic=topic,
-            user=user,
-            device=device,
-            source="http",
-            session_factory=session_factory,
-        )
+        try:
+            run_migrations_once_on_reconnect()
+        except Exception as exc:
+            if is_database_unavailable_error(exc):
+                logger.warning("OwnTracks ingestion paused while PostgreSQL is unavailable")
+            else:
+                logger.exception("OwnTracks ingestion paused because migrations are not ready")
+            raise HTTPException(
+                status_code=503,
+                detail="Database is not ready; OwnTracks should retry later",
+                headers=OWNTRACKS_RETRY_HEADERS,
+            ) from exc
+        with session_factory() as db:
+            process_owntracks_payload(db, body, topic=topic, user=user, device=device)
     except EmptyOwnTracksPayload:
         logger.debug("Ignored empty OwnTracks payload")
         return JSONResponse(content=[])
@@ -76,20 +83,24 @@ async def owntracks_http(
         return JSONResponse(content=[])
     except OwnTracksEncryptionNotConfigured as exc:
         logger.error("Rejected OwnTracks payload because encryption is not configured")
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+            headers=OWNTRACKS_RETRY_HEADERS,
+        ) from exc
     except OwnTracksError as exc:
         logger.warning("Rejected OwnTracks payload: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         if is_database_unavailable_error(exc):
             logger.warning("OwnTracks payload could not be stored because database is unavailable")
-            raise HTTPException(status_code=503, detail="Database is unavailable") from exc
+            raise HTTPException(
+                status_code=503,
+                detail="Database is unavailable; OwnTracks should retry later",
+                headers=OWNTRACKS_RETRY_HEADERS,
+            ) from exc
         raise
-    headers = {}
-    if outcome.buffered:
-        headers["X-Mileage-Logger-OwnTracks-Buffered"] = "true"
-        headers["X-Mileage-Logger-OwnTracks-Buffer-Reason"] = outcome.reason
-    return JSONResponse(content=[], headers=headers)
+    return JSONResponse(content=[], headers={"Cache-Control": "no-store"})
 
 
 @router.get("/locations")

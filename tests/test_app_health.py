@@ -9,9 +9,7 @@ from mileage_logger.services.app_health import (
     build_app_health_snapshot,
     pushover_configured,
 )
-from mileage_logger.services.owntracks_buffer import OwnTracksBufferStats
 from mileage_logger.services.runtime_status import (
-    RuntimeBufferStatus,
     RuntimeDatabaseStatus,
     RuntimeStatus,
 )
@@ -20,19 +18,7 @@ from mileage_logger.services.runtime_status import (
 def _runtime_status(
     *,
     database_available: bool = True,
-    primary_available: bool = True,
-    fallback_available: bool = True,
-    queued_count: int = 0,
-    replay_waiting_for_primary: bool = False,
 ) -> RuntimeStatus:
-    buffer_stats = OwnTracksBufferStats(
-        queued_count=queued_count,
-        primary_queued_count=queued_count,
-        fallback_queued_count=0,
-        primary_available=primary_available,
-        fallback_available=fallback_available,
-        replay_waiting_for_primary=replay_waiting_for_primary,
-    )
     return RuntimeStatus(
         database=RuntimeDatabaseStatus(
             available=database_available,
@@ -40,17 +26,6 @@ def _runtime_status(
             placement_label="Remote PostgreSQL",
             host_label="db.internal",
         ),
-        primary_buffer=RuntimeBufferStatus(
-            label="Primary Buffer",
-            available=primary_available,
-            queued_count=queued_count,
-        ),
-        backup_buffer=RuntimeBufferStatus(
-            label="Backup Buffer",
-            available=fallback_available,
-            queued_count=0,
-        ),
-        buffer_stats=buffer_stats,
     )
 
 
@@ -64,7 +39,7 @@ def test_app_health_snapshot_tracks_degraded_signals() -> None:
 
     snapshot = build_app_health_snapshot(
         settings=settings,
-        runtime_status=_runtime_status(primary_available=False, queued_count=3),
+        runtime_status=_runtime_status(),
         database_latency_ms=150,
         disk_usages=[SimpleNamespace(primary_path="/data/logs", used_bytes=90, total_bytes=100)],
         active_lockout_count=2,
@@ -76,8 +51,6 @@ def test_app_health_snapshot_tracks_degraded_signals() -> None:
     assert snapshot.severity == "warning"
     assert "database.latency_warning" in issue_keys
     assert "disk./data/logs" in issue_keys
-    assert "owntracks_buffer.primary_unavailable" in issue_keys
-    assert "owntracks_buffer.queued" in issue_keys
     assert "security.login_lockout" in issue_keys
     assert "security.cloudflare_blocks" in issue_keys
 
@@ -85,11 +58,7 @@ def test_app_health_snapshot_tracks_degraded_signals() -> None:
 def test_app_health_snapshot_marks_database_outage_unavailable() -> None:
     snapshot = build_app_health_snapshot(
         settings=Settings(),
-        runtime_status=_runtime_status(
-            database_available=False,
-            primary_available=False,
-            fallback_available=False,
-        ),
+        runtime_status=_runtime_status(database_available=False),
         database_latency_ms=None,
         active_lockout_count=0,
         cloudflare_block_count=0,

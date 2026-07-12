@@ -986,8 +986,6 @@ def _diagnostic_storage_paths(settings) -> tuple[str, ...]:
         str(Path.cwd()),
         settings.app_data_dir,
         settings.automatic_backup_dir,
-        str(Path(settings.owntracks_buffer_path).expanduser().parent),
-        str(Path(settings.owntracks_buffer_fallback_path).expanduser().parent),
     ]
     sqlite_path = _sqlite_database_path(settings.database_url)
     if sqlite_path is not None:

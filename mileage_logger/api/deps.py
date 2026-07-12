@@ -12,6 +12,7 @@ OWNTRACKS_API_PATHS = {
     "/api/pub/",
 }
 WEB_API_AUTH_EXEMPT_PATHS = {"/api/health", *OWNTRACKS_API_PATHS}
+OWNTRACKS_RETRY_HEADERS = {"Cache-Control": "no-store", "Retry-After": "30"}
 
 
 def _verify_owntracks_basic_auth(request: Request) -> bool:
@@ -43,11 +44,13 @@ def verify_owntracks_auth(request: Request) -> None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="OWNTRACKS_ENCRYPTION_KEY is not configured",
+            headers=OWNTRACKS_RETRY_HEADERS,
         )
     if not (settings.owntracks_username.strip() and settings.owntracks_password.strip()):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="OwnTracks Basic Auth is not configured",
+            headers=OWNTRACKS_RETRY_HEADERS,
         )
     if _verify_owntracks_basic_auth(request):
         return

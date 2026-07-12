@@ -198,7 +198,7 @@ def validate_owntracks_payload_for_ingest(
     user: str | None = None,
     device: str | None = None,
 ) -> None:
-    """Validate that an OwnTracks payload is safe to process directly or buffer."""
+    """Validate that an OwnTracks HTTP payload is safe to store in PostgreSQL."""
 
     payload = _decode_payload(body)
     if payload.get("_type") == "waypoint":
@@ -389,12 +389,38 @@ def update_site_last_visit_from_transition(
 
 
 def store_owntracks_location(db: Session, message: OwnTracksLocationMessage) -> OwnTracksLocation:
+    """Store one OwnTracks event, returning an existing row for an exact HTTP retry."""
+
     sync_site_from_owntracks_payload(
         db,
         message.payload,
         latitude=message.latitude,
         longitude=message.longitude,
     )
+    candidates = db.scalars(
+        select(OwnTracksLocation).where(
+            OwnTracksLocation.captured_at == message.captured_at,
+            OwnTracksLocation.latitude == message.latitude,
+            OwnTracksLocation.longitude == message.longitude,
+        )
+    )
+    for existing in candidates:
+        if (
+            existing.user == message.identity.user
+            and existing.device == message.identity.device
+            and existing.topic == message.identity.topic
+            and existing.raw_payload == message.payload
+        ):
+            logger.info(
+                "Accepted duplicate OwnTracks retry without inserting a second row id=%s "
+                "captured_at=%s user=%s device=%s",
+                existing.id,
+                existing.captured_at.isoformat(),
+                existing.user or "",
+                existing.device or "",
+            )
+            return existing
+
     location = OwnTracksLocation(
         user=message.identity.user,
         device=message.identity.device,
@@ -440,6 +466,8 @@ def process_owntracks_payload(
     user: str | None = None,
     device: str | None = None,
 ) -> OwnTracksProcessResult:
+    """Persist one validated HTTP payload and run best-effort trip processing."""
+
     payload = _decode_payload(body)
     payload_type = payload.get("_type")
     logger.debug("Processing OwnTracks payload type=%s", payload_type)

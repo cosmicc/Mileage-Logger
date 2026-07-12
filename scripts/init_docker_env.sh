@@ -61,7 +61,6 @@ PY
 chmod 0600 "${target}"
 
 host_data_dir="$(get_env_value HOST_DATA_DIR)"
-host_owntracks_buffer_dir="$(get_env_value HOST_OWNTRACKS_BUFFER_DIR)"
 
 if [[ -n "${host_data_dir}" ]]; then
   if mkdir -p "${host_data_dir}" 2>/dev/null; then
@@ -73,16 +72,6 @@ if [[ -n "${host_data_dir}" ]]; then
     echo "Could not create host app data directory: ${host_data_dir}" >&2
     echo "Create it before starting Docker, for example:" >&2
     echo "  sudo install -d -m 0750 ${host_data_dir}" >&2
-  fi
-fi
-
-if [[ -n "${host_owntracks_buffer_dir}" ]]; then
-  if mkdir -p "${host_owntracks_buffer_dir}" 2>/dev/null; then
-    echo "Prepared host OwnTracks buffer directory: ${host_owntracks_buffer_dir}"
-  else
-    echo "Could not create host OwnTracks buffer directory: ${host_owntracks_buffer_dir}" >&2
-    echo "Create it before starting Docker, for example:" >&2
-    echo "  sudo install -d -m 0750 ${host_owntracks_buffer_dir}" >&2
   fi
 fi
 

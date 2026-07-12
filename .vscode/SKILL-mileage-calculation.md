@@ -345,7 +345,7 @@ class DeletedTrip(Base):
 
 **Why**: Prevents duplicate trips if:
 - User deletes a trip
-- Later, OwnTracks resends the same events (offline buffer)
+- Later, OwnTracks retries the same HTTP events after an outage
 - Trip processor re-detects the same transition pair
 
 The live `trips` table has partial unique indexes for automatic rows on the source-event signature

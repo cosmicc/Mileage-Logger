@@ -6,57 +6,5 @@
       reconnect when the service is available again. Web data, reports, manual changes, and
       diagnostics are paused until the database connection returns.
     </p>
-    <dl class="limp-mode-status">
-      <div class="limp-mode-status-queued">
-        <dt>Queued Payloads</dt>
-        <dd>{{ buffer_stats.queued_count }}</dd>
-      </div>
-      {% if oldest_queued_payload_age %}
-      <div class="limp-mode-status-oldest">
-        <dt>Oldest Received Payload</dt>
-        <dd>{{ oldest_queued_payload_age }}</dd>
-      </div>
-      {% endif %}
-      <div class="limp-mode-buffer-card">
-        <dt>Primary Queue</dt>
-        <dd>
-          {% if runtime_status.primary_buffer.available %}
-            <span class="status-indicator-line">
-              <span class="status-dot {{ runtime_status.primary_buffer.indicator_class }}" aria-hidden="true"></span>
-              {{ runtime_status.primary_buffer.state_label }}
-            </span>
-            <span class="diagnostic-value">{{ runtime_status.primary_buffer.queued_label }}</span>
-          {% else %}
-            <span class="status-indicator-line">
-              <span class="status-dot {{ runtime_status.primary_buffer.indicator_class }}" aria-hidden="true"></span>
-              {{ runtime_status.primary_buffer.state_label }}
-            </span>
-          {% endif %}
-        </dd>
-      </div>
-      <div class="limp-mode-buffer-card">
-        <dt>Backup Queue</dt>
-        <dd>
-          {% if runtime_status.backup_buffer.available %}
-            <span class="status-indicator-line">
-              <span class="status-dot {{ runtime_status.backup_buffer.indicator_class }}" aria-hidden="true"></span>
-              {{ runtime_status.backup_buffer.state_label }}
-            </span>
-            <span class="diagnostic-value">{{ runtime_status.backup_buffer.queued_label }}</span>
-          {% else %}
-            <span class="status-indicator-line">
-              <span class="status-dot {{ runtime_status.backup_buffer.indicator_class }}" aria-hidden="true"></span>
-              {{ runtime_status.backup_buffer.state_label }}
-            </span>
-          {% endif %}
-        </dd>
-      </div>
-      {% if buffer_stats.replay_waiting_for_primary %}
-      <div>
-        <dt>Replay Status</dt>
-        <dd>Waiting for primary queue</dd>
-      </div>
-      {% endif %}
-    </dl>
   </div>
 </section>

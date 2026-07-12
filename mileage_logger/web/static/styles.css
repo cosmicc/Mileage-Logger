@@ -462,40 +462,6 @@ p {
   white-space: nowrap;
 }
 
-.limp-mode-status {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 22px 0;
-}
-
-.limp-mode-status div {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgba(17, 16, 14, 0.32);
-}
-
-.limp-mode-status dt {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
-.limp-mode-status dd {
-  margin: 6px 0 0;
-  overflow-wrap: anywhere;
-  color: var(--text);
-  font-weight: 800;
-}
-
-.limp-mode-note {
-  margin-bottom: 0;
-  color: var(--text-soft);
-}
-
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1918,10 +1884,6 @@ td input[type="text"] {
 
   .limp-mode-panel {
     padding: 18px 12px;
-  }
-
-  .limp-mode-status {
-    gap: 8px;
   }
 
   .form-row {

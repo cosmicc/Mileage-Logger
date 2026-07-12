@@ -44,7 +44,7 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 |-----------|---------|
 | `mileage_logger/api/` | API routes for OwnTracks ingestion, trip updates, PDF export |
 | `mileage_logger/web/` | Web UI routes, Jinja2 templates, HTML rendering |
-| `mileage_logger/services/` | Business logic: trip generation, mileage calc, gas prices, MQTT |
+| `mileage_logger/services/` | Business logic: trip generation, mileage calculation, gas prices |
 | `mileage_logger/models.py` | SQLAlchemy ORM models (Trip, Site, OwnTracksLocation, etc.) |
 | `alembic/versions/` | Database schema migrations |
 
@@ -76,7 +76,7 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
   or host systemd timer runs.
 
 **[owntracks.py](mileage_logger/services/owntracks.py)** — Payload parsing
-- Handles both HTTP and MQTT OwnTracks messages
+- Handles HTTP OwnTracks messages
 - Parses `location` and `transition` event types
 - Validates required fields: `lat`, `lon`, `tst`
 - Supports OwnTracks encrypted HTTP payloads when `OWNTRACKS_ENCRYPTION_KEY` is set. The HTTP
@@ -87,22 +87,10 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Public web service exposes only `POST /api/owntracks`, `POST /api/owntracks/`, `POST /api/pub`,
   and `POST /api/pub/`; other API routes stay internal to the app container and Docker network,
   and still require `WEB_API_KEY` when called internally.
-
-**[owntracks_buffer.py](mileage_logger/services/owntracks_buffer.py)** — Database-outage ingest buffer
-- Default-on persistent SQLite FIFO queue for OwnTracks HTTP and MQTT payloads when PostgreSQL is
-  unreachable or when earlier OwnTracks payloads are already queued
-- Keeps OwnTracks ingestion available during database outages while normal web pages, API routes,
-  and scheduled DB-writing jobs are paused behind the limp-mode warning page, API 503 response, or
-  scheduler skip
-- Replays buffered payloads in receive order after PostgreSQL returns, optionally verifying
-  Alembic migrations on reconnect before draining the queue
-- Docker stores the primary queue under `/data/owntracks-buffer`, backed by
-  `HOST_OWNTRACKS_BUFFER_DIR`. If that primary buffer is unavailable, the app uses the local
-  Docker named-volume fallback queue at `OWNTRACKS_BUFFER_FALLBACK_PATH`.
-- Fallback replay runs immediately while the primary buffer remains unavailable only when the app
-  observed the primary buffer fail before the database outage. If the primary buffer had older
-  queued entries first, fallback replay waits until both queues are readable so payloads drain in
-  receive order.
+- Returns `503 Service Unavailable`, `Retry-After: 30`, and `Cache-Control: no-store` when
+  PostgreSQL or migrations are unavailable so OwnTracks retains and retries its own HTTP queue.
+- Returns `200 []` only after PostgreSQL accepts the payload. Exact HTTP retries reuse the existing
+  raw event instead of inserting it twice.
 
 **[login_failures.py](mileage_logger/services/login_failures.py)** — Web login audit logging
 - Stores structured PostgreSQL records for successful and failed web UI login attempts and emits
@@ -145,8 +133,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 
 **[app_health.py](mileage_logger/services/app_health.py)** — App health and Pushover alerts
 - Builds the shared app-health snapshot used by Diagnostics and background notifications
-- Monitors PostgreSQL availability and latency, OwnTracks buffer availability and queued payloads,
-  disk usage for runtime paths, active web-login lockouts, and app-managed Cloudflare IP blocks
+- Monitors PostgreSQL availability and latency, disk usage for runtime paths, active web-login
+  lockouts, and app-managed Cloudflare IP blocks
 - Sends Pushover notifications only when configured degraded/unavailable issue signatures change,
   and sends a restored notification when all monitored checks return to healthy
 - Persists notification state under `APP_HEALTH_STATE_PATH` so app restarts do not repeat the same
@@ -244,7 +232,7 @@ unique indexes; manual trips are not restricted by those indexes.
 - **Source**: `.env` file loaded by `pydantic_settings.BaseSettings`
 - **Key Variables**: `LOCAL_TIMEZONE`, `DATABASE_URL`, `DATABASE_POOL_SIZE`,
   `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_TIMEOUT_SECONDS`, `DATABASE_POOL_RECYCLE_SECONDS`,
-  `DATABASE_CONNECT_TIMEOUT_SECONDS`, `DATABASE_RUN_MIGRATIONS_ON_RECONNECT`, `VEHICLE_MPG`,
+  `DATABASE_CONNECT_TIMEOUT_SECONDS`, `VEHICLE_MPG`,
   `REPORT_DISPLAY_NAME`,
   `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`, `APP_DATA_DIR`,
   `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
@@ -256,10 +244,8 @@ unique indexes; manual trips are not restricted by those indexes.
   `PUSHOVER_PRIORITY`, `APP_HEALTH_MONITOR_INTERVAL_SECONDS`,
   `APP_HEALTH_DB_LATENCY_WARNING_MS`, `APP_HEALTH_DB_LATENCY_CRITICAL_MS`,
   `APP_HEALTH_DISK_WARNING_PERCENT`, `APP_HEALTH_DISK_CRITICAL_PERCENT`,
-  `APP_HEALTH_STATE_PATH`, `WEB_API_KEY`,
-  `OWNTRACKS_ENCRYPTION_KEY`, `OWNTRACKS_BUFFER_ENABLED`, `OWNTRACKS_BUFFER_PATH`,
-  `OWNTRACKS_BUFFER_FALLBACK_PATH`, `OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS`,
-  `OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE`, `PASSKEY_RP_NAME`, `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
+  `APP_HEALTH_STATE_PATH`, `WEB_API_KEY`, `OWNTRACKS_ENCRYPTION_KEY`, `PASSKEY_RP_NAME`,
+  `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
 
 ### Visual Design and Color Palette
@@ -311,18 +297,19 @@ unique indexes; manual trips are not restricted by those indexes.
 4. Return JSON or raise `HTTPException`
 
 ### OwnTracks Ingestion During Database Outages
-- OwnTracks HTTP and MQTT ingestion must go through
-  `ingest_or_buffer_owntracks_payload()` after payload decryption and validation. Do not add a
-  normal `Depends(get_db)` dependency to OwnTracks routes, because the route must remain available
-  when PostgreSQL is offline.
-- When the queue already contains payloads, new OwnTracks payloads must be appended to the queue
-  instead of written directly so replay order is preserved.
+- OwnTracks ingestion is HTTP-only. Keep `/api/owntracks`, `/api/owntracks/`, `/api/pub`, and
+  `/api/pub/` independent from the normal `Depends(get_db)` dependency so database failures can be
+  translated into a controlled API response.
+- After authentication, decryption, and validation, verify Alembic migrations and attempt the
+  PostgreSQL write. Return `200 []` only after the commit succeeds. Return `503`,
+  `Retry-After: 30`, and `Cache-Control: no-store` when PostgreSQL or migrations are unavailable.
+- The OwnTracks mobile app is the only outage queue. Do not add a server-side SQLite queue, replay
+  worker, MQTT subscriber, or queue storage volume.
+- Preserve retry idempotency: an exact resent HTTP event must not create a second raw event row.
 - The limp-mode page is the only browser-facing database-outage page. It is intentionally
   responsive for desktop and mobile and returns HTTP 200 so the bundled nginx browser error pages
   do not replace it. Non-OwnTracks API routes should return a 503 JSON response while the database
   is unavailable.
-- The persistent buffer contains sensitive location history. Keep its Docker host path mounted,
-  access-restricted, and separate from cleanup routines that purge old OwnTracks database rows.
 
 ### Adding a Web Page
 1. Create Jinja2 template in `web/templates/`
@@ -401,8 +388,7 @@ unique indexes; manual trips are not restricted by those indexes.
   end-user facing, uses the `Service Temporarily Unavailable` heading, hides all shared app chrome
   and navigation, avoids host/IP/connection-string details and database status cards, and keeps
   retrying `/` so the normal app/login flow resumes when service returns. Fetched panel fragments must
-  not include the retry script. Keep the Queued Payloads and Oldest Received Payload cards beside
-  each other in the first outage-status row.
+  not include the retry script. Do not show retired server-side queue status on the outage page.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state and recent events.
@@ -445,8 +431,7 @@ unique indexes; manual trips are not restricted by those indexes.
    `app_health.py` snapshot so they stay consistent. The
    System Status card shows PostgreSQL availability, local/remote placement, latency with a
    green/yellow/red status dot based on the app-health database latency thresholds, database size,
-   total app-record count, pool/timeout details, and compact primary/backup OwnTracks buffer status
-   indicators without per-buffer queue counts. The Data card shows raw record counts plus lowest,
+   total app-record count, and pool/timeout details. The Data card shows raw record counts plus lowest,
    current, current-month average, and highest gas price readings; format large displayed counts
    with comma thousands separators, keep the low/high values based on raw gas price
    snapshots, and keep the monthly average based on the current app-local month. The detailed
@@ -455,8 +440,7 @@ unique indexes; manual trips are not restricted by those indexes.
    lists. These paginated lists should update in place without a full-page refresh when JavaScript
    is available.
    The recent OwnTracks entries table shows original event time, capture-to-receive delay, and
-   readable event labels instead of the database row ID, raw receive timestamps, battery level, or
-   MQTT topic details.
+   readable event labels instead of the database row ID, raw receive timestamps, or battery level.
    The OwnTracks state-change log intentionally omits per-section distance and shows original event
    time, received delay, state, waypoint, source, elapsed duration since the prior state change,
    and the event row's rolling odometer when available.
@@ -501,8 +485,8 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   central network PostgreSQL server, set `COMPOSE_PROFILES=` and point `DATABASE_URL` at that
   server; `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` then only matter if the local
   PostgreSQL profile is enabled again. Invalid or unparseable `DATABASE_URL` values must not crash
-  app import; they should be classified as database unavailable so OwnTracks buffer limp mode can
-  start while the environment value is corrected.
+  app import; they should be classified as database unavailable so outage mode can start while the
+  environment value is corrected.
 - Runtime PostgreSQL connections use `pool_pre_ping` plus configurable pool size, overflow,
   timeout, recycle, and connect-timeout settings so remote database connections are reused and
   stale network connections are replaced safely.
@@ -519,11 +503,9 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   production login credentials are missing or the session secret is still `change-me`. When web
   login is enabled in any environment, change `SECRET_KEY` from the default.
 - Migrations run automatically on app startup
-- If PostgreSQL is unavailable at startup and `OWNTRACKS_BUFFER_ENABLED=true`, Docker starts the
-  app in OwnTracks buffer limp mode instead of exiting. Web pages show the limp-mode warning, and
-  buffered OwnTracks payloads replay after the configured database returns. If the primary
-  OwnTracks buffer mount is unavailable, the fallback queue persists in the
-  `owntracks_buffer_fallback` Docker named volume. Keep `APP_HEALTHCHECK_START_PERIOD` longer than
+- If PostgreSQL is unavailable at startup, Docker starts the app in outage mode instead of exiting.
+  Web pages show the service-unavailable page and OwnTracks HTTP requests receive retryable `503`
+  responses until PostgreSQL and migrations are ready. Keep `APP_HEALTHCHECK_START_PERIOD` longer than
   `DB_WAIT_TIMEOUT_SECONDS` so Swarm does not replace the app task while the entrypoint is waiting
   before limp mode starts.
 - Daily gas snapshots run as an app-container background scheduler; there is no separate
@@ -548,9 +530,6 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   login.
 - Persistent backups and app-health state are host bind-mounted through `HOST_DATA_DIR`; runtime
   logging remains console-only and login audits remain in PostgreSQL.
-- The OwnTracks primary buffer is host bind-mounted through `HOST_OWNTRACKS_BUFFER_DIR`; treat it
-  as sensitive location data and keep it across normal rebuilds until buffered rows have replayed.
-  The fallback buffer is a local Docker named volume and should also be retained during rebuilds.
 - Optional Pushover app-health notifications use `PUSHOVER_ENABLED=true`, a Pushover app API token
   in `PUSHOVER_TOKEN` or `PUSHOVER_APP_KEY`, and a user/group key in `PUSHOVER_USER` or
   `PUSHOVER_USER_KEY`. The app sends degraded/unavailable notifications on monitored state changes
@@ -573,9 +552,8 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
    odometers, reports, gas prices, monthly OwnTracks summary rollups, backups, and other derived
    app data are kept. Set `OWNTRACKS_PURGE_ENABLED=false` to disable raw OwnTracks cleanup.
 
-6. **Buffer Ordering**: When any OwnTracks payload is buffered, later OwnTracks HTTP or MQTT
-   payloads must keep entering the persistent buffer until replay drains it. This prevents newer
-   points from being stored before older outage-time points.
+6. **OwnTracks Retry Ordering**: OwnTracks retains failed HTTP messages on the device. Keep event
+   timestamps authoritative and preserve exact-retry deduplication when changing ingestion.
 
 7. **Remote Database URLs**: SQLAlchemy database URLs require URL-encoded passwords when reserved
    characters are present. For example, encode `@` as `%40`, `:` as `%3A`, `/` as `%2F`, and `%` as

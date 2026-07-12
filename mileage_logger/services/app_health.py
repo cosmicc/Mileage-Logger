@@ -174,8 +174,6 @@ def _health_storage_paths(settings: Settings) -> tuple[str, ...]:
         str(Path.cwd()),
         settings.app_data_dir,
         settings.automatic_backup_dir,
-        str(Path(settings.owntracks_buffer_path).expanduser().parent),
-        str(Path(settings.owntracks_buffer_fallback_path).expanduser().parent),
     ]
     sqlite_path = _sqlite_database_path(settings.database_url)
     if sqlite_path is not None:
@@ -247,12 +245,8 @@ def _severity_from_percent(settings: Settings, used_percent: Decimal) -> str | N
     return None
 
 
-def _runtime_status_issues(
-    runtime_status: RuntimeStatus,
-    *,
-    include_buffer_issues: bool,
-) -> list[AppHealthIssue]:
-    """Return health issues from database and OwnTracks buffer status."""
+def _runtime_status_issues(runtime_status: RuntimeStatus) -> list[AppHealthIssue]:
+    """Return health issues from the current database status."""
 
     issues: list[AppHealthIssue] = []
     if not runtime_status.database.available:
@@ -265,67 +259,6 @@ def _runtime_status_issues(
             )
         )
 
-    if not include_buffer_issues:
-        return issues
-
-    primary_available = runtime_status.primary_buffer.available
-    backup_available = runtime_status.backup_buffer.available
-    if not primary_available and not backup_available:
-        issues.append(
-            AppHealthIssue(
-                key="owntracks_buffer.unavailable",
-                severity="critical",
-                title="OwnTracks buffers unavailable",
-                detail="Neither the primary nor backup OwnTracks ingest buffer is writable.",
-            )
-        )
-    elif not primary_available:
-        issues.append(
-            AppHealthIssue(
-                key="owntracks_buffer.primary_unavailable",
-                severity="warning",
-                title="Primary OwnTracks buffer unavailable",
-                detail="OwnTracks payloads will use the backup buffer until the primary returns.",
-            )
-        )
-    elif not backup_available:
-        issues.append(
-            AppHealthIssue(
-                key="owntracks_buffer.backup_unavailable",
-                severity="warning",
-                title="Backup OwnTracks buffer unavailable",
-                detail="The fallback buffer is not available if the primary buffer fails.",
-            )
-        )
-
-    queued_count = runtime_status.buffer_stats.queued_count
-    if queued_count > 0:
-        issues.append(
-            AppHealthIssue(
-                key="owntracks_buffer.queued",
-                severity="warning",
-                title="OwnTracks payloads queued",
-                detail=f"{queued_count:,} payloads are waiting for database replay.",
-            )
-        )
-    if runtime_status.buffer_stats.replay_waiting_for_primary:
-        issues.append(
-            AppHealthIssue(
-                key="owntracks_buffer.replay_waiting_for_primary",
-                severity="critical",
-                title="OwnTracks replay paused",
-                detail="Fallback replay is waiting for the primary buffer to preserve order.",
-            )
-        )
-    if runtime_status.buffer_stats.last_error:
-        issues.append(
-            AppHealthIssue(
-                key="owntracks_buffer.last_error",
-                severity="warning",
-                title="OwnTracks buffer error",
-                detail="The buffer has a recent replay or storage error.",
-            )
-        )
     return issues
 
 
@@ -372,10 +305,7 @@ def build_app_health_snapshot(
     """Build a current health snapshot from shared Diagnostics and runtime signals."""
 
     active_settings = settings or get_settings()
-    issues = _runtime_status_issues(
-        runtime_status,
-        include_buffer_issues=active_settings.owntracks_buffer_enabled,
-    )
+    issues = _runtime_status_issues(runtime_status)
     if runtime_status.database.available:
         latency_issue = _database_latency_issue(active_settings, database_latency_ms)
         if latency_issue is not None:

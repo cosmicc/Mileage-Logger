@@ -40,21 +40,13 @@ PY
 prepare_runtime_paths() {
   local app_data_dir="${APP_DATA_DIR:-/data}"
   local automatic_backup_dir="${AUTOMATIC_BACKUP_DIR:-${app_data_dir%/}/backups}"
-  local owntracks_buffer_path="${OWNTRACKS_BUFFER_PATH:-/data/owntracks-buffer/owntracks-buffer.sqlite3}"
-  local owntracks_buffer_fallback_path="${OWNTRACKS_BUFFER_FALLBACK_PATH:-/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3}"
 
   mkdir -p \
     "${app_data_dir}" \
-    "${automatic_backup_dir}" \
-    "$(dirname "${owntracks_buffer_path}")" \
-    "$(dirname "${owntracks_buffer_fallback_path}")"
+    "${automatic_backup_dir}"
   chown -R app:app "${app_data_dir}"
-  chown -R app:app "$(dirname "${owntracks_buffer_path}")"
-  chown -R app:app "$(dirname "${owntracks_buffer_fallback_path}")"
   chmod 0750 "${app_data_dir}"
   chmod 0750 "${automatic_backup_dir}"
-  chmod 0750 "$(dirname "${owntracks_buffer_path}")"
-  chmod 0750 "$(dirname "${owntracks_buffer_fallback_path}")"
 }
 
 run_as_app() {
@@ -75,11 +67,9 @@ if [[ "${RUN_MIGRATIONS:-true}" == "true" ]]; then
     else
       alembic upgrade head
     fi
-  elif [[ "${OWNTRACKS_BUFFER_ENABLED:-true}" == "true" ]]; then
-    echo "Database is unavailable; starting app in OwnTracks buffer limp mode." >&2
   else
-    echo "Database is unavailable and OWNTRACKS_BUFFER_ENABLED is not true." >&2
-    exit 1
+    echo "Database is unavailable; starting the app in read-only outage mode." >&2
+    echo "OwnTracks HTTP requests will receive 503 until PostgreSQL returns." >&2
   fi
 fi
 

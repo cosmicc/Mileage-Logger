@@ -3,7 +3,6 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -20,10 +19,6 @@ from mileage_logger.models import Base
 from mileage_logger.services.app_health import AppHealthMonitor
 from mileage_logger.services.backups import automatic_backup_scheduler
 from mileage_logger.services.gas_prices import gas_snapshot_scheduler
-from mileage_logger.services.mqtt import MqttOwnTracksWorker
-from mileage_logger.services.owntracks_buffer import (
-    OwnTracksBufferReplayer,
-)
 from mileage_logger.services.runtime_status import build_runtime_status
 from mileage_logger.services.trip_processor import AutomaticTripProcessor
 from mileage_logger.web.auth import enforce_web_login
@@ -31,9 +26,7 @@ from mileage_logger.web.routes import router as web_router
 from mileage_logger.web.routes import templates
 
 settings = get_settings()
-mqtt_worker = MqttOwnTracksWorker()
 trip_processor = AutomaticTripProcessor()
-owntracks_buffer_replayer = OwnTracksBufferReplayer()
 app_health_monitor = AppHealthMonitor()
 STATIC_DIR = Path(__file__).resolve().parent / "web" / "static"
 logger = logging.getLogger(__name__)
@@ -47,7 +40,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
             Base.metadata.create_all(bind=engine)
         except Exception as exc:
-            if not settings.owntracks_buffer_enabled or not is_database_unavailable_error(exc):
+            if not is_database_unavailable_error(exc):
                 raise
             logger.warning(
                 "Database unavailable during create_tables_on_startup; starting in limp mode"
@@ -58,9 +51,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
     if settings.gas_snapshot_enabled:
         _app.state.gas_snapshot_task = asyncio.create_task(gas_snapshot_scheduler(settings))
-    owntracks_buffer_replayer.start()
     trip_processor.start()
-    mqtt_worker.start()
     app_health_monitor.start()
     try:
         yield
@@ -77,9 +68,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             with suppress(asyncio.CancelledError):
                 await backup_task
         trip_processor.stop()
-        owntracks_buffer_replayer.stop()
         app_health_monitor.stop()
-        mqtt_worker.stop()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -89,33 +78,6 @@ def _is_limp_mode_fragment_request(request: Request) -> bool:
     """Return true when JavaScript content loaders expect an HTML fragment."""
 
     return request.headers.get("x-requested-with", "").casefold() == "fetch"
-
-
-def _elapsed_since_iso(value: str | None) -> str:
-    """Return a generic elapsed-time label for a stored UTC ISO timestamp."""
-
-    if not value:
-        return ""
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return ""
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    elapsed_seconds = max(0, int((datetime.now(UTC) - parsed.astimezone(UTC)).total_seconds()))
-    if elapsed_seconds <= 5:
-        return "just now"
-    units = (
-        ("day", 86_400),
-        ("hour", 3_600),
-        ("minute", 60),
-    )
-    for label, unit_seconds in units:
-        count = elapsed_seconds // unit_seconds
-        if count >= 1:
-            suffix = "" if count == 1 else "s"
-            return f"{count} {label}{suffix} ago"
-    return f"{elapsed_seconds} seconds ago"
 
 
 def _limp_mode_template_response(request: Request, *, fragment: bool):
@@ -128,12 +90,8 @@ def _limp_mode_template_response(request: Request, *, fragment: bool):
         template_name,
         {
             "settings": settings,
-            "buffer_stats": runtime_status.buffer_stats,
             "runtime_status": runtime_status,
             "limp_mode_active": True,
-            "oldest_queued_payload_age": _elapsed_since_iso(
-                runtime_status.buffer_stats.oldest_received_at
-            ),
         },
         headers={"X-Mileage-Logger-Limp-Mode": "true"},
     )
@@ -153,10 +111,14 @@ async def database_limp_mode(request: Request, call_next):
         if request.url.path == "/api" or request.url.path.startswith("/api/"):
             return JSONResponse(
                 content={
-                    "detail": "Database is unavailable; app is in OwnTracks ingest buffer mode."
+                    "detail": "Database is unavailable. Try the request again later."
                 },
                 status_code=503,
-                headers={"X-Mileage-Logger-Limp-Mode": "true"},
+                headers={
+                    "Cache-Control": "no-store",
+                    "Retry-After": "30",
+                    "X-Mileage-Logger-Limp-Mode": "true",
+                },
             )
         return _limp_mode_template_response(
             request,

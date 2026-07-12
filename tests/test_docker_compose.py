@@ -122,38 +122,18 @@ def test_bundled_postgres_is_default_optional_compose_profile() -> None:
     assert "depends_on" not in app_block
 
 
-def test_owntracks_buffer_is_enabled_and_persisted_for_limp_mode() -> None:
+def test_owntracks_ingestion_has_no_server_buffer_or_mqtt_configuration() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
-    app_block = _service_block(compose_text, "app")
-    expected_buffer_path = (
-        'OWNTRACKS_BUFFER_PATH: "${OWNTRACKS_BUFFER_PATH:-'
-        '/data/owntracks-buffer/owntracks-buffer.sqlite3}"'
-    )
-    expected_fallback_path = (
-        'OWNTRACKS_BUFFER_FALLBACK_PATH: "${OWNTRACKS_BUFFER_FALLBACK_PATH:-'
-        '/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3}"'
-    )
-    expected_replay_interval = (
-        'OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS: '
-        '"${OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS:-15}"'
-    )
-    expected_buffer_mount = (
-        "${HOST_OWNTRACKS_BUFFER_DIR:-/var/lib/mileage-logger/owntracks-buffer}:"
-        "/data/owntracks-buffer"
-    )
+    stack_text = STACK_FILE.read_text(encoding="utf-8")
+    env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
 
-    assert 'OWNTRACKS_BUFFER_ENABLED: "${OWNTRACKS_BUFFER_ENABLED:-true}"' in app_block
-    assert expected_buffer_path in app_block
-    assert expected_fallback_path in app_block
-    assert expected_replay_interval in app_block
-    assert (
-        'OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE: "${OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE:-100}"'
-        in app_block
-    )
-    assert 'start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"' in app_block
-    assert expected_buffer_mount in app_block
-    assert "owntracks_buffer_fallback:/data/owntracks-buffer-fallback" in app_block
-    assert re.search(r"^  owntracks_buffer_fallback:\n", compose_text, re.MULTILINE)
+    for deployment_text in (compose_text, stack_text, env_text):
+        assert "OWNTRACKS_BUFFER" not in deployment_text
+        assert "HOST_OWNTRACKS_BUFFER_DIR" not in deployment_text
+        assert "MQTT_" not in deployment_text
+
+    assert 'start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"' in compose_text
+    assert 'start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"' in stack_text
 
 
 def test_swarm_stack_avoids_compose_only_features() -> None:

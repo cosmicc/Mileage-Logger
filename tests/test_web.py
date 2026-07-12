@@ -55,9 +55,7 @@ from mileage_logger.services.mileage import (
     WAYPOINT_TRIP_NOTE,
     haversine_miles,
 )
-from mileage_logger.services.owntracks_buffer import OwnTracksBufferStats
 from mileage_logger.services.runtime_status import (
-    RuntimeBufferStatus,
     RuntimeDatabaseStatus,
     RuntimeStatus,
     build_runtime_status,
@@ -82,22 +80,7 @@ TEST_SECRET_KEY = "test-secret-key-for-web-session-signing"
 def _runtime_status(
     *,
     database_available: bool = True,
-    primary_available: bool = True,
-    backup_available: bool = True,
-    primary_count: int = 0,
-    backup_count: int = 0,
-    oldest_received_at: str | None = None,
-    last_error: str | None = None,
 ) -> RuntimeStatus:
-    buffer_stats = OwnTracksBufferStats(
-        queued_count=primary_count + backup_count,
-        oldest_received_at=oldest_received_at,
-        last_error=last_error,
-        primary_queued_count=primary_count,
-        fallback_queued_count=backup_count,
-        primary_available=primary_available,
-        fallback_available=backup_available,
-    )
     return RuntimeStatus(
         database=RuntimeDatabaseStatus(
             available=database_available,
@@ -105,17 +88,6 @@ def _runtime_status(
             placement_label="Remote PostgreSQL",
             host_label="db.internal",
         ),
-        primary_buffer=RuntimeBufferStatus(
-            label="Primary Buffer",
-            available=primary_available,
-            queued_count=primary_count,
-        ),
-        backup_buffer=RuntimeBufferStatus(
-            label="Backup Buffer",
-            available=backup_available,
-            queued_count=backup_count,
-        ),
-        buffer_stats=buffer_stats,
     )
 
 
@@ -168,24 +140,14 @@ def _test_client_session(
     return TestClient(app, client=(client_host, 50000)), session_factory
 
 
-def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
-    settings = Settings(
-        database_url="sqlite://",
-        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
-        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
-    )
+def test_database_outage_renders_limp_mode_page(monkeypatch) -> None:
+    settings = Settings(database_url="sqlite://")
 
     def offline_get_db():
         raise OperationalError("SELECT 1", {}, Exception("database offline"))
         yield
 
-    runtime_status = _runtime_status(
-        database_available=False,
-        primary_count=2,
-        backup_count=1,
-        oldest_received_at=(datetime.now(UTC) - timedelta(hours=2)).isoformat(),
-        last_error="could not connect to 192.168.1.20:5432",
-    )
+    runtime_status = _runtime_status(database_available=False)
     monkeypatch.setattr("mileage_logger.app.settings", settings)
     monkeypatch.setattr(
         "mileage_logger.app.build_runtime_status",
@@ -222,39 +184,25 @@ def test_database_outage_renders_limp_mode_page(monkeypatch, tmp_path) -> None:
         assert "OwnTracks Intake" not in response.text
         assert "Accepting and buffering" not in response.text
         assert "Queued OwnTracks Payloads" not in response.text
-        assert "Queued Payloads" in response.text
+        assert "Queued Payloads" not in response.text
         assert "Primary Buffer" not in response.text
         assert "Backup Buffer" not in response.text
-        assert "Primary Queue" in response.text
-        assert "Backup Queue" in response.text
+        assert "Primary Queue" not in response.text
+        assert "Backup Queue" not in response.text
         assert "Last Replay Error" not in response.text
         assert "Buffered OwnTracks data" not in response.text
         assert "Oldest Queued Payload" not in response.text
-        assert "Oldest Received Payload" in response.text
-        assert "2 hours ago" in response.text
-        assert 'class="limp-mode-status-queued"' in response.text
-        assert 'class="limp-mode-status-oldest"' in response.text
-        assert response.text.index('class="limp-mode-status-queued"') < response.text.index(
-            'class="limp-mode-status-oldest"'
-        )
-        assert response.text.count('class="limp-mode-buffer-card"') == 2
+        assert "Oldest Received Payload" not in response.text
+        assert "2 hours ago" not in response.text
+        assert 'class="limp-mode-status"' not in response.text
+        assert 'class="limp-mode-buffer-card"' not in response.text
         assert "font-size: clamp(16px, 5vw, 36px);" in response.text
-        assert ".limp-mode-status-queued {\n  grid-column: 1 / -1;" not in response.text
-        assert "2 queued" in response.text
-        assert "1 queued" in response.text
-        assert "status-dot bad" not in response.text
-        assert "status-dot good" in response.text
-        assert "3" in response.text
     finally:
         app.dependency_overrides.clear()
 
 
-def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, tmp_path) -> None:
-    settings = Settings(
-        database_url="sqlite://",
-        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
-        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
-    )
+def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch) -> None:
+    settings = Settings(database_url="sqlite://")
 
     def offline_get_db():
         raise OperationalError("SELECT 1", {}, Exception("database offline"))
@@ -281,9 +229,9 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
         assert "Limp Mode" not in response.text
         assert "<dt>Database</dt>" not in response.text
         assert "Queued OwnTracks Payloads" not in response.text
-        assert "Queued Payloads" in response.text
-        assert "Primary Queue" in response.text
-        assert "Backup Queue" in response.text
+        assert "Queued Payloads" not in response.text
+        assert "Primary Queue" not in response.text
+        assert "Backup Queue" not in response.text
         assert "Oldest Queued Payload" not in response.text
         assert "Last Replay Error" not in response.text
         assert "Buffered OwnTracks data" not in response.text
@@ -299,7 +247,6 @@ def test_database_outage_content_fetch_renders_limp_mode_fragment(monkeypatch, t
 
 def test_database_outage_limp_mode_hides_top_navigation(
     monkeypatch,
-    tmp_path,
 ) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(
@@ -307,8 +254,6 @@ def test_database_outage_limp_mode_hides_top_navigation(
         secret_key=TEST_SECRET_KEY,
         web_login_username="admin",
         web_login_password="secret-password",
-        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
-        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
     )
     runtime_status = _runtime_status(database_available=False)
     monkeypatch.setattr("mileage_logger.app.settings", settings)
@@ -354,40 +299,22 @@ def test_database_outage_limp_mode_hides_top_navigation(
         app.dependency_overrides.clear()
 
 
-def test_runtime_status_classifies_postgresql_remote_and_local(monkeypatch, tmp_path) -> None:
-    buffer_stats = OwnTracksBufferStats(
-        queued_count=5,
-        primary_queued_count=2,
-        fallback_queued_count=3,
-        primary_available=True,
-        fallback_available=True,
-    )
-    monkeypatch.setattr(
-        "mileage_logger.services.runtime_status._read_runtime_buffer_stats",
-        lambda _settings: buffer_stats,
-    )
-
+def test_runtime_status_classifies_postgresql_remote_and_local() -> None:
     remote_status = build_runtime_status(
         Settings(
             database_url="postgresql+psycopg://mileage:secret@db.internal:5432/mileage_logger",
-            owntracks_buffer_path=str(tmp_path / "primary.sqlite3"),
-            owntracks_buffer_fallback_path=str(tmp_path / "backup.sqlite3"),
         ),
         database_available=True,
     )
     local_status = build_runtime_status(
         Settings(
             database_url="postgresql+psycopg://mileage:secret@postgres:5432/mileage_logger",
-            owntracks_buffer_path=str(tmp_path / "primary.sqlite3"),
-            owntracks_buffer_fallback_path=str(tmp_path / "backup.sqlite3"),
         ),
         database_available=False,
     )
 
     assert remote_status.database.state_label == "Reachable"
     assert remote_status.database.detail_label == "Remote PostgreSQL - db.internal"
-    assert remote_status.primary_buffer.queued_label == "2 queued"
-    assert remote_status.backup_buffer.queued_label == "3 queued"
     assert local_status.database.state_label == "Unavailable"
     assert local_status.database.detail_label == "Local/Bundled PostgreSQL - postgres"
 
@@ -5116,8 +5043,8 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "0 in use / 5 pool, 0 overflow" in status_card
     assert "Timeouts" in status_card
     assert "10s connect, 30s pool" in status_card
-    assert "Primary Buffer" in status_card
-    assert "Backup Buffer" in status_card
+    assert "Primary Buffer" not in status_card
+    assert "Backup Buffer" not in status_card
     assert "2 queued" not in status_card
     assert "3 queued" not in status_card
     assert "status-dot good" in status_card

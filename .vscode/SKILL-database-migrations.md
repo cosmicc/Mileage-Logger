@@ -262,20 +262,15 @@ pool recycle, connect timeout, and LIFO reuse for safer network database behavio
 Bare `postgresql://` URLs are normalized to `postgresql+psycopg://` so SQLAlchemy uses the
 installed psycopg v3 driver instead of trying to import psycopg2.
 Malformed `DATABASE_URL` values should be treated as database unavailable instead of crashing app
-import, so OwnTracks buffer limp mode can still start. When documenting or testing remote database
+import, so database-outage mode can still start. When documenting or testing remote database
 setup, remind operators to URL-encode passwords that contain reserved characters such as `@`, `:`,
 `/`, or `%`.
 
-If the database is unavailable at startup and `OWNTRACKS_BUFFER_ENABLED=true`, the entrypoint
-starts the app in OwnTracks buffer limp mode instead of exiting. This is intentional so the app can
-keep accepting OwnTracks data. Do not put schema changes in code paths that assume startup
-migrations already ran while the app is in limp mode. When buffered OwnTracks payloads are waiting
-and PostgreSQL returns, `mileage_logger.database_migrations.run_migrations_once_on_reconnect()`
-can run the app-container `alembic upgrade head` command once before the replay worker drains the
-local queue.
-The replay worker may need to merge the primary buffer and the local fallback buffer after an NFS
-buffer outage. Migration changes must keep replay idempotent enough to process entries in the
-stored receive order after both buffers are readable.
+If the database is unavailable at startup, the entrypoint starts database-outage mode instead of
+exiting. OwnTracks HTTP requests receive retryable `503` responses until PostgreSQL returns.
+`mileage_logger.database_migrations.run_migrations_once_on_reconnect()` runs `alembic upgrade head`
+before the endpoint accepts the first recovered OwnTracks payload. Do not return `200` before this
+verification and the payload commit succeed.
 
 **To add a new migration for deployment**:
 1. Create the migration through Docker:

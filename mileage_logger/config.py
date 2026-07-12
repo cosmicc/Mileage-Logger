@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     database_pool_timeout_seconds: int = Field(default=30, ge=1)
     database_pool_recycle_seconds: int = Field(default=1800, ge=1)
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
-    database_run_migrations_on_reconnect: bool = True
     create_tables_on_startup: bool = False
     web_login_username: str = ""
     web_login_password: str = ""
@@ -83,19 +82,6 @@ class Settings(BaseSettings):
     owntracks_location_retention_days: int = Field(default=90, ge=1)
     owntracks_waypoint_dwell_minutes: int = Field(default=5, ge=1)
     owntracks_travel_distance_m: Decimal = Field(default=Decimal("50.0"), ge=Decimal("0"))
-    owntracks_buffer_enabled: bool = True
-    owntracks_buffer_path: str = "data/owntracks-buffer.sqlite3"
-    owntracks_buffer_fallback_path: str = "data/owntracks-buffer-fallback.sqlite3"
-    owntracks_buffer_replay_interval_seconds: int = Field(default=15, ge=1)
-    owntracks_buffer_replay_batch_size: int = Field(default=100, ge=1)
-
-    mqtt_enabled: bool = False
-    mqtt_host: str = "localhost"
-    mqtt_port: int = 1883
-    mqtt_username: str = ""
-    mqtt_password: str = ""
-    mqtt_topic: str = "owntracks/#"
-
     gas_price_state: str = "MI"
     gas_price_buffer: Decimal = Decimal("0.50")
     gas_price_source: str = "aaa_current"

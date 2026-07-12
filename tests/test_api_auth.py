@@ -6,7 +6,8 @@ from decimal import Decimal
 import pytest
 from nacl.secret import SecretBox
 from pydantic import ValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.testclient import TestClient
@@ -16,7 +17,6 @@ from mileage_logger.app import app
 from mileage_logger.config import Settings
 from mileage_logger.database import get_db
 from mileage_logger.models import Base, OwnTracksLocation
-from mileage_logger.services.owntracks_buffer import OwnTracksIngestOutcome
 
 
 def _test_client_session() -> tuple[TestClient, sessionmaker[Session]]:
@@ -47,11 +47,14 @@ def _patch_settings(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> None
         "mileage_logger.app",
         "mileage_logger.services.mileage",
         "mileage_logger.services.owntracks",
-        "mileage_logger.services.owntracks_buffer",
         "mileage_logger.services.trip_processor",
         "mileage_logger.web.auth",
     ):
         monkeypatch.setattr(f"{module_name}.get_settings", lambda: settings, raising=False)
+    monkeypatch.setattr(
+        "mileage_logger.api.routes.run_migrations_once_on_reconnect",
+        lambda: None,
+    )
 
 
 def _owntracks_secretbox_key(secret: str) -> bytes:
@@ -75,7 +78,6 @@ def test_owntracks_endpoint_requires_basic_auth_and_encrypted_payload(monkeypatc
         owntracks_username="owntracks",
         owntracks_password="owntracks-password",
         owntracks_encryption_key="owntracks-secret",
-        owntracks_buffer_enabled=False,
         automatic_trip_processing_enabled=False,
     )
     _patch_settings(monkeypatch, settings)
@@ -119,6 +121,7 @@ def test_owntracks_endpoint_fails_closed_without_encryption_key(monkeypatch) -> 
         database_url="sqlite://",
         owntracks_username="owntracks",
         owntracks_password="owntracks-password",
+        owntracks_encryption_key="",
         automatic_trip_processing_enabled=False,
     )
     _patch_settings(monkeypatch, settings)
@@ -142,50 +145,16 @@ def test_owntracks_endpoint_fails_closed_without_encryption_key(monkeypatch) -> 
         app.dependency_overrides.clear()
 
 
-def test_owntracks_endpoint_buffers_without_database_dependency(monkeypatch, tmp_path) -> None:
+def test_owntracks_endpoint_uses_dedicated_database_session(monkeypatch) -> None:
     settings = Settings(
         database_url="sqlite://",
         owntracks_username="owntracks",
         owntracks_password="owntracks-password",
         owntracks_encryption_key="owntracks-secret",
-        owntracks_buffer_path=str(tmp_path / "owntracks-buffer.sqlite3"),
-        owntracks_buffer_fallback_path=str(tmp_path / "owntracks-buffer-fallback.sqlite3"),
         automatic_trip_processing_enabled=False,
     )
     _patch_settings(monkeypatch, settings)
-    captured_ingest: dict[str, object] = {}
-
-    def fail_get_db():
-        raise AssertionError("OwnTracks endpoint should not open the normal DB dependency")
-
-    def fake_ingest(
-        body,
-        *,
-        topic=None,
-        user=None,
-        device=None,
-        source="http",
-        session_factory=None,
-    ):
-        captured_ingest.update(
-            {
-                "body": body,
-                "topic": topic,
-                "user": user,
-                "device": device,
-                "source": source,
-                "session_factory": session_factory,
-            }
-        )
-        return OwnTracksIngestOutcome(
-            buffered=True,
-            queue_id=1,
-            reason="database_unavailable",
-        )
-
-    monkeypatch.setattr("mileage_logger.api.routes.ingest_or_buffer_owntracks_payload", fake_ingest)
-    app.dependency_overrides[get_db] = fail_get_db
-    client = TestClient(app)
+    client, session_factory = _test_client_session()
     payload = {
         "_type": "location",
         "lat": 42.3314,
@@ -203,14 +172,133 @@ def test_owntracks_endpoint_buffers_without_database_dependency(monkeypatch, tmp
         )
 
         assert response.status_code == 200
-        assert response.headers["X-Mileage-Logger-OwnTracks-Buffered"] == "true"
-        assert response.headers["X-Mileage-Logger-OwnTracks-Buffer-Reason"] == (
-            "database_unavailable"
+        assert response.headers["Cache-Control"] == "no-store"
+        assert "X-Mileage-Logger-OwnTracks-Buffered" not in response.headers
+        with session_factory() as db:
+            assert db.scalar(select(func.count(OwnTracksLocation.id))) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_owntracks_endpoint_returns_retryable_503_when_database_is_offline(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        owntracks_username="owntracks",
+        owntracks_password="owntracks-password",
+        owntracks_encryption_key="owntracks-secret",
+        automatic_trip_processing_enabled=False,
+    )
+    _patch_settings(monkeypatch, settings)
+
+    def offline_session_factory():
+        raise OperationalError("INSERT", {}, Exception("database offline"))
+
+    app.dependency_overrides[get_owntracks_session_factory] = lambda: offline_session_factory
+    client = TestClient(app)
+    payload = {
+        "_type": "location",
+        "lat": 42.3314,
+        "lon": -83.0458,
+        "tst": int(datetime(2026, 6, 30, 12, 0, tzinfo=UTC).timestamp()),
+        "tid": "IP",
+        "topic": "owntracks/ian/phone",
+    }
+    encrypted_payload = _encrypted_owntracks_payload(payload, settings.owntracks_encryption_key)
+    try:
+        response = client.post(
+            "/api/owntracks",
+            json=encrypted_payload,
+            auth=("owntracks", "owntracks-password"),
         )
-        assert captured_ingest["source"] == "http"
-        decoded_payload = json.loads(captured_ingest["body"])
-        assert decoded_payload["_decrypted"] is True
-        assert decoded_payload["lat"] == 42.3314
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "Database is unavailable; OwnTracks should retry later"
+        }
+        assert response.headers["Retry-After"] == "30"
+        assert response.headers["Cache-Control"] == "no-store"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_owntracks_endpoint_waits_for_migrations_before_accepting(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        owntracks_username="owntracks",
+        owntracks_password="owntracks-password",
+        owntracks_encryption_key="owntracks-secret",
+        automatic_trip_processing_enabled=False,
+    )
+    _patch_settings(monkeypatch, settings)
+
+    def migrations_not_ready() -> None:
+        raise RuntimeError("migration failed")
+
+    monkeypatch.setattr(
+        "mileage_logger.api.routes.run_migrations_once_on_reconnect",
+        migrations_not_ready,
+    )
+    client, session_factory = _test_client_session()
+    payload = {
+        "_type": "location",
+        "lat": 42.3314,
+        "lon": -83.0458,
+        "tst": int(datetime(2026, 6, 30, 12, 0, tzinfo=UTC).timestamp()),
+    }
+    encrypted_payload = _encrypted_owntracks_payload(payload, settings.owntracks_encryption_key)
+    try:
+        response = client.post(
+            "/api/owntracks",
+            json=encrypted_payload,
+            auth=("owntracks", "owntracks-password"),
+        )
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "detail": "Database is not ready; OwnTracks should retry later"
+        }
+        assert response.headers["Retry-After"] == "30"
+        with session_factory() as db:
+            assert db.scalar(select(func.count(OwnTracksLocation.id))) == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_owntracks_exact_http_retry_is_not_stored_twice(monkeypatch) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        owntracks_username="owntracks",
+        owntracks_password="owntracks-password",
+        owntracks_encryption_key="owntracks-secret",
+        automatic_trip_processing_enabled=False,
+    )
+    _patch_settings(monkeypatch, settings)
+    client, session_factory = _test_client_session()
+    payload = {
+        "_type": "location",
+        "lat": 42.3314,
+        "lon": -83.0458,
+        "tst": int(datetime(2026, 6, 30, 12, 0, tzinfo=UTC).timestamp()),
+        "tid": "IP",
+        "topic": "owntracks/ian/phone",
+    }
+    encrypted_payload = _encrypted_owntracks_payload(payload, settings.owntracks_encryption_key)
+    try:
+        first = client.post(
+            "/api/owntracks",
+            json=encrypted_payload,
+            auth=("owntracks", "owntracks-password"),
+        )
+        retry = client.post(
+            "/api/owntracks",
+            json=encrypted_payload,
+            auth=("owntracks", "owntracks-password"),
+        )
+
+        assert first.status_code == 200
+        assert retry.status_code == 200
+        with session_factory() as db:
+            assert db.scalar(select(func.count(OwnTracksLocation.id))) == 1
     finally:
         app.dependency_overrides.clear()
 
@@ -235,7 +323,7 @@ def test_non_owntracks_api_requires_separate_bearer_key(monkeypatch) -> None:
 
 
 def test_non_owntracks_api_fails_closed_when_web_api_key_is_missing(monkeypatch) -> None:
-    settings = Settings(database_url="sqlite://")
+    settings = Settings(database_url="sqlite://", web_api_key="")
     _patch_settings(monkeypatch, settings)
     client, _ = _test_client_session()
     try:
@@ -252,7 +340,11 @@ def test_api_secret_settings_are_validated() -> None:
         Settings(owntracks_encryption_key="x" * 33)
 
     with pytest.raises(ValidationError, match="OWNTRACKS_USERNAME and OWNTRACKS_PASSWORD"):
-        Settings(owntracks_encryption_key="owntracks-secret")
+        Settings(
+            owntracks_username="",
+            owntracks_password="",
+            owntracks_encryption_key="owntracks-secret",
+        )
 
     with pytest.raises(ValidationError, match="WEB_API_KEY"):
         Settings(
@@ -263,4 +355,5 @@ def test_api_secret_settings_are_validated() -> None:
             owntracks_username="owntracks",
             owntracks_password="owntracks-password",
             owntracks_encryption_key="owntracks-secret",
+            web_api_key="",
         )

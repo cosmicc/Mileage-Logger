@@ -1,6 +1,6 @@
 # Mileage Logger
 
-Mileage Logger receives OwnTracks waypoint events from an Android phone over HTTP or MQTT,
+Mileage Logger receives OwnTracks waypoint events from an Android phone over HTTP,
 stores them in PostgreSQL, lets you review and edit generated waypoint work trips, and produces
 monthly mileage and expense PDF logs.
 
@@ -11,10 +11,8 @@ monthly mileage and expense PDF logs.
   summaries.
 - PostgreSQL models and Alembic migration.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
-- Optional MQTT subscriber for `owntracks/#` topics so location, waypoint, and transition events
-  are available.
-- Default-on persistent OwnTracks buffer that keeps accepting HTTP and MQTT payloads during
-  PostgreSQL outages and replays them in receive order after the database returns.
+- Retry-safe HTTP ingestion that returns `503 Service Unavailable` while PostgreSQL is unavailable
+  so the OwnTracks mobile app retains and resends its own queued messages after recovery.
 - OwnTracks waypoint transition model used to turn leave/enter events into work trips, with
   location updates between those events used as the primary trip distance.
 - Manual current-odometer entry from the Diagnostics page, with the Manual Odometer card showing
@@ -56,8 +54,6 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
 - Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
 - Persistent Docker volume for database data and a host bind mount for backups and health state.
-- Persistent host bind mount for the local OwnTracks outage buffer so accepted phone data survives
-  image rebuilds and container replacement.
 - In-app diagnostics page for database-backed successful and failed web-login audit records and
   OwnTracks state in the configured local timezone. The top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
@@ -87,12 +83,11 @@ start the stack:
 docker compose up -d --build
 ```
 
-`scripts/init_docker_env.sh` tries to create the host app-data and OwnTracks buffer directories.
+`scripts/init_docker_env.sh` tries to create the host app-data directory.
 If your user cannot write to `/var/lib`, create them before starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/lib/mileage-logger
-sudo install -d -m 0750 /var/lib/mileage-logger/owntracks-buffer
 ```
 
 ```bash
@@ -120,23 +115,16 @@ profile again. The app startup and migrations always wait on the configured `DAT
 database password contains URL-reserved characters, encode it before adding it to `DATABASE_URL`.
 For example, `@` becomes `%40`.
 
-OwnTracks buffering is enabled by default. If PostgreSQL is unreachable when the container starts,
-the app starts in limp mode instead of exiting: browser pages show a single responsive database
-warning page, non-OwnTracks API routes return 503 JSON, and OwnTracks HTTP/MQTT payloads are
-validated then written to the local FIFO buffer. Docker stores that buffer at
-`/data/owntracks-buffer/owntracks-buffer.sqlite3`, backed by
-`HOST_OWNTRACKS_BUFFER_DIR` on the host. If the primary buffer mount is unavailable, Docker keeps
-accepting outage payloads in the local named-volume fallback buffer configured by
-`OWNTRACKS_BUFFER_FALLBACK_PATH`. Fallback entries replay immediately while the primary buffer is
-still down only when the app observed the primary buffer fail before the database outage; otherwise
-the app waits for both queues so payloads replay in receive order. Automatic trip processing, gas
-snapshots, and automatic backups pause their database-writing passes while PostgreSQL is
-unreachable. The limp-mode warning page shows generic queued-payload status plus primary and
-backup queue state without exposing database host, IP, or connection-string details. It hides
-normal app navigation and retries the app home page until service returns. A malformed `DATABASE_URL`
-is treated as database unavailable so
-the app can still start in limp mode and accept buffered OwnTracks payloads while the environment
-value is corrected. `APP_HEALTHCHECK_START_PERIOD` should stay longer than
+If PostgreSQL is unreachable when the container starts, the app starts in outage mode instead of
+exiting. Browser pages show a responsive service-unavailable page, non-OwnTracks API routes return
+`503` JSON, and OwnTracks HTTP ingestion returns a fast retryable `503` with `Retry-After: 30`.
+OwnTracks retains unsuccessful HTTP messages on the phone and resends them after PostgreSQL and
+database migrations are ready. Exact HTTP retries are accepted without inserting a duplicate raw
+event. Automatic trip processing, gas snapshots, and automatic backups pause their database-writing
+passes while PostgreSQL is unreachable. The outage page hides normal app navigation and connection
+details and retries the app home page until service returns. A malformed `DATABASE_URL` is treated
+as database unavailable so the outage page can still start while the setting is corrected.
+`APP_HEALTHCHECK_START_PERIOD` should stay longer than
 `DB_WAIT_TIMEOUT_SECONDS`; this prevents Docker Swarm from replacing the app task while the
 entrypoint is waiting before limp mode starts.
 
@@ -287,22 +275,6 @@ Uploaded restore files and retained automatic backup files are limited by
 `MAX_BACKUP_RESTORE_BYTES`, default `262144000` bytes. In-app restore does not restore Docker
 volumes, PostgreSQL users, passwords, or Docker-managed console log history.
 
-## MQTT Setup
-
-Set these in `.env`:
-
-```text
-MQTT_ENABLED=true
-MQTT_HOST=your-broker
-MQTT_PORT=1883
-MQTT_USERNAME=optional
-MQTT_PASSWORD=optional
-MQTT_TOPIC=owntracks/#
-```
-
-Then run the web app normally. The MQTT worker starts with the app. Use `owntracks/#` so MQTT
-ingestion can receive waypoint definitions, transition events, and location updates.
-
 ## Trip Detection
 
 The app generates work trips directly from OwnTracks waypoint transitions:
@@ -331,8 +303,8 @@ The app generates work trips directly from OwnTracks waypoint transitions:
 
 Trip data is calculated automatically. Every incoming OwnTracks location or transition payload is
 stored in `owntracks_locations` and immediately triggers trip recalculation for that payload's
-`LOCAL_TIMEZONE` day when PostgreSQL is reachable. During a database outage, the payload is stored
-in the persistent OwnTracks buffer first, then replayed later through the same processing path.
+`LOCAL_TIMEZONE` day when PostgreSQL is reachable. During a database outage, the endpoint returns
+`503` without accepting the payload, leaving OwnTracks responsible for retrying it later.
 When the app sees a qualifying trip, it writes the generated row to `trips`.
 PostgreSQL enforces one automatic row for each exact source-event signature and rejects a second
 automatic row with the same day, route, distance, and nonblank start/end odometer interval.
@@ -413,21 +385,20 @@ grouped together in this order: Application, System Status, Data, Latest Records
 Manual Odometer, EIA API, Configure Passkey, and Hard Drive Space. On desktop they render three
 cards per row. The System Status card shows PostgreSQL reachability, whether the configured
 PostgreSQL host is remote, database latency with a green/yellow/red status indicator, database
-size, total app records, pool/timeout details, and compact primary/backup OwnTracks buffer status
-indicators. The Data card includes
+size, total app records, and pool/timeout details. The Data card includes
 lowest, current, current-month average, and highest gas price readings and comma-formatted large
 record counts. Diagnostics also shows hard drive space for key runtime paths with used-space bars,
 combining paths into one row when their exact used space and total capacity match, and includes
 current database size plus total app record count at the bottom of the card. When app-health checks
 detect degraded or unavailable service, Diagnostics shows a yellow or red banner above the top
-cards for database, buffer, disk-space, login-lockout, or app-managed Cloudflare block issues.
+cards for database, disk-space, login-lockout, or app-managed Cloudflare block issues.
 Recent OwnTracks entries,
 OwnTracks state changes, successful-login attempts, failed-login attempts, and app-managed
 Cloudflare blocked IPs are displayed 10 rows at a time with mobile pagination buttons in one
 full-width row and the page count shown as text below. Pagination buttons update only the active
 list and keep the current page position when JavaScript is available, with normal links as a
 fallback. Recent OwnTracks entries show original event time, received delay, and a readable event
-label instead of the database row ID, raw receive timestamps, battery level, or MQTT topic details.
+label instead of the database row ID, raw receive timestamps, or battery level.
 Successful-login attempts show Password or Passkey method pills instead of an account column. The
 OwnTracks state-change list omits the per-segment distance column and shows original event time,
 received delay, state, waypoint, source, duration, and rolling odometer when available.
@@ -482,7 +453,6 @@ DATABASE_MAX_OVERFLOW=10
 DATABASE_POOL_TIMEOUT_SECONDS=30
 DATABASE_POOL_RECYCLE_SECONDS=1800
 DATABASE_CONNECT_TIMEOUT_SECONDS=10
-DATABASE_RUN_MIGRATIONS_ON_RECONNECT=true
 DB_WAIT_TIMEOUT_SECONDS=60
 AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
@@ -490,11 +460,6 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
-OWNTRACKS_BUFFER_ENABLED=true
-OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
-OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
-OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
-OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 OWNTRACKS_ENCRYPTION_KEY=change-owntracks-encryption-key
 WEB_API_KEY=change-web-api-key
 WEB_LOGIN_USERNAME=admin
@@ -526,7 +491,6 @@ APP_HEALTH_STATE_PATH=/data/app-health-state.json
 HTTP_PORT=80
 APP_DATA_DIR=/data
 HOST_DATA_DIR=/var/lib/mileage-logger
-HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
@@ -561,19 +525,14 @@ blocked by the app.
 Set `PUSHOVER_ENABLED=true`, `PUSHOVER_TOKEN` to the Pushover app API token, and `PUSHOVER_USER`
 to the Pushover user/group key to receive app-health notifications. `PUSHOVER_APP_KEY` and
 `PUSHOVER_USER_KEY` are accepted aliases. The monitor watches PostgreSQL availability and
-latency, OwnTracks buffer state and queued payloads, runtime disk usage, active web-login
-lockouts, and app-managed Cloudflare blocks. It sends a degraded or unavailable notification when
+latency, runtime disk usage, active web-login lockouts, and app-managed Cloudflare blocks. It sends
+a degraded or unavailable notification when
 the monitored issue set changes, and one restored notification when all monitored checks are
 healthy again.
 The app writes all runtime, request, worker, trip-calculation, and debug logging to container
 stdout/stderr. Use `docker compose logs -f app` for Compose or
 `docker service logs -f <stack>_app` for Swarm. Successful and failed login audits are stored in
 PostgreSQL and shown separately in Diagnostics; no audit or application log file is created.
-Docker also binds `/data/owntracks-buffer` to `HOST_OWNTRACKS_BUFFER_DIR` and keeps
-`/data/owntracks-buffer-fallback` in the local `owntracks_buffer_fallback` named volume. Keep both
-stores mounted and access-restricted because they can contain buffered location history while
-PostgreSQL is offline. Do not delete either store during rebuilds unless you have confirmed the
-buffer is empty or you are intentionally discarding unreplayed OwnTracks payloads.
 Automatic backups default to `/data/backups`, which is inside the `HOST_DATA_DIR` bind mount, and
 are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
 are truncated in the Diagnostics table but remain visible on hover and available to download.

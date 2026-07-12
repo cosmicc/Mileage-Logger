@@ -85,20 +85,22 @@ container health checks. Do not reuse `OWNTRACKS_ENCRYPTION_KEY` as `WEB_API_KEY
 
 ```python
 from mileage_logger.api.deps import verify_owntracks_auth
-from mileage_logger.services.owntracks_buffer import ingest_or_buffer_owntracks_payload
+from mileage_logger.services.owntracks import process_owntracks_payload
 
 @router.post("/owntracks")
 async def owntracks_http(request: Request) -> JSONResponse:
     verify_owntracks_auth(request)  # Raises HTTPException(401) if Basic Auth fails
     # decrypt and validate the encrypted OwnTracks payload
-    outcome = ingest_or_buffer_owntracks_payload(body, source="http")
+    with get_owntracks_session_factory()() as db:
+        process_owntracks_payload(db, body)
 ```
 
-Do not add a normal `Depends(get_db)` dependency to OwnTracks ingestion routes. HTTP and MQTT
-OwnTracks ingest must remain available during a PostgreSQL outage, so accepted payloads go through
-`ingest_or_buffer_owntracks_payload()`. When the persistent queue already has entries, new
-OwnTracks payloads are appended to the queue instead of written directly so receive order is
-preserved.
+OwnTracks ingestion is HTTP-only. Do not add a normal `Depends(get_db)` dependency to these routes;
+use the dedicated session factory so PostgreSQL failures can be translated into a retryable `503`.
+Authenticate, decrypt, validate, verify Alembic migrations, and commit the raw payload before
+returning `200 []`. When PostgreSQL or migrations are unavailable, return `503 Service
+Unavailable` with `Retry-After: 30` and `Cache-Control: no-store`. Exact HTTP retries must reuse the
+existing raw event rather than inserting a duplicate. Do not add a server-side buffer or MQTT path.
 
 The `/api/health` endpoint is unauthenticated inside the app for container health checks;
 `/api/owntracks` requires authentication.
@@ -125,9 +127,7 @@ of app JSON errors.
 Database-outage web handling is different from normal HTTP errors. The app-level limp-mode
 middleware renders `web/templates/limp_mode.html` for browser paths when PostgreSQL is unreachable
 and returns HTTP 200 with `X-Mileage-Logger-Limp-Mode: true` so nginx does not replace it with the
-generic 503 page. Non-OwnTracks API paths return 503 JSON during limp mode. The limp-mode page
-uses `mileage_logger.services.runtime_status.build_runtime_status()` so it can show PostgreSQL
-availability plus primary and backup buffer state/counts without querying PostgreSQL.
+generic 503 page. Non-OwnTracks API paths return 503 JSON during limp mode.
 Full-page Dashboard and Work Trips requests preflight PostgreSQL reachability and render the
 limp-mode page instead of their normal loading shells during an outage. JavaScript content fetches
 must receive only `web/templates/_limp_mode_panel.html` so the fetched HTML can replace the shell
@@ -135,14 +135,10 @@ without nesting another `layout.html` top bar; shell JavaScript should redirect 
 content response has `X-Mileage-Logger-Limp-Mode: true` so stale navigation is not left on screen.
 While `limp_mode_active` is set, the full outage page hides shared app chrome, navigation, icons,
 and service-worker registration. The page uses the end-user facing `Service Temporarily
-Unavailable` heading, avoids host/IP/connection-string details and database status cards, keeps
-Queued Payloads and Oldest Received Payload beside each other in the first status row, and performs
-a timed navigation retry to `/` so the normal app/login flow resumes when service returns. Fragment
-responses must not include the retry script.
-OwnTracks ingestion remains the exception during limp mode: HTTP and MQTT payloads go through
-`ingest_or_buffer_owntracks_payload()`, which writes to the primary buffer or to the local fallback
-buffer if the primary path is unavailable. Do not write new OwnTracks ingestion routes directly to
-PostgreSQL or directly to one buffer path; the manager owns fallback selection and replay order.
+Unavailable` heading, avoids host/IP/connection-string details and database status cards, and
+performs a timed navigation retry to `/` so the normal app/login flow resumes when service returns.
+Fragment responses must not include the retry script. OwnTracks HTTP requests receive retryable
+`503` responses during the outage so the mobile app retains them for later delivery.
 
 ### Credentials Configuration
 
@@ -313,8 +309,8 @@ curl -X POST http://localhost:8000/api/owntracks \
   high/low values.
 - Diagnostics degraded/unavailable banners and Pushover app-health notifications must use
   `mileage_logger.services.app_health.build_app_health_snapshot()`. Keep monitored signals aligned:
-  PostgreSQL availability/latency, OwnTracks buffer availability and queue state, runtime disk
-  usage, active web-login lockouts, and app-managed Cloudflare IP blocks.
+  PostgreSQL availability/latency, runtime disk usage, active web-login lockouts, and app-managed
+  Cloudflare IP blocks.
 
 ### Basic Pattern
 
@@ -696,7 +692,7 @@ cards grouped together in this order unless the page is reorganized deliberately
 System Status, Data, Latest Records, OwnTracks State, Manual Odometer, EIA API, Configure
 Passkey, and Hard Drive Space. The System Status card uses
 `mileage_logger.services.runtime_status.build_runtime_status()` for PostgreSQL local/remote
-placement and primary/backup OwnTracks buffer indicators, and route-level Diagnostics helpers add
+placement, and route-level Diagnostics helpers add
 safe latency, database size, total app records, pool, and timeout details without exposing full
 connection strings. Database latency should render with the same status-dot pattern as other
 System Status rows, using green below `APP_HEALTH_DB_LATENCY_WARNING_MS`, yellow at or above the
@@ -720,8 +716,7 @@ with the page count rendered as plain text below the buttons. Keep pagination li
 enhanced so First, Previous, Next, and Last replace only the targeted list and preserve scroll
 position when JavaScript is available, while still working as normal links without JavaScript.
 The Recent OwnTracks Entries table should show original event time, capture-to-receive delay, and
-readable event labels instead of the database row ID, raw receive timestamps, battery level, or
-MQTT topic details.
+readable event labels instead of the database row ID, raw receive timestamps, or battery level.
 The OwnTracks state-change table should keep per-segment distance out of the list and show original
 event time, received delay, state, waypoint, source, elapsed duration since the prior state change,
 and the event row's rolling odometer when available.

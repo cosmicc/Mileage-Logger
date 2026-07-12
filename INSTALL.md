@@ -75,19 +75,24 @@ The generated `.env` keeps `COMPOSE_PROFILES=local-postgres`, which deploys the 
 PostgreSQL container. For a central PostgreSQL server, set `COMPOSE_PROFILES=` and update
 `DATABASE_URL` before deploying.
 
-It also tries to prepare `HOST_DATA_DIR`, the default `backups/` directory inside it, and the
-persistent `HOST_OWNTRACKS_BUFFER_DIR`. If your user cannot write to `/var/lib`, create them before
+It also tries to prepare `HOST_DATA_DIR` and the default `backups/` directory inside it. If your
+user cannot write to `/var/lib`, create them before
 starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/lib/mileage-logger
-sudo install -d -m 0750 /var/lib/mileage-logger/owntracks-buffer
 ```
 
 When upgrading from an earlier release, move retained automatic backups from
 `/var/log/mileage-logger/backups` to `/var/lib/mileage-logger/backups` before the first v1.3.4
 deployment, or set `HOST_DATA_DIR` to the existing host directory. Earlier login audit log files
 are no longer read or written; new login audits begin in PostgreSQL after the migration.
+
+Before upgrading from a release that still has the server-side OwnTracks buffer, keep PostgreSQL
+online and confirm both Diagnostics queue counts are zero. Do not deploy v1.4.0
+while either old queue contains data, because the new release intentionally has no replay worker.
+After the upgrade is verified, the old host `owntracks-buffer` directory and Docker
+`owntracks_buffer_fallback` volume are unused and can be archived or removed.
 
 Review the file before starting, and set `CLOUDFLARED_TUNNEL_TOKEN` to the token from the
 Cloudflare dashboard:
@@ -135,14 +140,8 @@ AUTOMATIC_TRIP_PROCESSING_ENABLED=true
 AUTOMATIC_TRIP_PROCESSING_INTERVAL_SECONDS=60
 OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
-OWNTRACKS_BUFFER_ENABLED=true
-OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
-OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
-OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
-OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 APP_DATA_DIR=/data
 HOST_DATA_DIR=/var/lib/mileage-logger
-HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
@@ -307,21 +306,14 @@ If the database password contains URL-reserved characters, encode it before addi
 `DATABASE_URL`; for example, `@` becomes `%40`, `:` becomes `%3A`, `/` becomes `%2F`, and `%`
 becomes `%25`.
 
-OwnTracks outage buffering is enabled by default. If the configured database is unreachable at
-startup, Docker starts the app in limp mode instead of stopping the container. Browser pages show a
-single responsive database warning page, non-OwnTracks API routes return 503 JSON, and OwnTracks
-HTTP/MQTT payloads are validated then written to the local FIFO buffer. The buffer is stored at
-`OWNTRACKS_BUFFER_PATH` inside the app container and should be backed by
-`HOST_OWNTRACKS_BUFFER_DIR` so it survives rebuilds. If that primary buffer mount is unavailable,
-the app writes outage payloads to the local Docker named-volume fallback path configured by
-`OWNTRACKS_BUFFER_FALLBACK_PATH`. Fallback replay runs immediately while the primary buffer remains
-unavailable only when the app observed the primary buffer fail before the database outage;
-otherwise replay waits for both queues so payload order is preserved. When PostgreSQL is reachable
-again, the app can run migrations on reconnect when `DATABASE_RUN_MIGRATIONS_ON_RECONNECT=true`,
-then replay buffered payloads in receive order. Automatic trip processing, gas snapshots, and
-automatic backups pause their database-writing passes while PostgreSQL is unreachable. The
-limp-mode warning page shows PostgreSQL status plus primary and backup buffer state with
-queued-payload totals.
+If the configured database is unreachable at startup, Docker starts the app in outage mode instead
+of stopping the container. Browser pages show a responsive service-unavailable page, non-OwnTracks
+API routes return `503` JSON, and OwnTracks HTTP requests receive a fast retryable `503` with
+`Retry-After: 30`. The OwnTracks mobile app retains unsuccessful messages and resends them later.
+Before a recovered endpoint accepts a message, the app verifies Alembic migrations, stores the
+payload in PostgreSQL, and only then returns `200`. Exact HTTP retries do not create duplicate raw
+events. Automatic trip processing, gas snapshots, and automatic backups pause their
+database-writing passes while PostgreSQL is unreachable.
 Keep `APP_HEALTHCHECK_START_PERIOD` longer than `DB_WAIT_TIMEOUT_SECONDS`. This gives the
 entrypoint time to wait for PostgreSQL and then start limp mode before Docker or Swarm counts
 healthcheck failures against the app task.
@@ -379,9 +371,8 @@ The Swarm stack intentionally does not publish nginx directly. If you add a publ
 remember Swarm publishes it on the node interface, not as the normal Compose-only
 `127.0.0.1:${HTTP_PORT}` binding.
 
-Keep `HOST_DATA_DIR` and `HOST_OWNTRACKS_BUFFER_DIR` available on the Swarm node that runs the app
-task. Named volumes such as `owntracks_buffer_fallback` and `postgres_data` are node-local unless
-your Swarm volume driver provides shared storage.
+Keep `HOST_DATA_DIR` available on every Swarm node that can run the app task. The optional
+`postgres_data` named volume is node-local unless your Swarm volume driver provides shared storage.
 
 The diagnostics page is available at:
 
@@ -417,11 +408,9 @@ http://your-server/api/owntracks
 9. Publish a test payload or trigger a waypoint transition to confirm the server receives OwnTracks.
 
 For work waypoints, add OwnTracks regions/waypoints on the phone. Keep OwnTracks location
-reporting enabled so the app receives location updates between waypoint transitions. If you use
-MQTT, publish waypoints and keep `MQTT_TOPIC=owntracks/#` so the app receives waypoint,
-transition, and location update events. If you use HTTP, OwnTracks sends its payloads to the
-configured endpoint and the app will process supported waypoint, transition, and location
-payloads.
+reporting enabled so the app receives location updates between waypoint transitions. OwnTracks
+sends its HTTP payloads to the configured endpoint, where the app processes supported waypoint,
+transition, and location messages.
 
 You can also use the Recorder-compatible endpoint:
 
@@ -538,11 +527,6 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
 OWNTRACKS_WAYPOINT_DWELL_MINUTES=5
 OWNTRACKS_TRAVEL_DISTANCE_M=50.0
-OWNTRACKS_BUFFER_ENABLED=true
-OWNTRACKS_BUFFER_PATH=/data/owntracks-buffer/owntracks-buffer.sqlite3
-OWNTRACKS_BUFFER_FALLBACK_PATH=/data/owntracks-buffer-fallback/owntracks-buffer.sqlite3
-OWNTRACKS_BUFFER_REPLAY_INTERVAL_SECONDS=15
-OWNTRACKS_BUFFER_REPLAY_BATCH_SIZE=100
 WEB_LOGIN_USERNAME=admin
 WEB_LOGIN_PASSWORD=change-web-login-password
 WEB_SESSION_COOKIE_SECURE=true
@@ -572,7 +556,6 @@ APP_HEALTH_STATE_PATH=/data/app-health-state.json
 HTTP_PORT=80
 APP_DATA_DIR=/data
 HOST_DATA_DIR=/var/lib/mileage-logger
-HOST_OWNTRACKS_BUFFER_DIR=/var/lib/mileage-logger/owntracks-buffer
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/backups
 MAX_BACKUP_RESTORE_BYTES=262144000
@@ -613,8 +596,8 @@ should never be blocked by this app.
 Set `PUSHOVER_ENABLED=true`, `PUSHOVER_TOKEN` to your Pushover app API token, and `PUSHOVER_USER`
 to your user/group key to receive app-health notifications. `PUSHOVER_APP_KEY` and
 `PUSHOVER_USER_KEY` are accepted aliases. The app watches database availability and latency,
-OwnTracks buffer availability and queued payloads, runtime disk usage, active web-login lockouts,
-and app-managed Cloudflare blocks. It sends one degraded/unavailable notification when the issue
+runtime disk usage, active web-login lockouts, and app-managed Cloudflare blocks. It sends one
+degraded/unavailable notification when the issue
 set changes and one restored notification when all monitored checks are healthy.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
 least `OWNTRACKS_TRAVEL_DISTANCE_M` meters.
@@ -695,11 +678,6 @@ when set, the name appears under the PDF title as `Submitted by:`.
 The PDF report title shows the selected report month as a month name and year, such as
 `Mileage Log - June 2026`.
 The PDF summary highlights the final total reimbursement dollar amount with a yellow background.
-
-The OwnTracks outage buffer can contain unreplayed location history while the database is down.
-Keep `HOST_OWNTRACKS_BUFFER_DIR` and the `owntracks_buffer_fallback` Docker named volume mounted
-and access-restricted, and do not delete either store during normal container rebuilds unless
-Diagnostics or logs confirm the queues are empty.
 
 Reimbursement is calculated as:
 
@@ -791,25 +769,6 @@ sudo systemctl enable --now mileage-logger-gas-snapshot.timer
 
 You can view database-backed web-login audit records from the in-app `Diagnostics` page and use
 Docker's log commands for application output.
-
-## MQTT Mode
-
-HTTP mode is recommended for OwnTracks Android. If you want MQTT instead, set these in `.env`:
-
-```env
-MQTT_ENABLED=true
-MQTT_HOST=your-broker
-MQTT_PORT=1883
-MQTT_USERNAME=your-user
-MQTT_PASSWORD=your-password
-MQTT_TOPIC=owntracks/#
-```
-
-Restart the app after changing MQTT settings:
-
-```bash
-docker compose up -d --build
-```
 
 ## HTTPS
 

@@ -12,7 +12,7 @@ _migration_checked = False
 
 
 def run_migrations_once_on_reconnect() -> None:
-    """Run Alembic migrations once after a successful database reconnect."""
+    """Verify Alembic migrations once before accepting HTTP OwnTracks data."""
 
     global _migration_checked
     if _migration_checked:
@@ -23,9 +23,7 @@ def run_migrations_once_on_reconnect() -> None:
             return
         alembic_ini = Path("alembic.ini")
         if not alembic_ini.exists():
-            logger.warning("Skipping reconnect migrations; alembic.ini was not found")
-            _migration_checked = True
-            return
+            raise RuntimeError("Cannot verify database migrations because alembic.ini is missing")
         command.upgrade(Config(str(alembic_ini)), "head")
         _migration_checked = True
-        logger.info("Verified database migrations after reconnect")
+        logger.info("Verified database migrations for OwnTracks ingestion")
