@@ -34,11 +34,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - component: app
+          - component: mlapp
             dockerfile: ./Dockerfile
             image: ghcr.io/cosmicc/mileage-logger-app
 
-          - component: nginx
+          - component: mlnginx
             dockerfile: ./deploy/nginx/Dockerfile
             image: ghcr.io/cosmicc/mileage-logger-nginx
 

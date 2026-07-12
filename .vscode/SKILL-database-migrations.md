@@ -42,7 +42,7 @@ class Trip(Base):
 
 In the project root:
 ```bash
-docker compose run --rm app alembic revision -m "add custom_field to trips"
+docker compose run --rm mlapp alembic revision -m "add custom_field to trips"
 ```
 
 This creates a new file in `alembic/versions/` with timestamp (e.g., `20260615_0015_add_custom_field_to_trips.py`).
@@ -71,7 +71,7 @@ def downgrade() -> None:
 
 ```bash
 # Apply the migration
-docker compose run --rm app alembic upgrade head
+docker compose run --rm mlapp alembic upgrade head
 
 # Verify the field exists when using the bundled local PostgreSQL profile
 docker compose exec postgres psql -U mileage -d mileage_logger -c "\d trips"
@@ -81,11 +81,11 @@ docker compose exec postgres psql -U mileage -d mileage_logger -c "\d trips"
 
 ```bash
 # Revert to previous migration
-docker compose run --rm app alembic downgrade -1
+docker compose run --rm mlapp alembic downgrade -1
 
 # List migration history
-docker compose run --rm app alembic current
-docker compose run --rm app alembic history
+docker compose run --rm mlapp alembic current
+docker compose run --rm mlapp alembic history
 ```
 
 ---
@@ -111,8 +111,8 @@ docker compose run --rm app alembic history
    ```
 
 4. **Test both directions through Docker**
-   - `docker compose run --rm app alembic upgrade head` — Apply forward
-   - `docker compose run --rm app alembic downgrade -1` — Verify rollback works
+   - `docker compose run --rm mlapp alembic upgrade head` — Apply forward
+   - `docker compose run --rm mlapp alembic downgrade -1` — Verify rollback works
 
 5. **Avoid data transformations in migration**
    - Migrations should handle schema only
@@ -274,16 +274,16 @@ verification and the payload commit succeed.
 
 **To add a new migration for deployment**:
 1. Create the migration through Docker:
-   `docker compose run --rm app alembic revision -m "description"`
-2. Test with `docker compose run --rm app alembic upgrade head` and
-   `docker compose run --rm app alembic downgrade -1`
+   `docker compose run --rm mlapp alembic revision -m "description"`
+2. Test with `docker compose run --rm mlapp alembic upgrade head` and
+   `docker compose run --rm mlapp alembic downgrade -1`
 3. Commit to git
 4. On server: `docker compose up -d --build` applies migration automatically
 
 **To manually run migration on deployed container**:
 ```bash
-docker compose exec app alembic upgrade head
-docker compose exec app alembic downgrade -1  # Rollback
+docker compose exec mlapp alembic upgrade head
+docker compose exec mlapp alembic downgrade -1  # Rollback
 ```
 
 ---
@@ -295,7 +295,7 @@ docker compose exec app alembic downgrade -1  # Rollback
    - Solution: Always use `nullable=True` initially, then remove after backfill
 
 2. **Not testing rollback**
-   - Always run `docker compose run --rm app alembic downgrade -1` to verify it works
+   - Always run `docker compose run --rm mlapp alembic downgrade -1` to verify it works
    - Prevents being stuck in an unrecoverable state
 
 3. **Schema divergence**

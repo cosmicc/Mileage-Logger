@@ -10,7 +10,8 @@ SWARM_IMAGE_WORKFLOW_FILE = Path(".github/workflows/publish-swarm-images.yml")
 
 def _service_block(compose_text: str, service_name: str) -> str:
     match = re.search(
-        rf"^  {re.escape(service_name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|^volumes:|\Z)",
+        rf"^  {re.escape(service_name)}:\n(?P<body>.*?)"
+        r"(?=^  [A-Za-z0-9_-]+:|^volumes:|^networks:|\Z)",
         compose_text,
         flags=re.DOTALL | re.MULTILINE,
     )
@@ -20,7 +21,7 @@ def _service_block(compose_text: str, service_name: str) -> str:
 
 def test_nginx_host_port_is_loopback_only_for_cloudflared_host_network() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
-    nginx_block = _service_block(compose_text, "nginx")
+    nginx_block = _service_block(compose_text, "mlnginx")
     cloudflared_block = _service_block(compose_text, "cloudflared")
 
     assert '"127.0.0.1:${HTTP_PORT:-80}:80"' in nginx_block
@@ -30,7 +31,7 @@ def test_nginx_host_port_is_loopback_only_for_cloudflared_host_network() -> None
 
 def test_gas_snapshot_runs_inside_app_container_without_sidecar() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
-    app_block = _service_block(compose_text, "app")
+    app_block = _service_block(compose_text, "mlapp")
 
     assert "\n  gas-snapshot:" not in compose_text
     assert 'GAS_SNAPSHOT_ENABLED: "${GAS_SNAPSHOT_ENABLED:-true}"' in app_block
@@ -43,7 +44,7 @@ def test_gas_snapshot_runs_inside_app_container_without_sidecar() -> None:
 
 def test_app_container_requires_production_web_login_secrets() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
-    app_block = _service_block(compose_text, "app")
+    app_block = _service_block(compose_text, "mlapp")
 
     assert "SECRET_KEY: \"${SECRET_KEY:?" in app_block
     assert "WEB_LOGIN_USERNAME: \"${WEB_LOGIN_USERNAME:?" in app_block
@@ -61,8 +62,8 @@ def test_app_container_exposes_pushover_health_settings() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
     stack_text = STACK_FILE.read_text(encoding="utf-8")
     env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
-    compose_app_block = _service_block(compose_text, "app")
-    stack_app_block = _service_block(stack_text, "app")
+    compose_app_block = _service_block(compose_text, "mlapp")
+    stack_app_block = _service_block(stack_text, "mlapp")
 
     for app_block in (compose_app_block, stack_app_block):
         assert 'PUSHOVER_ENABLED: "${PUSHOVER_ENABLED:-false}"' in app_block
@@ -94,7 +95,7 @@ def test_app_container_uses_persistent_data_mount_without_file_log_settings() ->
     env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
 
     for deployment_text in (compose_text, stack_text):
-        app_block = _service_block(deployment_text, "app")
+        app_block = _service_block(deployment_text, "mlapp")
         assert "APP_DATA_DIR: /data" in app_block
         assert 'AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/backups}"' in app_block
         assert "${HOST_DATA_DIR:-/var/lib/mileage-logger}:/data" in app_block
@@ -111,7 +112,7 @@ def test_bundled_postgres_is_default_optional_compose_profile() -> None:
     compose_text = COMPOSE_FILE.read_text(encoding="utf-8")
     env_text = DOCKER_ENV_FILE.read_text(encoding="utf-8")
     postgres_block = _service_block(compose_text, "postgres")
-    app_block = _service_block(compose_text, "app")
+    app_block = _service_block(compose_text, "mlapp")
 
     assert 'profiles: ["local-postgres"]' in postgres_block
     assert "COMPOSE_PROFILES=local-postgres" in env_text
@@ -139,8 +140,8 @@ def test_owntracks_ingestion_has_no_server_buffer_or_mqtt_configuration() -> Non
 
 def test_swarm_stack_avoids_compose_only_features() -> None:
     stack_text = STACK_FILE.read_text(encoding="utf-8")
-    app_block = _service_block(stack_text, "app")
-    nginx_block = _service_block(stack_text, "nginx")
+    app_block = _service_block(stack_text, "mlapp")
+    nginx_block = _service_block(stack_text, "mlnginx")
     cloudflared_block = _service_block(stack_text, "cloudflared")
 
     assert "\n    build:" not in stack_text
@@ -148,13 +149,25 @@ def test_swarm_stack_avoids_compose_only_features() -> None:
     assert "\n    depends_on:" not in stack_text
     assert "\n    network_mode:" not in stack_text
     assert "\n    restart:" not in stack_text
+    assert "\n  app:" not in stack_text
+    assert "\n  nginx:" not in stack_text
+    assert "\n  mlapp:" in stack_text
+    assert "\n  mlnginx:" in stack_text
     assert 'image: "${APP_IMAGE:-mileage-logger-app:latest}"' in app_block
     assert 'user: "${APP_UID:-1000}:${APP_GID:-100}"' in app_block
     assert 'image: "${NGINX_IMAGE:-mileage-logger-nginx:latest}"' in nginx_block
     assert "ports:" not in nginx_block
     assert "TUNNEL_TOKEN:" in cloudflared_block
+    assert "replicas: 2" in cloudflared_block
+    assert "max_replicas_per_node: 1" in cloudflared_block
+    assert "delay: 5s" in cloudflared_block
+    assert "delay: 10s" in cloudflared_block
+    assert "order: start-first" in cloudflared_block
     assert 'start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"' in app_block
     assert "restart_policy:" in stack_text
+    assert "mileage-internal" in app_block
+    assert "mileage-internal" in nginx_block
+    assert "mileage-internal" in cloudflared_block
 
 
 def test_swarm_stack_has_optional_local_postgres_overlay() -> None:
@@ -165,6 +178,7 @@ def test_swarm_stack_has_optional_local_postgres_overlay() -> None:
     assert "\n  postgres:" not in stack_text
     assert "\n  postgres:" in local_postgres_text
     assert "postgres_data:/var/lib/postgresql/data" in local_postgres_text
+    assert "mileage-internal" in local_postgres_text
     assert "APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0" in env_text
     assert "NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0" in env_text
     assert "APP_UID=1000" in env_text
@@ -175,6 +189,10 @@ def test_swarm_image_workflow_publishes_versioned_and_immutable_tags() -> None:
     workflow_text = SWARM_IMAGE_WORKFLOW_FILE.read_text(encoding="utf-8")
 
     assert "packages: write" in workflow_text
+    assert "component: mlapp" in workflow_text
+    assert "component: mlnginx" in workflow_text
+    assert "component: app" not in workflow_text
+    assert "component: nginx" not in workflow_text
     assert "ghcr.io/cosmicc/mileage-logger-app" in workflow_text
     assert "ghcr.io/cosmicc/mileage-logger-nginx" in workflow_text
     assert 'open("pyproject.toml", "rb")' in workflow_text

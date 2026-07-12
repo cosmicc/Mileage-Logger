@@ -1,9 +1,11 @@
 # Docker Swarm stack file. Build and tag images before deploying, or set APP_IMAGE and
 # NGINX_IMAGE to registry-hosted images available to every Swarm node.
 services:
-  app:
+  mlapp:
     image: "${APP_IMAGE:-mileage-logger-app:latest}"
     user: "${APP_UID:-1000}:${APP_GID:-100}"
+    networks:
+      - mileage-internal
     environment:
       APP_NAME: "${APP_NAME:-Mileage Logger}"
       APP_ENV: "${APP_ENV:-production}"
@@ -92,8 +94,10 @@ services:
         parallelism: 1
         order: stop-first
 
-  nginx:
+  mlnginx:
     image: "${NGINX_IMAGE:-mileage-logger-nginx:latest}"
+    networks:
+      - mileage-internal
     environment:
       WEB_ALLOWED_CIDRS: "${WEB_ALLOWED_CIDRS:-}"
       TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
@@ -107,6 +111,8 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
+    networks:
+      - mileage-internal
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN:?CLOUDFLARED_TUNNEL_TOKEN must be set}"
@@ -115,9 +121,17 @@ services:
       TUNNEL_TRANSPORT_PROTOCOL: "${CLOUDFLARED_TRANSPORT_PROTOCOL:-auto}"
       TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
     deploy:
-      replicas: 1
+      replicas: 2
+      placement:
+        max_replicas_per_node: 1
       restart_policy:
         condition: any
+        delay: 5s
       update_config:
         parallelism: 1
-        order: stop-first
+        delay: 10s
+        order: start-first
+
+networks:
+  mileage-internal:
+    driver: overlay

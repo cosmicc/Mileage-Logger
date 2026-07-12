@@ -170,8 +170,8 @@ LOG_LEVEL=debug
 ```
 
 Logs go to the `mileage_logger.trip_calculation` logger through the root console handler. Use
-`docker compose logs -f app`
-or `docker service logs -f <stack>_app`; do not add a trip-calculation file handler.
+`docker compose logs -f mlapp`
+or `docker service logs -f <stack>_mlapp`; do not add a trip-calculation file handler.
 
 ---
 

@@ -282,10 +282,10 @@ unique indexes; manual trips are not restricted by those indexes.
 
 ### Adding a New Database Field
 1. Create migration in `alembic/versions/` with timestamp:
-   `docker compose run --rm app alembic revision -m "description"`
+   `docker compose run --rm mlapp alembic revision -m "description"`
 2. Update SQLAlchemy model in [models.py](mileage_logger/models.py)
 3. Validate through the Docker app image, for example
-   `docker compose run --rm app alembic upgrade head`
+   `docker compose run --rm mlapp alembic upgrade head`
 4. Migration auto-runs on Docker container startup
 
 ### Adding an API Endpoint
@@ -392,8 +392,8 @@ unique indexes; manual trips are not restricted by those indexes.
 
 ### Debugging Trip Generation
 1. Check `/diagnostics` page for OwnTracks state and recent events.
-2. View Compose logs with `docker compose logs -f app`; use
-   `docker service logs -f <stack>_app` for Swarm.
+2. View Compose logs with `docker compose logs -f mlapp`; use
+   `docker service logs -f <stack>_mlapp` for Swarm.
 3. All runtime, request, worker, trip-calculation, and debug logs go to stdout/stderr only. Do not
    add file handlers or in-app application-log viewers/downloads.
 4. Successful and failed web login attempts are stored in `web_login_audits` and shown on
@@ -472,17 +472,24 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 
 **Key Points**:
 - Requires Docker Engine and Docker Compose v2
-- Uses `docker-compose.yml` with app, nginx, cloudflared, and an optional default-on `postgres`
+- Uses `docker-compose.yml` with `mlapp`, `mlnginx`, cloudflared, and an optional default-on `postgres`
   service behind the `local-postgres` Compose profile.
 - Docker Swarm deployments use `docker-stack.yml`; add `docker-stack.local-postgres.yml` only when
   bundled PostgreSQL should run in Swarm. Swarm stack files must avoid Compose-only `build`,
   `profiles`, conditional `depends_on`, and loopback-only port binding assumptions. Use prebuilt
-  `APP_IMAGE` and `NGINX_IMAGE` tags, and configure Cloudflare Tunnel to target `http://nginx`
+  `APP_IMAGE` and `NGINX_IMAGE` tags, and configure Cloudflare Tunnel to target `http://mlnginx`
   over the stack overlay network.
+- Keep the Compose and Swarm service keys uniquely named `mlapp` and `mlnginx`. The nginx upstream
+  must resolve `mlapp:8000`, and all Swarm services, including optional bundled PostgreSQL, must
+  share the `mileage-internal` overlay network. Do not rename the existing deployment variables
+  `APP_IMAGE`, `NGINX_IMAGE`, `APP_UID`, `APP_GID`, or `HOST_DATA_DIR` with these service keys.
+- Keep the Swarm `cloudflared` service at two replicas with `max_replicas_per_node: 1`, a
+  five-second restart delay, and start-first updates unless the deployment architecture changes.
+  Both replicas intentionally use the same `CLOUDFLARED_TUNNEL_TOKEN`.
 - `.github/workflows/publish-swarm-images.yml` publishes app and nginx images to GHCR on relevant
   `main` changes. Keep the package-version tag, `latest`, and immutable full-commit-SHA tag aligned,
   and keep `.env.docker.example`, README, and INSTALL examples on the current released version.
-- The Swarm app task runs with configurable `APP_UID`/`APP_GID` defaults of `1000:100`. Its shared
+- The Swarm `mlapp` task runs with configurable `APP_UID`/`APP_GID` defaults of `1000:100`. Its shared
   `HOST_DATA_DIR` and backup directory must already be writable by that identity because a
   non-root Swarm task does not run the entrypoint's root-only path ownership preparation.
 - The bundled `postgres` service remains the default database target when

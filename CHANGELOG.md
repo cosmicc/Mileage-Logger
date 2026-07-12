@@ -1,8 +1,10 @@
 # Changelog
 
-## 1.4.0 - 07.11.2026
+## 1.4.0 - 07.12.2026
 
 ### Added
+- Added the dedicated `mileage-internal` Swarm overlay network for the application, reverse proxy,
+  Cloudflare Tunnel connector, and optional bundled PostgreSQL service.
 - Added a GitHub Actions workflow that publishes versioned, `latest`, and immutable commit-SHA app
   and nginx container images to GitHub Container Registry for multi-node Swarm deployments.
 - Added retry-safe OwnTracks HTTP outage responses with `503 Service Unavailable`,
@@ -12,6 +14,9 @@
   location row.
 
 ### Changed
+- Renamed the Docker Compose and Swarm application services from `app` and `nginx` to the
+  app-specific `mlapp` and `mlnginx` names, including internal DNS, Cloudflare Tunnel origin, logs,
+  maintenance commands, tests, and documentation. Existing deployment variable names are unchanged.
 - Bumped the Mileage Logger package version to 1.4.0 for the HTTP-only OwnTracks ingestion and
   Swarm deployment changes.
 - Changed OwnTracks ingestion to HTTP-only direct PostgreSQL storage, returning `200 []` only
@@ -22,6 +27,8 @@
   health state.
 - Changed the Swarm app task to use configurable `APP_UID` and `APP_GID` values so shared-storage
   ownership can be matched without running the application as root.
+- Changed the Swarm Cloudflare Tunnel connector to two replicas placed one per node, with a
+  five-second restart delay and start-first rolling updates for faster connector failover.
 - Changed upgrades to require the former server-side OwnTracks queues to be fully drained before
   deploying this HTTP-only ingestion path.
 

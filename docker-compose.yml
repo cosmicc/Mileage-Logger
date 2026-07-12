@@ -18,7 +18,7 @@ services:
       timeout: 3s
       retries: 10
 
-  app:
+  mlapp:
     build: .
     restart: unless-stopped
     environment:
@@ -102,7 +102,7 @@ services:
       retries: 5
       start_period: "${APP_HEALTHCHECK_START_PERIOD:-90s}"
 
-  nginx:
+  mlnginx:
     build:
       context: .
       dockerfile: deploy/nginx/Dockerfile
@@ -113,7 +113,7 @@ services:
       WEB_ALLOWED_CIDRS: "${WEB_ALLOWED_CIDRS:-}"
       TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
     depends_on:
-      app:
+      mlapp:
         condition: service_healthy
 
   cloudflared:
@@ -128,7 +128,7 @@ services:
       TUNNEL_TRANSPORT_PROTOCOL: "${CLOUDFLARED_TRANSPORT_PROTOCOL:-auto}"
       TZ: "${LOCAL_TIMEZONE:-America/Detroit}"
     depends_on:
-      nginx:
+      mlnginx:
         condition: service_started
 
 volumes:

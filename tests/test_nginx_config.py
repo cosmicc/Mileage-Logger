@@ -27,7 +27,7 @@ def test_public_nginx_only_proxies_owntracks_api_endpoints() -> None:
         "= /api/pub/",
     ):
         block = _location_block(config, location)
-        assert "proxy_pass http://mileage_logger_app;" in block
+        assert "proxy_pass http://mileage_logger_mlapp;" in block
         assert "limit_except POST" in block
 
     assert "location /api/ {\n        return 404;\n    }" in config
@@ -35,6 +35,9 @@ def test_public_nginx_only_proxies_owntracks_api_endpoints() -> None:
     assert "location = /openapi.json {\n        return 404;\n    }" in config
     assert "location ^~ /docs {\n        return 404;\n    }" in config
     assert "location ^~ /redoc {\n        return 404;\n    }" in config
+    assert "upstream mileage_logger_mlapp" in config
+    assert "server mlapp:8000;" in config
+    assert "server app:8000;" not in config
 
 
 def test_nginx_serves_custom_error_pages() -> None:
@@ -91,8 +94,8 @@ def test_nginx_keeps_web_routes_available_behind_web_access_rules() -> None:
     web_block = _location_block(config, "/")
     assert "include /etc/nginx/includes/web-access.conf;" in static_block
     assert "include /etc/nginx/includes/web-access.conf;" in web_block
-    assert "proxy_pass http://mileage_logger_app;" in static_block
-    assert "proxy_pass http://mileage_logger_app;" in web_block
+    assert "proxy_pass http://mileage_logger_mlapp;" in static_block
+    assert "proxy_pass http://mileage_logger_mlapp;" in web_block
 
 
 def test_nginx_passes_loopback_tunnel_headers_without_trusted_proxy_maps() -> None:

@@ -98,8 +98,8 @@ Useful commands:
 
 ```bash
 docker compose ps
-docker compose logs -f app
-docker compose logs -f nginx
+docker compose logs -f mlapp
+docker compose logs -f mlnginx
 docker compose down
 ```
 
@@ -137,9 +137,15 @@ commit-SHA app and nginx images to GHCR. Set `APP_IMAGE` to
 stack for remote PostgreSQL. Add
 [docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
 PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel
-origin service as `http://nginx` so cloudflared reaches nginx over the stack overlay network.
-The Swarm app task defaults to `APP_UID=1000` and `APP_GID=100`; make the shared `HOST_DATA_DIR`
+origin service as `http://mlnginx` so cloudflared reaches the uniquely named `mlnginx` service over
+the stack's `mileage-internal` overlay network. The Swarm `mlapp` task defaults to `APP_UID=1000`
+and `APP_GID=100`; make the shared `HOST_DATA_DIR`
 and its `backups/` directory writable by that identity on every eligible node.
+Existing Portainer deployments must update the Cloudflare Tunnel origin from `http://nginx` to
+`http://mlnginx` when applying the service rename. Deployment variable names remain unchanged:
+continue using `APP_IMAGE`, `NGINX_IMAGE`, `APP_UID`, `APP_GID`, and `HOST_DATA_DIR`.
+Swarm runs two `cloudflared` replicas and limits them to one replica per node, providing redundant
+Tunnel connectors without making the stateful application service active-active.
 
 OwnTracks HTTP mode should point at:
 
@@ -535,8 +541,8 @@ a degraded or unavailable notification when
 the monitored issue set changes, and one restored notification when all monitored checks are
 healthy again.
 The app writes all runtime, request, worker, trip-calculation, and debug logging to container
-stdout/stderr. Use `docker compose logs -f app` for Compose or
-`docker service logs -f <stack>_app` for Swarm. Successful and failed login audits are stored in
+stdout/stderr. Use `docker compose logs -f mlapp` for Compose or
+`docker service logs -f <stack>_mlapp` for Swarm. Successful and failed login audits are stored in
 PostgreSQL and shown separately in Diagnostics; no audit or application log file is created.
 Automatic backups default to `/data/backups`, which is inside the `HOST_DATA_DIR` bind mount, and
 are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
@@ -564,7 +570,7 @@ GAS_SNAPSHOT_RUN_ON_STARTUP=true
 ```
 
 Set `GAS_SNAPSHOT_ENABLED=false` to disable the in-app scheduler. The manual command remains
-available, so a host systemd timer can run `docker compose exec -T app mileage-logger gas-snapshot`
+available, so a host systemd timer can run `docker compose exec -T mlapp mileage-logger gas-snapshot`
 on a schedule without cron if you prefer host-managed timing. The Docker image itself does not run
 systemd inside the container.
 Set `REPORT_DISPLAY_NAME` when downloaded PDF reports should identify who submitted the report; the
@@ -596,6 +602,6 @@ ruff check .
 pytest
 bash -n scripts/*.sh
 CLOUDFLARED_TUNNEL_TOKEN=dummy-token docker compose --env-file .env.docker.example config
-docker compose run --rm app alembic revision --autogenerate -m "message"
-docker compose run --rm app alembic upgrade head
+docker compose run --rm mlapp alembic revision --autogenerate -m "message"
+docker compose run --rm mlapp alembic upgrade head
 ```

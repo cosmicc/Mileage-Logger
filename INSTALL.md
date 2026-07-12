@@ -233,8 +233,8 @@ docker compose ps
 Expected result:
 
 - `postgres` healthy.
-- `app` healthy.
-- `nginx` running.
+- `mlapp` healthy.
+- `mlnginx` running.
 - `cloudflared` running.
 
 Open the app:
@@ -365,16 +365,25 @@ docker stack deploy -c docker-stack.yml -c docker-stack.local-postgres.yml milea
 For Swarm, configure the Cloudflare Tunnel public hostname origin service as:
 
 ```text
-http://nginx
+http://mlnginx
 ```
+
+This service-name change does not rename any Portainer variables. Continue using `APP_IMAGE`,
+`NGINX_IMAGE`, `APP_UID`, `APP_GID`, and `HOST_DATA_DIR`. Existing deployments must change the
+Cloudflare Tunnel origin from `http://nginx` to `http://mlnginx` when updating the stack. Swarm
+will replace the former `<stack>_app` and `<stack>_nginx` services with `<stack>_mlapp` and
+`<stack>_mlnginx`; a short interruption is expected during that replacement.
+The stack runs two `cloudflared` replicas with at most one per node, a five-second restart delay,
+and start-first rolling updates. No additional tunnel token is required; both replicas use the
+existing `CLOUDFLARED_TUNNEL_TOKEN`.
 
 The Swarm stack intentionally does not publish nginx directly. If you add a published port later,
 remember Swarm publishes it on the node interface, not as the normal Compose-only
 `127.0.0.1:${HTTP_PORT}` binding.
 
-Keep `HOST_DATA_DIR` available on every Swarm node that can run the app task. The optional
+Keep `HOST_DATA_DIR` available on every Swarm node that can run the `mlapp` task. The optional
 `postgres_data` named volume is node-local unless your Swarm volume driver provides shared storage.
-The Swarm app task runs as `${APP_UID:-1000}:${APP_GID:-100}`. Set `APP_UID` and `APP_GID` in the
+The Swarm `mlapp` task runs as `${APP_UID:-1000}:${APP_GID:-100}`. Set `APP_UID` and `APP_GID` in the
 Portainer stack environment when your shared-storage ownership differs, and ensure both
 `HOST_DATA_DIR` and its `backups/` directory already exist and are writable by that identity.
 
@@ -694,8 +703,8 @@ PDF reports use a portrait page layout and are generated only when you click `Do
 they are streamed to the browser and are not saved on the server.
 
 Runtime, request, worker, trip-calculation, and debug logs are written only to container
-stdout/stderr. Use `docker compose logs -f app` for Compose or
-`docker service logs -f <stack>_app` for Swarm. No application log file is created.
+stdout/stderr. Use `docker compose logs -f mlapp` for Compose or
+`docker service logs -f <stack>_mlapp` for Swarm. No application log file is created.
 Log timestamps are formatted in `LOCAL_TIMEZONE`, and Docker Compose also sets the container `TZ`
 value from `LOCAL_TIMEZONE`.
 Set `LOG_LEVEL` to `debug`, `info`, or `warning`. Error log lines are always included.
@@ -723,12 +732,12 @@ GAS_SNAPSHOT_RUN_ON_STARTUP=true
 View gas snapshot logs with the normal app logs:
 
 ```bash
-docker compose logs -f app
+docker compose logs -f mlapp
 ```
 
 You can disable the in-app scheduler with `GAS_SNAPSHOT_ENABLED=false` and use a host systemd
 timer instead of cron. For example, a timer can run
-`docker compose exec -T app mileage-logger gas-snapshot` every 24 hours while the app container
+`docker compose exec -T mlapp mileage-logger gas-snapshot` every 24 hours while the app container
 keeps serving requests. Do not try to run systemd inside the app container; the Docker image runs a
 single application process.
 
@@ -744,7 +753,7 @@ After=docker.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/Mileage-Logger
-ExecStart=/usr/bin/docker compose exec -T app mileage-logger gas-snapshot
+ExecStart=/usr/bin/docker compose exec -T mlapp mileage-logger gas-snapshot
 ```
 
 Optional host timer:
@@ -791,8 +800,8 @@ If TLS terminates outside this Compose stack, proxy traffic to this stack's `HTT
 View logs:
 
 ```bash
-docker compose logs -f app
-docker compose logs -f nginx
+docker compose logs -f mlapp
+docker compose logs -f mlnginx
 docker compose logs -f postgres  # only when COMPOSE_PROFILES=local-postgres
 ```
 
@@ -870,7 +879,7 @@ docker compose ps
 Check app startup and migration logs:
 
 ```bash
-docker compose logs app
+docker compose logs mlapp
 ```
 
 Validate the web service proxy:
@@ -885,7 +894,7 @@ If OwnTracks returns unauthorized, confirm `.env` values and restart:
 ```bash
 grep OWNTRACKS .env
 grep WEB_API_KEY .env
-docker compose restart app
+docker compose restart mlapp
 ```
 
 If ports conflict, change `HTTP_PORT` in `.env`:
