@@ -1028,6 +1028,60 @@ def test_generate_trips_reuses_existing_auto_estimated_trip() -> None:
     assert all_trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
 
 
+def test_generate_trips_skips_existing_auto_recorded_value_duplicate() -> None:
+    """A shifted transition pair must not block processing with a uniqueness error."""
+
+    db = _session()
+    day = datetime(2026, 7, 10, 13, 0, tzinfo=UTC)
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3440", "-83.0600")
+    db.add_all([home, client])
+    db.flush()
+    distance = haversine_miles(home.latitude, home.longitude, client.latitude, client.longitude)
+    existing_trip = Trip(
+        trip_date=day.date(),
+        origin_site_id=home.id,
+        destination_site_id=client.id,
+        started_at=day + timedelta(minutes=1),
+        ended_at=day + timedelta(minutes=25),
+        start_latitude=home.latitude,
+        start_longitude=home.longitude,
+        end_latitude=client.latitude,
+        end_longitude=client.longitude,
+        origin_name=home.name,
+        destination_name=client.name,
+        miles=distance,
+        start_odometer_miles=Decimal("1000.0"),
+        end_odometer_miles=(Decimal("1000.0") + distance).quantize(Decimal("0.1")),
+        start_odometer_source=ODOMETER_SOURCE_OWNTRACKS_ROLLING,
+        end_odometer_source=ODOMETER_SOURCE_ESTIMATED,
+        mileage_source=MILEAGE_SOURCE_WAYPOINT_DISTANCE,
+        source=AUTO_TRIP_SOURCE,
+        notes="",
+    )
+    db.add_all(
+        [
+            existing_trip,
+            TripProcessingCheckpoint(
+                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
+                odometer_anchor_miles=Decimal("1000.0"),
+                odometer_anchor_recorded_at=day - timedelta(minutes=1),
+            ),
+            _transition(day, home, "leave"),
+            _transition(day + timedelta(minutes=24), client, "enter"),
+            _dwell_confirmation(day + timedelta(minutes=24), client),
+        ]
+    )
+    db.commit()
+    existing_trip_id = existing_trip.id
+
+    generated = generate_trips(db, day.date(), day.date())
+    all_trips = list(db.scalars(select(Trip).order_by(Trip.id.asc())))
+
+    assert generated == []
+    assert [trip.id for trip in all_trips] == [existing_trip_id]
+
+
 def test_database_rejects_duplicate_automatic_trip_generation_signature() -> None:
     db = _session()
     started_at = datetime(2026, 7, 10, 13, 0, tzinfo=UTC)

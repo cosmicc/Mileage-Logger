@@ -25,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
 SEVERITY_ORDER = {"ok": 0, "warning": 1, "critical": 2}
+MEBIBYTE_BYTES = 1024 * 1024
+DATABASE_LATENCY_THRESHOLD_ISSUE_KEYS = {
+    "database.latency_warning",
+    "database.latency_critical",
+}
 
 
 @dataclass(frozen=True)
@@ -92,6 +97,7 @@ class HealthDiskUsage:
     primary_path: str
     total_bytes: int
     used_bytes: int
+    free_bytes: int
 
     @property
     def used_percent(self) -> Decimal:
@@ -211,6 +217,7 @@ def collect_health_disk_usages(
     """Return deduplicated disk usage rows for app-health checks."""
 
     grouped_paths: dict[tuple[int, int], list[tuple[str, str]]] = {}
+    grouped_free_bytes: dict[tuple[int, int], int] = {}
     for path_text in _health_storage_paths(settings):
         target_path = _existing_disk_usage_target(Path(path_text))
         if target_path is None:
@@ -222,6 +229,7 @@ def collect_health_disk_usages(
             continue
         key = (int(usage.used), int(usage.total))
         grouped_paths.setdefault(key, []).append((path_text, str(target_path)))
+        grouped_free_bytes.setdefault(key, max(int(usage.free), 0))
 
     disk_usages: list[HealthDiskUsage] = []
     for (used_bytes, total_bytes), path_rows in grouped_paths.items():
@@ -230,19 +238,29 @@ def collect_health_disk_usages(
                 primary_path=path_rows[0][0],
                 total_bytes=total_bytes,
                 used_bytes=used_bytes,
+                free_bytes=grouped_free_bytes[(used_bytes, total_bytes)],
             )
         )
     return sorted(disk_usages, key=lambda item: item.primary_path)
 
 
-def _severity_from_percent(settings: Settings, used_percent: Decimal) -> str | None:
-    """Classify disk used percentage against configured thresholds."""
+def _disk_severity_from_free_bytes(settings: Settings, free_bytes: int) -> str | None:
+    """Classify disk health using configured free-space thresholds."""
 
-    if used_percent >= settings.app_health_disk_critical_percent:
+    critical_bytes = settings.app_health_disk_critical_free_mb * MEBIBYTE_BYTES
+    warning_bytes = settings.app_health_disk_warning_free_mb * MEBIBYTE_BYTES
+    if free_bytes < critical_bytes:
         return "critical"
-    if used_percent >= settings.app_health_disk_warning_percent:
+    if free_bytes < warning_bytes:
         return "warning"
     return None
+
+
+def _format_free_mebibytes(free_bytes: int) -> str:
+    """Return a readable free-space value for app-health details."""
+
+    free_mebibytes = Decimal(free_bytes) / Decimal(MEBIBYTE_BYTES)
+    return f"{free_mebibytes:,.1f} MiB"
 
 
 def _runtime_status_issues(runtime_status: RuntimeStatus) -> list[AppHealthIssue]:
@@ -316,8 +334,13 @@ def build_app_health_snapshot(
         used_bytes = int(getattr(disk, "used_bytes", 0) or 0)
         if total_bytes <= 0:
             continue
-        used_percent = (Decimal(used_bytes) / Decimal(total_bytes)) * Decimal("100")
-        severity = _severity_from_percent(active_settings, used_percent)
+        reported_free_bytes = getattr(disk, "free_bytes", None)
+        free_bytes = (
+            max(int(reported_free_bytes), 0)
+            if reported_free_bytes is not None
+            else max(total_bytes - used_bytes, 0)
+        )
+        severity = _disk_severity_from_free_bytes(active_settings, free_bytes)
         if severity is None:
             continue
         issues.append(
@@ -327,7 +350,7 @@ def build_app_health_snapshot(
                 title="Disk space low" if severity == "warning" else "Disk space critical",
                 detail=(
                     f"{getattr(disk, 'primary_path', 'Storage')} is "
-                    f"{used_percent:.1f}% full."
+                    f"low on space with {_format_free_mebibytes(free_bytes)} free."
                 ),
             )
         )
@@ -475,6 +498,29 @@ def _notification_title(snapshot: AppHealthSnapshot, *, changed: bool) -> str:
     return "Mileage Logger degraded"
 
 
+def _snapshot_with_issues(
+    snapshot: AppHealthSnapshot,
+    issues: tuple[AppHealthIssue, ...],
+) -> AppHealthSnapshot:
+    """Copy a snapshot while recalculating status for a filtered issue set."""
+
+    severity = "ok"
+    status = "ok"
+    if issues:
+        severity = max(issues, key=lambda item: SEVERITY_ORDER[item.severity]).severity
+        status = (
+            "unavailable"
+            if any(issue.key == "database.unavailable" for issue in issues)
+            else "degraded"
+        )
+    return AppHealthSnapshot(
+        status=status,
+        severity=severity,
+        issues=issues,
+        checked_at=snapshot.checked_at,
+    )
+
+
 class PushoverAppHealthNotifier:
     """Persist health state and send Pushover notifications only on state changes."""
 
@@ -540,6 +586,7 @@ class AppHealthMonitor:
         self._stop = Event()
         self._thread: Thread | None = None
         self._notifier = PushoverAppHealthNotifier(self.settings)
+        self._latency_issue_started_at: float | None = None
 
     def start(self) -> None:
         """Start the monitor when Pushover notifications are enabled and configured."""
@@ -574,15 +621,63 @@ class AppHealthMonitor:
         """Run one health check and notify on state changes."""
 
         snapshot = collect_app_health_snapshot(self.settings)
+        notification_snapshot = self._notification_snapshot(snapshot)
+        if notification_snapshot is None:
+            return snapshot
         try:
-            self._notifier.notify_if_needed(snapshot)
+            self._notifier.notify_if_needed(notification_snapshot)
         except Exception:
             logger.exception("Could not send app-health Pushover notification")
         return snapshot
+
+    def _notification_snapshot(
+        self,
+        snapshot: AppHealthSnapshot,
+    ) -> AppHealthSnapshot | None:
+        """Suppress latency-only notifications until latency stays high long enough."""
+
+        latency_issues = tuple(
+            issue
+            for issue in snapshot.issues
+            if issue.key in DATABASE_LATENCY_THRESHOLD_ISSUE_KEYS
+        )
+        if not latency_issues:
+            self._latency_issue_started_at = None
+            return snapshot
+
+        current_monotonic = time.monotonic()
+        if self._latency_issue_started_at is None:
+            self._latency_issue_started_at = current_monotonic
+        elapsed_seconds = current_monotonic - self._latency_issue_started_at
+        if elapsed_seconds >= self.settings.app_health_db_latency_sustained_seconds:
+            return snapshot
+
+        immediate_issues = tuple(
+            issue
+            for issue in snapshot.issues
+            if issue.key not in DATABASE_LATENCY_THRESHOLD_ISSUE_KEYS
+        )
+        if not immediate_issues:
+            return None
+        return _snapshot_with_issues(snapshot, immediate_issues)
+
+    def _next_check_delay(self) -> float:
+        """Return the normal interval or the remaining latency confirmation delay."""
+
+        normal_delay = float(self.settings.app_health_monitor_interval_seconds)
+        if self._latency_issue_started_at is None:
+            return normal_delay
+        elapsed_seconds = time.monotonic() - self._latency_issue_started_at
+        remaining_seconds = (
+            self.settings.app_health_db_latency_sustained_seconds - elapsed_seconds
+        )
+        if remaining_seconds <= 0:
+            return normal_delay
+        return min(normal_delay, max(remaining_seconds, 0.1))
 
     def _run(self) -> None:
         """Run periodic health checks until stopped."""
 
         self.check_once()
-        while not self._stop.wait(self.settings.app_health_monitor_interval_seconds):
+        while not self._stop.wait(self._next_check_delay()):
             self.check_once()

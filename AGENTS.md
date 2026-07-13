@@ -133,8 +133,10 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 
 **[app_health.py](mileage_logger/services/app_health.py)** — App health and Pushover alerts
 - Builds the shared app-health snapshot used by Diagnostics and background notifications
-- Monitors PostgreSQL availability and latency, disk usage for runtime paths, active web-login
+- Monitors PostgreSQL availability and latency, free disk space for runtime paths, active web-login
   lockouts, and app-managed Cloudflare IP blocks
+- Requires high database latency to remain elevated for
+  `APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS` before Pushover alerts while Diagnostics remains live
 - Sends Pushover notifications only when configured degraded/unavailable issue signatures change,
   and sends a restored notification when all monitored checks return to healthy
 - Persists notification state under `APP_HEALTH_STATE_PATH` so app restarts do not repeat the same
@@ -166,6 +168,8 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
 - Creates a startup automatic backup followed by 6-hour automatic full-data backups when
   `AUTOMATIC_BACKUPS_ENABLED=true`, stores them in `AUTOMATIC_BACKUP_DIR`, and prunes to the
   newest 4 recent automatic backups plus one daily backup for each of the prior 2 days
+- Pauses on shared-storage failures, including stale file handles, retries every
+  `AUTOMATIC_BACKUP_RETRY_SECONDS`, and resumes the 6-hour schedule only after a successful backup
 - Backs Diagnostics full backup/restore controls, retained automatic-backup downloads, and retained
   automatic-backup restore; backup download and restore require web login, restore also requires
   typed confirmation, and startup-created backup rows are labeled as Startup
@@ -202,7 +206,9 @@ Exact automatic generation signatures are unique at the PostgreSQL layer by orig
 destination waypoint, start time, and end time. Automatic rows also have a unique recorded-value
 signature by local day, route, distance, and nonblank start/end odometers. The v1.3.4 migration
 keeps the oldest existing automatic row for either duplicate signature before adding the partial
-unique indexes; manual trips are not restricted by those indexes.
+unique indexes. Application duplicate lookup must check both signatures before insertion so a
+shifted duplicate transition pair cannot roll back the processing checkpoint and block later
+dates. Manual trips are not restricted by those indexes.
 
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
@@ -235,7 +241,7 @@ unique indexes; manual trips are not restricted by those indexes.
   `DATABASE_CONNECT_TIMEOUT_SECONDS`, `VEHICLE_MPG`,
   `REPORT_DISPLAY_NAME`,
   `OWNTRACKS_WAYPOINT_DWELL_MINUTES`, `LOG_LEVEL`, `APP_DATA_DIR`,
-  `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`,
+  `AUTOMATIC_BACKUPS_ENABLED`, `AUTOMATIC_BACKUP_DIR`, `AUTOMATIC_BACKUP_RETRY_SECONDS`,
   `MAX_BACKUP_RESTORE_BYTES`, `GAS_SNAPSHOT_ENABLED`, `GAS_SNAPSHOT_INTERVAL_SECONDS`,
   `GAS_SNAPSHOT_RUN_ON_STARTUP`, `CLOUDFLARE_IP_BLOCKING_ENABLED`, `CLOUDFLARE_API_TOKEN`,
   `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_IP_BLOCK_ALLOWLIST`,
@@ -243,7 +249,8 @@ unique indexes; manual trips are not restricted by those indexes.
   `PUSHOVER_USER`, `PUSHOVER_APP_KEY`, `PUSHOVER_USER_KEY`, `PUSHOVER_DEVICE`,
   `PUSHOVER_PRIORITY`, `APP_HEALTH_MONITOR_INTERVAL_SECONDS`,
   `APP_HEALTH_DB_LATENCY_WARNING_MS`, `APP_HEALTH_DB_LATENCY_CRITICAL_MS`,
-  `APP_HEALTH_DISK_WARNING_PERCENT`, `APP_HEALTH_DISK_CRITICAL_PERCENT`,
+  `APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS`, `APP_HEALTH_DISK_WARNING_FREE_MB`,
+  `APP_HEALTH_DISK_CRITICAL_FREE_MB`,
   `APP_HEALTH_STATE_PATH`, `WEB_API_KEY`, `OWNTRACKS_ENCRYPTION_KEY`, `PASSKEY_RP_NAME`,
   `PASSKEY_RP_ID`, `PASSKEY_ORIGIN`
 - See [README.md](README.md#Useful-Docker-environment-options) for all options
@@ -431,7 +438,10 @@ unique indexes; manual trips are not restricted by those indexes.
    `app_health.py` snapshot so they stay consistent. The
    System Status card shows PostgreSQL availability, local/remote placement, latency with a
    green/yellow/red status dot based on the app-health database latency thresholds, database size,
-   total app-record count, and pool/timeout details. The Data card shows raw record counts plus lowest,
+   total app-record count, and pool/timeout details. Keep that visible latency indicator immediate;
+   only Pushover latency alerts use the sustained-duration confirmation. App-health disk warnings
+   and critical issues use configured free-space MiB thresholds rather than used percentages. The
+   Data card shows raw record counts plus lowest,
    current, current-month average, and highest gas price readings; format large displayed counts
    with comma thousands separators, keep the low/high values based on raw gas price
    snapshots, and keep the monthly average based on the current app-local month. The detailed
@@ -482,15 +492,16 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
 - Keep the Compose and Swarm service keys uniquely named `mlapp` and `mlnginx`. The nginx upstream
   must resolve `mlapp:8000`, and all Swarm services, including optional bundled PostgreSQL, must
   share the `mileage-internal` overlay network. Do not rename the existing deployment variables
-  `APP_IMAGE`, `NGINX_IMAGE`, `APP_UID`, `APP_GID`, or `HOST_DATA_DIR` with these service keys.
+  `APP_IMAGE`, `NGINX_IMAGE`, `APP_UID`, `APP_GID`, `HOST_DATA_DIR`, or `HOST_BACKUP_DIR` with
+  these service keys.
 - Keep the Swarm `cloudflared` service at two replicas with `max_replicas_per_node: 1`, a
   five-second restart delay, and start-first updates unless the deployment architecture changes.
   Both replicas intentionally use the same `CLOUDFLARED_TUNNEL_TOKEN`.
 - `.github/workflows/publish-swarm-images.yml` publishes app and nginx images to GHCR on relevant
   `main` changes. Keep the package-version tag, `latest`, and immutable full-commit-SHA tag aligned,
   and keep `.env.docker.example`, README, and INSTALL examples on the current released version.
-- The Swarm `mlapp` task runs with configurable `APP_UID`/`APP_GID` defaults of `1000:100`. Its shared
-  `HOST_DATA_DIR` and backup directory must already be writable by that identity because a
+- The Swarm `mlapp` task runs with configurable `APP_UID`/`APP_GID` defaults of `1000:100`. Its
+  shared `HOST_DATA_DIR` and `HOST_BACKUP_DIR` must already be writable by that identity because a
   non-root Swarm task does not run the entrypoint's root-only path ownership preparation.
 - The bundled `postgres` service remains the default database target when
   `COMPOSE_PROFILES=local-postgres`, but app startup and migrations wait on the configured
@@ -538,15 +549,19 @@ See [INSTALL.md](INSTALL.md) for complete Docker and Portainer setup guide.
   browser origin is the public HTTPS URL or set `PASSKEY_ORIGIN` and `PASSKEY_RP_ID` explicitly.
 - Diagnostics includes authenticated full data backup and restore controls for app database rows
   and saved OwnTracks waypoint export. Automatic 6-hour backups are stored under
-  `AUTOMATIC_BACKUP_DIR`, defaulting to `APP_DATA_DIR/backups`; treat backup files as sensitive location
-  history. Retained automatic backups can be downloaded individually from Diagnostics after web
-  login.
-- Persistent backups and app-health state are host bind-mounted through `HOST_DATA_DIR`; runtime
-  logging remains console-only and login audits remain in PostgreSQL.
+  `AUTOMATIC_BACKUP_DIR`, defaulting to `/data/backups` on the dedicated `HOST_BACKUP_DIR` bind
+  mount; treat backup files as sensitive location history. Retained automatic backups can be
+  downloaded individually from Diagnostics after web login. Shared-storage failures must retry
+  until a backup succeeds instead of waiting for the next 6-hour pass.
+- Persistent backups are host bind-mounted through `HOST_BACKUP_DIR`; app-health state uses
+  `HOST_DATA_DIR`. Runtime logging remains console-only and login audits remain in PostgreSQL.
 - Optional Pushover app-health notifications use `PUSHOVER_ENABLED=true`, a Pushover app API token
   in `PUSHOVER_TOKEN` or `PUSHOVER_APP_KEY`, and a user/group key in `PUSHOVER_USER` or
-  `PUSHOVER_USER_KEY`. The app sends degraded/unavailable notifications on monitored state changes
-  and one restored notification when all monitored checks are healthy again.
+  `PUSHOVER_USER_KEY`. High database latency must remain elevated for the configured sustained
+  period before it enters a Pushover notification; Diagnostics continues showing the immediate
+  latency reading. Disk health uses adjustable free-space warning and critical thresholds instead
+  of used percentages. The app sends degraded/unavailable notifications on monitored state
+  changes and one restored notification when all monitored checks are healthy again.
 
 ---
 

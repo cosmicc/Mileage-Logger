@@ -53,7 +53,8 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
 - Web service reverse proxy on port `80`.
 - Daily gas price snapshot scheduler inside the app container.
 - Cloudflare Tunnel connector using the configured tunnel token.
-- Persistent Docker volume for database data and a host bind mount for backups and health state.
+- Persistent Docker volume for database data, plus separate host bind mounts for backups and
+  health state.
 - In-app diagnostics page for database-backed successful and failed web-login audit records and
   OwnTracks state in the configured local timezone. The top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
@@ -132,18 +133,19 @@ Docker Swarm deployments use [docker-stack.yml](docker-stack.yml) instead of `do
 Swarm cannot build images, use Compose profiles, or keep the normal Compose loopback-only port
 binding. The `Build and publish Swarm images` GitHub workflow publishes versioned, `latest`, and
 commit-SHA app and nginx images to GHCR. Set `APP_IMAGE` to
-`ghcr.io/cosmicc/mileage-logger-app:1.4.0` and `NGINX_IMAGE` to
-`ghcr.io/cosmicc/mileage-logger-nginx:1.4.0` through Portainer or the shell, and deploy the base
+`ghcr.io/cosmicc/mileage-logger-app:1.4.1` and `NGINX_IMAGE` to
+`ghcr.io/cosmicc/mileage-logger-nginx:1.4.1` through Portainer or the shell, and deploy the base
 stack for remote PostgreSQL. Add
 [docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
 PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel
 origin service as `http://mlnginx` so cloudflared reaches the uniquely named `mlnginx` service over
 the stack's `mileage-internal` overlay network. The Swarm `mlapp` task defaults to `APP_UID=1000`
-and `APP_GID=100`; make the shared `HOST_DATA_DIR`
-and its `backups/` directory writable by that identity on every eligible node.
+and `APP_GID=100`; make the shared `HOST_DATA_DIR` and `HOST_BACKUP_DIR` writable by that identity
+on every eligible node.
 Existing Portainer deployments must update the Cloudflare Tunnel origin from `http://nginx` to
-`http://mlnginx` when applying the service rename. Deployment variable names remain unchanged:
-continue using `APP_IMAGE`, `NGINX_IMAGE`, `APP_UID`, `APP_GID`, and `HOST_DATA_DIR`.
+`http://mlnginx` when applying the service rename. Continue using `APP_IMAGE`, `NGINX_IMAGE`,
+`APP_UID`, `APP_GID`, and `HOST_DATA_DIR`; v1.4.1 adds `HOST_BACKUP_DIR` for the dedicated backup
+mount.
 Swarm runs two `cloudflared` replicas and limits them to one replica per node, providing redundant
 Tunnel connectors without making the stateful application service active-active.
 
@@ -272,7 +274,11 @@ file as sensitive location history.
 
 The app also creates automatic full-data backups every 6 hours when
 `AUTOMATIC_BACKUPS_ENABLED=true`, which is the default. Automatic backups are stored in
-`AUTOMATIC_BACKUP_DIR`, defaulting to `APP_DATA_DIR/backups` such as `/data/backups` in Docker.
+`AUTOMATIC_BACKUP_DIR`, defaulting to `/data/backups` in Docker. That container path uses the
+dedicated `HOST_BACKUP_DIR` bind mount, such as `mileage-logger/backups` on shared Swarm storage.
+If shared storage is unavailable, including a stale file handle failure, backup creation pauses
+and retries every `AUTOMATIC_BACKUP_RETRY_SECONDS` until one succeeds; the normal six-hour schedule
+then resumes.
 Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
 retention policy keeps the newest 4 recent automatic backups plus one daily backup for each of the
 prior 2 days. Startup-created automatic backups are labeled in the table. Each listed automatic
@@ -319,6 +325,8 @@ stored in `owntracks_locations` and immediately triggers trip recalculation for 
 When the app sees a qualifying trip, it writes the generated row to `trips`.
 PostgreSQL enforces one automatic row for each exact source-event signature and rejects a second
 automatic row with the same day, route, distance, and nonblank start/end odometer interval.
+Before inserting, the app checks both signatures and reuses the existing automatic row so a
+shifted duplicate transition pair cannot roll back the processing checkpoint or block later trips.
 OwnTracks `tst` event time is the authoritative timestamp for trip dates and ordering; the server
 receive time is kept separately for diagnostics because phone data can be buffered.
 The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
@@ -496,14 +504,17 @@ PUSHOVER_PRIORITY=0
 APP_HEALTH_MONITOR_INTERVAL_SECONDS=60
 APP_HEALTH_DB_LATENCY_WARNING_MS=500
 APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
-APP_HEALTH_DISK_WARNING_PERCENT=85.0
-APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
+APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS=15
+APP_HEALTH_DISK_WARNING_FREE_MB=1000
+APP_HEALTH_DISK_CRITICAL_FREE_MB=250
 APP_HEALTH_STATE_PATH=/data/app-health-state.json
 HTTP_PORT=80
 APP_DATA_DIR=/data
 HOST_DATA_DIR=/var/lib/mileage-logger
+HOST_BACKUP_DIR=/var/lib/mileage-logger/backups
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/backups
+AUTOMATIC_BACKUP_RETRY_SECONDS=60
 MAX_BACKUP_RESTORE_BYTES=262144000
 REPORT_DISPLAY_NAME=
 GAS_SNAPSHOT_ENABLED=true
@@ -536,16 +547,19 @@ blocked by the app.
 Set `PUSHOVER_ENABLED=true`, `PUSHOVER_TOKEN` to the Pushover app API token, and `PUSHOVER_USER`
 to the Pushover user/group key to receive app-health notifications. `PUSHOVER_APP_KEY` and
 `PUSHOVER_USER_KEY` are accepted aliases. The monitor watches PostgreSQL availability and
-latency, runtime disk usage, active web-login lockouts, and app-managed Cloudflare blocks. It sends
-a degraded or unavailable notification when
+latency, free disk space, active web-login lockouts, and app-managed Cloudflare blocks. High
+database latency must remain above a configured threshold for
+`APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS` before Pushover sends it. Disk alerts use the adjustable
+free-space amounts rather than a used percentage. The monitor sends a degraded or unavailable
+notification when
 the monitored issue set changes, and one restored notification when all monitored checks are
 healthy again.
 The app writes all runtime, request, worker, trip-calculation, and debug logging to container
 stdout/stderr. Use `docker compose logs -f mlapp` for Compose or
 `docker service logs -f <stack>_mlapp` for Swarm. Successful and failed login audits are stored in
 PostgreSQL and shown separately in Diagnostics; no audit or application log file is created.
-Automatic backups default to `/data/backups`, which is inside the `HOST_DATA_DIR` bind mount, and
-are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
+Automatic backups default to `/data/backups`, backed by the dedicated `HOST_BACKUP_DIR` bind
+mount, and are listed/restorable from Diagnostics after web login. Long automatic-backup filenames
 are truncated in the Diagnostics table but remain visible on hover and available to download.
 Backups created by the app startup pass are labeled as startup backups.
 Diagnostics marks travel when recent OwnTracks movement outside saved waypoints covers at least

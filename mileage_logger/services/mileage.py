@@ -47,6 +47,7 @@ MANUAL_TRIP_NOTE = "Manually added from Trips page."
 USER_EDITED_TRIP_NOTE = "Edited from Work Trips page."
 trip_logger = logging.getLogger("mileage_logger.trip_calculation")
 TripGenerationKey = tuple[int, int, datetime, datetime]
+TripRecordedValuesKey = tuple[date, int, int, Decimal, Decimal, Decimal]
 
 
 @dataclass(frozen=True)
@@ -857,6 +858,46 @@ def _trip_generation_key(
     return (origin_site_id, destination_site_id, started_at, ended_at)
 
 
+def _trip_recorded_values_key(
+    trip_date: date,
+    origin_site_id: int | None,
+    destination_site_id: int | None,
+    miles: Decimal,
+    start_odometer_miles: Decimal | None,
+    end_odometer_miles: Decimal | None,
+) -> TripRecordedValuesKey | None:
+    """Return the application key matching the recorded-value unique index."""
+
+    if (
+        origin_site_id is None
+        or destination_site_id is None
+        or start_odometer_miles is None
+        or end_odometer_miles is None
+    ):
+        return None
+    return (
+        trip_date,
+        origin_site_id,
+        destination_site_id,
+        Decimal(miles),
+        Decimal(start_odometer_miles),
+        Decimal(end_odometer_miles),
+    )
+
+
+def _trip_recorded_values_key_for_trip(trip: Trip) -> TripRecordedValuesKey | None:
+    """Return one stored automatic trip's nonblank recorded-value signature."""
+
+    return _trip_recorded_values_key(
+        trip.trip_date,
+        trip.origin_site_id,
+        trip.destination_site_id,
+        trip.miles,
+        trip.start_odometer_miles,
+        trip.end_odometer_miles,
+    )
+
+
 def _apply_trip_values(
     trip: Trip,
     *,
@@ -894,6 +935,7 @@ def _add_or_update_trip(
     generated: list[Trip],
     preserved_trips: list[Trip],
     existing_auto_trips: dict[TripGenerationKey, Trip],
+    existing_auto_trips_by_recorded_values: dict[TripRecordedValuesKey, Trip],
     deleted_trip_keys: set[TripGenerationKey],
     *,
     origin: Site,
@@ -957,6 +999,13 @@ def _add_or_update_trip(
 
     if _is_same_waypoint_under_minimum_miles(origin, destination, calculation.miles):
         if existing_auto_trip is not None:
+            existing_recorded_values_key = _trip_recorded_values_key_for_trip(existing_auto_trip)
+            if (
+                existing_recorded_values_key is not None
+                and existing_auto_trips_by_recorded_values.get(existing_recorded_values_key)
+                is existing_auto_trip
+            ):
+                existing_auto_trips_by_recorded_values.pop(existing_recorded_values_key)
             suppress_trip_generation_for_deleted_trip(
                 db,
                 existing_auto_trip,
@@ -984,6 +1033,36 @@ def _add_or_update_trip(
                 ended_at.isoformat(),
             )
         return None
+
+    recorded_values_key = _trip_recorded_values_key(
+        trip_date,
+        origin.id,
+        destination.id,
+        calculation.miles,
+        calculation.start_odometer_miles,
+        calculation.end_odometer_miles,
+    )
+    recorded_values_trip = (
+        existing_auto_trips_by_recorded_values.get(recorded_values_key)
+        if recorded_values_key is not None
+        else None
+    )
+    if recorded_values_trip is not None and recorded_values_trip is not existing_auto_trip:
+        trip_logger.info(
+            "trip skipped reason=duplicate_recorded_values existing_trip_id=%s "
+            "origin=%s destination=%s trip_date=%s miles=%s "
+            "start_odometer=%s end_odometer=%s started_at=%s ended_at=%s",
+            recorded_values_trip.id,
+            origin.name,
+            destination.name,
+            trip_date.isoformat(),
+            calculation.miles,
+            calculation.start_odometer_miles,
+            calculation.end_odometer_miles,
+            started_at.isoformat(),
+            ended_at.isoformat(),
+        )
+        return recorded_values_trip
 
     if existing_auto_trip is not None and not _calculation_improves_existing_trip(
         existing_auto_trip,
@@ -1028,6 +1107,7 @@ def _add_or_update_trip(
         trip = existing_auto_trip
         action = "updated"
 
+    previous_recorded_values_key = _trip_recorded_values_key_for_trip(trip)
     _apply_trip_values(
         trip,
         trip_date=trip_date,
@@ -1038,6 +1118,14 @@ def _add_or_update_trip(
         calculation=calculation,
         notes=notes,
     )
+    if (
+        previous_recorded_values_key is not None
+        and previous_recorded_values_key != recorded_values_key
+        and existing_auto_trips_by_recorded_values.get(previous_recorded_values_key) is trip
+    ):
+        existing_auto_trips_by_recorded_values.pop(previous_recorded_values_key)
+    if recorded_values_key is not None:
+        existing_auto_trips_by_recorded_values[recorded_values_key] = trip
     existing_auto_trips[trip_key] = trip
     generated.append(trip)
     trip_logger.info(
@@ -1061,32 +1149,34 @@ def _add_or_update_trip(
     return trip
 
 
-def _existing_auto_trips_for_dates(db: Session, source_dates: list[date]) -> dict[
-    TripGenerationKey,
-    Trip,
+def _existing_auto_trips_for_dates(
+    db: Session,
+    source_dates: list[date],
+) -> tuple[
+    dict[TripGenerationKey, Trip],
+    dict[TripRecordedValuesKey, Trip],
 ]:
     trips = list(
         db.scalars(
             select(Trip)
             .where(Trip.source == AUTO_TRIP_SOURCE)
             .where(Trip.trip_date.in_(source_dates))
-            .where(
-                Trip.mileage_source.in_(
-                    [
-                        MILEAGE_SOURCE_MANUAL,
-                        MILEAGE_SOURCE_OWNTRACKS_PATH,
-                        MILEAGE_SOURCE_ESTIMATED_ODOMETER,
-                        MILEAGE_SOURCE_WAYPOINT_DISTANCE,
-                    ]
-                )
-            )
+            .order_by(Trip.id.asc())
         )
     )
-    return {
+    by_generation = {
         (trip.origin_site_id, trip.destination_site_id, trip.started_at, trip.ended_at): trip
         for trip in trips
         if trip.origin_site_id is not None and trip.destination_site_id is not None
     }
+    by_recorded_values: dict[TripRecordedValuesKey, Trip] = {}
+    for trip in trips:
+        recorded_values_key = _trip_recorded_values_key_for_trip(trip)
+        if recorded_values_key is not None:
+            # The database index already enforces uniqueness. setdefault also preserves the
+            # oldest row if this helper is used while repairing a legacy inconsistent database.
+            by_recorded_values.setdefault(recorded_values_key, trip)
+    return by_generation, by_recorded_values
 
 
 def _deleted_trip_keys_for_dates(db: Session, source_dates: list[date]) -> set[TripGenerationKey]:
@@ -1713,7 +1803,9 @@ def generate_trips(
     source_dates = sorted(
         {datetime_to_local_date(event.location.captured_at) for event in transitions}
     )
-    existing_auto_trips = _existing_auto_trips_for_dates(db, source_dates)
+    existing_auto_trips, existing_auto_trips_by_recorded_values = (
+        _existing_auto_trips_for_dates(db, source_dates)
+    )
     deleted_trip_keys = _deleted_trip_keys_for_dates(db, source_dates)
     home_site = _home_site(sites)
     pending_leave: WaypointTransition | None = None
@@ -1755,6 +1847,7 @@ def generate_trips(
                 generated,
                 preserved_trips,
                 existing_auto_trips,
+                existing_auto_trips_by_recorded_values,
                 deleted_trip_keys,
                 origin=pending_leave.site,
                 destination=transition.site,
@@ -1789,6 +1882,7 @@ def generate_trips(
                 generated,
                 preserved_trips,
                 existing_auto_trips,
+                existing_auto_trips_by_recorded_values,
                 deleted_trip_keys,
                 origin=last_arrival.site,
                 destination=transition.site,
@@ -1817,6 +1911,7 @@ def generate_trips(
                 generated,
                 preserved_trips,
                 existing_auto_trips,
+                existing_auto_trips_by_recorded_values,
                 deleted_trip_keys,
                 origin=home_site,
                 destination=transition.site,

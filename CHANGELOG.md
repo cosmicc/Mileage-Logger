@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.4.1 - 07.13.2026
+
+### Added
+- Added `HOST_BACKUP_DIR` as a dedicated Docker Compose and Swarm bind mount for automatic
+  backups, separate from other persistent application state.
+- Added adjustable `AUTOMATIC_BACKUP_RETRY_SECONDS`,
+  `APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS`, `APP_HEALTH_DISK_WARNING_FREE_MB`, and
+  `APP_HEALTH_DISK_CRITICAL_FREE_MB` Docker settings.
+
+### Changed
+- Changed automatic backup storage to the dedicated `/data/backups` bind mount so Swarm hosts can
+  use `mileage-logger/backups` without retaining the former `logs/backups` layout.
+- Changed Pushover database-latency alerts to require sustained high latency for 15 seconds by
+  default, while keeping the Diagnostics latency reading immediate.
+- Changed disk-space health alarms from used-percentage thresholds to free-space thresholds of
+  1,000 MiB for warning and 250 MiB for critical by default.
+- Bumped the Mileage Logger package version to 1.4.1.
+
+### Fixed
+- Fixed automatic backups waiting the full six-hour schedule after shared storage becomes
+  unavailable, including stale file handle errors; failed backup passes now pause and retry every
+  60 seconds by default until a backup succeeds.
+- Fixed an older automatic trip with the same recorded day, route, distance, and odometer interval
+  but slightly different OwnTracks event times repeatedly violating PostgreSQL uniqueness, rolling
+  back the processing checkpoint, and blocking all later trips from being generated.
+
 ## 1.4.0 - 07.12.2026
 
 ### Added

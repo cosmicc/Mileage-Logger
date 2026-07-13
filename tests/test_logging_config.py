@@ -169,4 +169,13 @@ def test_runtime_state_defaults_under_app_data_directory() -> None:
     settings = Settings(app_data_dir="/data")
 
     assert settings.automatic_backup_dir == "/data/backups"
+    assert settings.automatic_backup_retry_seconds == 60
     assert settings.app_health_state_path == "/data/app-health-state.json"
+
+
+def test_disk_free_space_thresholds_require_critical_at_or_below_warning() -> None:
+    with pytest.raises(ValidationError, match="APP_HEALTH_DISK_CRITICAL_FREE_MB"):
+        Settings(
+            app_health_disk_warning_free_mb=250,
+            app_health_disk_critical_free_mb=1000,
+        )

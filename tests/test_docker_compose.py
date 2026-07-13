@@ -77,6 +77,21 @@ def test_app_container_exposes_pushover_health_settings() -> None:
             in app_block
         )
         assert (
+            'APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS: '
+            '"${APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS:-15}"'
+            in app_block
+        )
+        assert (
+            'APP_HEALTH_DISK_WARNING_FREE_MB: '
+            '"${APP_HEALTH_DISK_WARNING_FREE_MB:-1000}"'
+            in app_block
+        )
+        assert (
+            'APP_HEALTH_DISK_CRITICAL_FREE_MB: '
+            '"${APP_HEALTH_DISK_CRITICAL_FREE_MB:-250}"'
+            in app_block
+        )
+        assert (
             'APP_HEALTH_STATE_PATH: "${APP_HEALTH_STATE_PATH:-'
             '/data/app-health-state.json}"'
             in app_block
@@ -86,7 +101,11 @@ def test_app_container_exposes_pushover_health_settings() -> None:
     assert "PUSHOVER_TOKEN=" in env_text
     assert "PUSHOVER_USER=" in env_text
     assert "APP_HEALTH_DB_LATENCY_WARNING_MS=500" in env_text
-    assert "APP_HEALTH_DISK_CRITICAL_PERCENT=95.0" in env_text
+    assert "APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS=15" in env_text
+    assert "APP_HEALTH_DISK_WARNING_FREE_MB=1000" in env_text
+    assert "APP_HEALTH_DISK_CRITICAL_FREE_MB=250" in env_text
+    assert "APP_HEALTH_DISK_WARNING_PERCENT" not in env_text
+    assert "APP_HEALTH_DISK_CRITICAL_PERCENT" not in env_text
 
 
 def test_app_container_uses_persistent_data_mount_without_file_log_settings() -> None:
@@ -98,12 +117,23 @@ def test_app_container_uses_persistent_data_mount_without_file_log_settings() ->
         app_block = _service_block(deployment_text, "mlapp")
         assert "APP_DATA_DIR: /data" in app_block
         assert 'AUTOMATIC_BACKUP_DIR: "${AUTOMATIC_BACKUP_DIR:-/data/backups}"' in app_block
+        assert (
+            'AUTOMATIC_BACKUP_RETRY_SECONDS: '
+            '"${AUTOMATIC_BACKUP_RETRY_SECONDS:-60}"'
+            in app_block
+        )
         assert "${HOST_DATA_DIR:-/var/lib/mileage-logger}:/data" in app_block
+        assert (
+            "${HOST_BACKUP_DIR:-/var/lib/mileage-logger/backups}:/data/backups"
+            in app_block
+        )
         assert "LOG_DIR" not in app_block
         assert "LOGIN_FAILURE_LOG_PATH" not in app_block
 
     assert "APP_DATA_DIR=/data" in env_text
     assert "HOST_DATA_DIR=/var/lib/mileage-logger" in env_text
+    assert "HOST_BACKUP_DIR=/var/lib/mileage-logger/backups" in env_text
+    assert "AUTOMATIC_BACKUP_RETRY_SECONDS=60" in env_text
     assert "LOG_DIR=" not in env_text
     assert "LOGIN_FAILURE_LOG_PATH=" not in env_text
 
@@ -179,8 +209,8 @@ def test_swarm_stack_has_optional_local_postgres_overlay() -> None:
     assert "\n  postgres:" in local_postgres_text
     assert "postgres_data:/var/lib/postgresql/data" in local_postgres_text
     assert "mileage-internal" in local_postgres_text
-    assert "APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0" in env_text
-    assert "NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0" in env_text
+    assert "APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.1" in env_text
+    assert "NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.1" in env_text
     assert "APP_UID=1000" in env_text
     assert "APP_GID=100" in env_text
 

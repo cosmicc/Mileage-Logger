@@ -61,17 +61,25 @@ PY
 chmod 0600 "${target}"
 
 host_data_dir="$(get_env_value HOST_DATA_DIR)"
+host_backup_dir="$(get_env_value HOST_BACKUP_DIR)"
 
 if [[ -n "${host_data_dir}" ]]; then
   if mkdir -p "${host_data_dir}" 2>/dev/null; then
     echo "Prepared host app data directory: ${host_data_dir}"
-    if mkdir -p "${host_data_dir%/}/backups" 2>/dev/null; then
-      echo "Prepared host automatic backup directory: ${host_data_dir%/}/backups"
-    fi
   else
     echo "Could not create host app data directory: ${host_data_dir}" >&2
     echo "Create it before starting Docker, for example:" >&2
     echo "  sudo install -d -m 0750 ${host_data_dir}" >&2
+  fi
+fi
+
+if [[ -n "${host_backup_dir}" ]]; then
+  if mkdir -p "${host_backup_dir}" 2>/dev/null; then
+    echo "Prepared host automatic backup directory: ${host_backup_dir}"
+  else
+    echo "Could not create host automatic backup directory: ${host_backup_dir}" >&2
+    echo "Create it before starting Docker, for example:" >&2
+    echo "  sudo install -d -m 0750 ${host_backup_dir}" >&2
   fi
 fi
 

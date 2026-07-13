@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from mileage_logger.config import Settings
 from mileage_logger.services.app_health import (
     AppHealthIssue,
+    AppHealthMonitor,
     AppHealthSnapshot,
     PushoverAppHealthNotifier,
     build_app_health_snapshot,
@@ -33,15 +34,22 @@ def test_app_health_snapshot_tracks_degraded_signals() -> None:
     settings = Settings(
         app_health_db_latency_warning_ms=100,
         app_health_db_latency_critical_ms=500,
-        app_health_disk_warning_percent=80,
-        app_health_disk_critical_percent=95,
+        app_health_disk_warning_free_mb=1000,
+        app_health_disk_critical_free_mb=250,
     )
+    mebibyte = 1024 * 1024
 
     snapshot = build_app_health_snapshot(
         settings=settings,
         runtime_status=_runtime_status(),
         database_latency_ms=150,
-        disk_usages=[SimpleNamespace(primary_path="/data/logs", used_bytes=90, total_bytes=100)],
+        disk_usages=[
+            SimpleNamespace(
+                primary_path="/data",
+                used_bytes=1300 * mebibyte,
+                total_bytes=2000 * mebibyte,
+            )
+        ],
         active_lockout_count=2,
         cloudflare_block_count=1,
     )
@@ -50,9 +58,65 @@ def test_app_health_snapshot_tracks_degraded_signals() -> None:
     assert snapshot.status == "degraded"
     assert snapshot.severity == "warning"
     assert "database.latency_warning" in issue_keys
-    assert "disk./data/logs" in issue_keys
+    assert "disk./data" in issue_keys
     assert "security.login_lockout" in issue_keys
     assert "security.cloudflare_blocks" in issue_keys
+
+
+def test_app_health_disk_alarm_uses_free_space_instead_of_percentage() -> None:
+    mebibyte = 1024 * 1024
+    settings = Settings(
+        app_health_disk_warning_free_mb=1000,
+        app_health_disk_critical_free_mb=250,
+    )
+
+    snapshot = build_app_health_snapshot(
+        settings=settings,
+        runtime_status=_runtime_status(),
+        database_latency_ms=1,
+        disk_usages=[
+            SimpleNamespace(
+                primary_path="/large-mostly-full",
+                used_bytes=198_000 * mebibyte,
+                total_bytes=200_000 * mebibyte,
+            ),
+            SimpleNamespace(
+                primary_path="/small-low-free",
+                used_bytes=301 * mebibyte,
+                total_bytes=1200 * mebibyte,
+            ),
+        ],
+        active_lockout_count=0,
+        cloudflare_block_count=0,
+    )
+
+    issues_by_key = {issue.key: issue for issue in snapshot.issues}
+    assert "disk./large-mostly-full" not in issues_by_key
+    assert issues_by_key["disk./small-low-free"].severity == "warning"
+    assert "899.0 MiB free" in issues_by_key["disk./small-low-free"].detail
+
+
+def test_app_health_disk_alarm_is_critical_below_critical_free_space() -> None:
+    mebibyte = 1024 * 1024
+    snapshot = build_app_health_snapshot(
+        settings=Settings(),
+        runtime_status=_runtime_status(),
+        database_latency_ms=1,
+        disk_usages=[
+            SimpleNamespace(
+                primary_path="/data/backups",
+                used_bytes=100 * mebibyte,
+                total_bytes=10_000 * mebibyte,
+                free_bytes=249 * mebibyte,
+            )
+        ],
+        active_lockout_count=0,
+        cloudflare_block_count=0,
+    )
+
+    disk_issue = next(issue for issue in snapshot.issues if issue.key == "disk./data/backups")
+    assert disk_issue.severity == "critical"
+    assert "249.0 MiB free" in disk_issue.detail
 
 
 def test_app_health_snapshot_marks_database_outage_unavailable() -> None:
@@ -134,3 +198,76 @@ def test_pushover_accepts_app_and_user_key_aliases() -> None:
     )
 
     assert pushover_configured(settings)
+
+
+def test_app_health_monitor_requires_sustained_latency_before_notification(
+    monkeypatch,
+) -> None:
+    settings = Settings(
+        app_health_monitor_interval_seconds=60,
+        app_health_db_latency_sustained_seconds=15,
+    )
+    monitor = AppHealthMonitor(settings)
+    now = [100.0]
+    latency_snapshot = AppHealthSnapshot(
+        status="degraded",
+        severity="warning",
+        issues=(
+            AppHealthIssue(
+                key="database.latency_warning",
+                severity="warning",
+                title="Database latency elevated",
+                detail="Database round trip is 750.0 ms.",
+            ),
+        ),
+        checked_at=datetime(2026, 7, 13, 12, 0, tzinfo=UTC),
+    )
+    monkeypatch.setattr(
+        "mileage_logger.services.app_health.time.monotonic",
+        lambda: now[0],
+    )
+
+    assert monitor._notification_snapshot(latency_snapshot) is None
+    assert monitor._next_check_delay() == 15
+
+    now[0] = 114.0
+    assert monitor._notification_snapshot(latency_snapshot) is None
+    assert monitor._next_check_delay() == 1
+
+    now[0] = 115.0
+    assert monitor._notification_snapshot(latency_snapshot) == latency_snapshot
+    assert monitor._next_check_delay() == 60
+
+
+def test_app_health_monitor_resets_latency_timer_after_recovery(monkeypatch) -> None:
+    monitor = AppHealthMonitor(Settings(app_health_db_latency_sustained_seconds=15))
+    now = [100.0]
+    latency_snapshot = AppHealthSnapshot(
+        status="degraded",
+        severity="critical",
+        issues=(
+            AppHealthIssue(
+                key="database.latency_critical",
+                severity="critical",
+                title="Database latency critical",
+                detail="Database round trip is 2500.0 ms.",
+            ),
+        ),
+        checked_at=datetime(2026, 7, 13, 12, 0, tzinfo=UTC),
+    )
+    healthy_snapshot = AppHealthSnapshot(
+        status="ok",
+        severity="ok",
+        issues=(),
+        checked_at=datetime(2026, 7, 13, 12, 0, 5, tzinfo=UTC),
+    )
+    monkeypatch.setattr(
+        "mileage_logger.services.app_health.time.monotonic",
+        lambda: now[0],
+    )
+
+    assert monitor._notification_snapshot(latency_snapshot) is None
+    now[0] = 105.0
+    assert monitor._notification_snapshot(healthy_snapshot) == healthy_snapshot
+    now[0] = 120.0
+    assert monitor._notification_snapshot(latency_snapshot) is None

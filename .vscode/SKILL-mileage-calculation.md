@@ -352,8 +352,10 @@ The live `trips` table has partial unique indexes for automatic rows on the sour
 `(origin_site_id, destination_site_id, started_at, ended_at)` and the nonblank recorded-value
 signature `(trip_date, origin_site_id, destination_site_id, miles, start_odometer_miles,
 end_odometer_miles)`. Keep the application lookup and database constraints aligned. The migration
-deletes later exact automatic duplicates while retaining the oldest row; it does not constrain
-manual trips.
+deletes later exact automatic duplicates while retaining the oldest row. Before inserting, trip
+generation must reuse an existing match from either signature so one shifted transition pair does
+not raise an integrity error, roll back the checkpoint, and block later dates. The indexes do not
+constrain manual trips.
 
 ---
 

@@ -71,6 +71,11 @@ confirmation.
    → Next run skips already-processed locations
 ```
 
+Before inserting an automatic trip, generation checks both database uniqueness contracts: the
+exact source-event signature and the nonblank day/route/distance/odometer signature. A shifted
+transition pair that matches an existing recorded-value signature must reuse the existing row;
+letting PostgreSQL raise would roll back the whole processing pass and repeatedly block later days.
+
 ---
 
 ## Odometer Checkpoint System

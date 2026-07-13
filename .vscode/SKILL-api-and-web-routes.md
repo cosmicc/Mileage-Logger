@@ -309,8 +309,11 @@ curl -X POST http://localhost:8000/api/owntracks \
   high/low values.
 - Diagnostics degraded/unavailable banners and Pushover app-health notifications must use
   `mileage_logger.services.app_health.build_app_health_snapshot()`. Keep monitored signals aligned:
-  PostgreSQL availability/latency, runtime disk usage, active web-login lockouts, and app-managed
-  Cloudflare IP blocks.
+  PostgreSQL availability/latency, runtime free disk space, active web-login lockouts, and
+  app-managed Cloudflare IP blocks. Diagnostics shows each current database latency reading, but
+  Pushover must wait `APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS` and confirm latency is still high.
+  Disk health uses `APP_HEALTH_DISK_WARNING_FREE_MB` and `APP_HEALTH_DISK_CRITICAL_FREE_MB`, not
+  used-percentage alarm thresholds.
 
 ### Basic Pattern
 
@@ -737,9 +740,11 @@ downloads, validate retained automatic-backup filenames before reading files, va
 backup before deleting current rows, and require the typed confirmation value `RESTORE` for upload
 and automatic-backup restore forms. Keep the manual full-backup download copy and button with the
 lower upload-restore controls rather than in the card header. Automatic backups run once at app
-startup and then hourly when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in
-`AUTOMATIC_BACKUP_DIR`, and retain the newest 6 hourly backups plus one daily backup for today and
-each of the prior 2 days. Startup-created automatic backups use the startup filename prefix and
+startup and then every 6 hours when `AUTOMATIC_BACKUPS_ENABLED=true`, are stored in
+`AUTOMATIC_BACKUP_DIR` on the dedicated `HOST_BACKUP_DIR` bind mount, and retain the newest 4
+recent backups plus one daily backup for each of the prior 2 days. Storage failures, including
+stale file handles, retry every `AUTOMATIC_BACKUP_RETRY_SECONDS` until successful before the
+6-hour schedule resumes. Startup-created automatic backups use the startup filename prefix and
 Diagnostics labels them as Startup. The backup format is gzip-compressed JSON of all SQLAlchemy app
 tables plus an OwnTracks waypoint export; it is not a raw PostgreSQL cluster, Docker volume, role,
 password, or host-log backup. Keep retained automatic-backup rows single-line friendly by

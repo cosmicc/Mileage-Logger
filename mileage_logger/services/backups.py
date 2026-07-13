@@ -285,30 +285,47 @@ def run_automatic_backup_once(
 
 
 async def automatic_backup_scheduler(application_settings: "Settings") -> None:
-    """Run automatic full-data backups until the application shuts down."""
+    """Run automatic backups, retrying failed passes until storage recovers."""
 
     backup_reason = "startup"
     while True:
+        next_attempt_delay = AUTOMATIC_BACKUP_INTERVAL_SECONDS
+        backup_succeeded = False
         try:
             if not await asyncio.to_thread(database.database_is_reachable):
                 logger.info(
-                    "Automatic Mileage Logger backup paused because database is unavailable"
+                    "Automatic Mileage Logger backup paused because database is unavailable; "
+                    "retrying in %s seconds",
+                    application_settings.automatic_backup_retry_seconds,
                 )
-                backup_reason = "scheduled"
-                await asyncio.sleep(AUTOMATIC_BACKUP_INTERVAL_SECONDS)
-                continue
-            await asyncio.to_thread(
-                run_automatic_backup_once,
-                application_settings,
-                reason=backup_reason,
-            )
+                next_attempt_delay = application_settings.automatic_backup_retry_seconds
+            else:
+                await asyncio.to_thread(
+                    run_automatic_backup_once,
+                    application_settings,
+                    reason=backup_reason,
+                )
+                backup_succeeded = True
         except asyncio.CancelledError:
             raise
+        except OSError as exc:
+            next_attempt_delay = application_settings.automatic_backup_retry_seconds
+            logger.warning(
+                "Automatic Mileage Logger backup storage is unavailable; retrying in %s "
+                "seconds error=%s",
+                next_attempt_delay,
+                exc,
+            )
         except Exception:
-            logger.exception("Automatic Mileage Logger backup failed")
+            next_attempt_delay = application_settings.automatic_backup_retry_seconds
+            logger.exception(
+                "Automatic Mileage Logger backup failed; retrying in %s seconds",
+                next_attempt_delay,
+            )
 
-        backup_reason = "scheduled"
-        await asyncio.sleep(AUTOMATIC_BACKUP_INTERVAL_SECONDS)
+        if backup_succeeded:
+            backup_reason = "scheduled"
+        await asyncio.sleep(next_attempt_delay)
 
 
 def restore_full_backup(db: Session, content: bytes) -> RestoreSummary:

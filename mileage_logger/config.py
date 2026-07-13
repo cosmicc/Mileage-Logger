@@ -58,16 +58,9 @@ class Settings(BaseSettings):
     app_health_monitor_interval_seconds: int = Field(default=60, ge=15)
     app_health_db_latency_warning_ms: int = Field(default=500, ge=1)
     app_health_db_latency_critical_ms: int = Field(default=2000, ge=1)
-    app_health_disk_warning_percent: Decimal = Field(
-        default=Decimal("85.0"),
-        ge=Decimal("0"),
-        le=Decimal("100"),
-    )
-    app_health_disk_critical_percent: Decimal = Field(
-        default=Decimal("95.0"),
-        ge=Decimal("0"),
-        le=Decimal("100"),
-    )
+    app_health_db_latency_sustained_seconds: int = Field(default=15, ge=1)
+    app_health_disk_warning_free_mb: int = Field(default=1000, ge=1)
+    app_health_disk_critical_free_mb: int = Field(default=250, ge=1)
     app_health_state_path: str = ""
 
     web_api_key: str = ""
@@ -98,6 +91,7 @@ class Settings(BaseSettings):
     max_backup_restore_bytes: int = Field(default=250 * 1024 * 1024, ge=1)
     automatic_backups_enabled: bool = True
     automatic_backup_dir: str = ""
+    automatic_backup_retry_seconds: int = Field(default=60, ge=5)
     min_trip_miles: Decimal = Field(default=Decimal("0.10"), ge=Decimal("0"))
 
     @field_validator("log_level", mode="before")
@@ -219,10 +213,13 @@ class Settings(BaseSettings):
                 "APP_HEALTH_DB_LATENCY_WARNING_MS must be less than or equal to "
                 "APP_HEALTH_DB_LATENCY_CRITICAL_MS"
             )
-        if self.app_health_disk_warning_percent > self.app_health_disk_critical_percent:
+        if (
+            self.app_health_disk_critical_free_mb
+            > self.app_health_disk_warning_free_mb
+        ):
             raise ValueError(
-                "APP_HEALTH_DISK_WARNING_PERCENT must be less than or equal to "
-                "APP_HEALTH_DISK_CRITICAL_PERCENT"
+                "APP_HEALTH_DISK_CRITICAL_FREE_MB must be less than or equal to "
+                "APP_HEALTH_DISK_WARNING_FREE_MB"
             )
         return self
 

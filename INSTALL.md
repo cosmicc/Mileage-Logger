@@ -75,12 +75,13 @@ The generated `.env` keeps `COMPOSE_PROFILES=local-postgres`, which deploys the 
 PostgreSQL container. For a central PostgreSQL server, set `COMPOSE_PROFILES=` and update
 `DATABASE_URL` before deploying.
 
-It also tries to prepare `HOST_DATA_DIR` and the default `backups/` directory inside it. If your
+It also tries to prepare `HOST_DATA_DIR` and the separate `HOST_BACKUP_DIR`. If your
 user cannot write to `/var/lib`, create them before
 starting Docker:
 
 ```bash
 sudo install -d -m 0750 /var/lib/mileage-logger
+sudo install -d -m 0750 /var/lib/mileage-logger/backups
 ```
 
 When upgrading from an earlier release, move retained automatic backups from
@@ -89,7 +90,7 @@ deployment, or set `HOST_DATA_DIR` to the existing host directory. Earlier login
 are no longer read or written; new login audits begin in PostgreSQL after the migration.
 
 Before upgrading from a release that still has the server-side OwnTracks buffer, keep PostgreSQL
-online and confirm both Diagnostics queue counts are zero. Do not deploy v1.4.0
+online and confirm both Diagnostics queue counts are zero. Do not deploy v1.4.0 or later
 while either old queue contains data, because the new release intentionally has no replay worker.
 After the upgrade is verified, the old host `owntracks-buffer` directory and Docker
 `owntracks_buffer_fallback` volume are unused and can be archived or removed.
@@ -130,8 +131,9 @@ PUSHOVER_PRIORITY=0
 APP_HEALTH_MONITOR_INTERVAL_SECONDS=60
 APP_HEALTH_DB_LATENCY_WARNING_MS=500
 APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
-APP_HEALTH_DISK_WARNING_PERCENT=85.0
-APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
+APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS=15
+APP_HEALTH_DISK_WARNING_FREE_MB=1000
+APP_HEALTH_DISK_CRITICAL_FREE_MB=250
 APP_HEALTH_STATE_PATH=/data/app-health-state.json
 OWNTRACKS_USERNAME=owntracks
 OWNTRACKS_PASSWORD=<generated-password>
@@ -142,8 +144,10 @@ OWNTRACKS_PURGE_ENABLED=true
 OWNTRACKS_LOCATION_RETENTION_DAYS=90
 APP_DATA_DIR=/data
 HOST_DATA_DIR=/var/lib/mileage-logger
+HOST_BACKUP_DIR=/var/lib/mileage-logger/backups
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/backups
+AUTOMATIC_BACKUP_RETRY_SECONDS=60
 MAX_BACKUP_RESTORE_BYTES=262144000
 LOG_LEVEL=info
 GAS_PRICE_SOURCE=aaa_current
@@ -330,11 +334,11 @@ Swarm does not build images during `docker stack deploy`, does not support Compo
 does not preserve the normal Compose loopback-only nginx port binding. The Swarm stack therefore
 uses image tags and overlay networking. The `Build and publish Swarm images` GitHub workflow
 publishes the app and nginx images to GHCR with the package version, `latest`, and an immutable
-commit-SHA tag. For v1.4.0, use:
+commit-SHA tag. For v1.4.1, use:
 
 ```bash
-APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0
-NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0
+APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.1
+NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.1
 ```
 
 If the GHCR packages are private, configure GHCR registry credentials in Portainer or authenticate
@@ -347,8 +351,8 @@ needed variables in the shell before deploying.
 Remote PostgreSQL Swarm deployment:
 
 ```bash
-export APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0
-export NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0
+export APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.1
+export NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.1
 export DATABASE_URL=postgresql+psycopg://mileage:url_encoded_password@central-db-host:5432/mileage_logger
 docker stack deploy -c docker-stack.yml mileage-logger
 ```
@@ -356,8 +360,8 @@ docker stack deploy -c docker-stack.yml mileage-logger
 Bundled PostgreSQL Swarm deployment:
 
 ```bash
-export APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.0
-export NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.0
+export APP_IMAGE=ghcr.io/cosmicc/mileage-logger-app:1.4.1
+export NGINX_IMAGE=ghcr.io/cosmicc/mileage-logger-nginx:1.4.1
 export DATABASE_URL=postgresql+psycopg://mileage:your-db-password@postgres:5432/mileage_logger
 docker stack deploy -c docker-stack.yml -c docker-stack.local-postgres.yml mileage-logger
 ```
@@ -368,8 +372,9 @@ For Swarm, configure the Cloudflare Tunnel public hostname origin service as:
 http://mlnginx
 ```
 
-This service-name change does not rename any Portainer variables. Continue using `APP_IMAGE`,
-`NGINX_IMAGE`, `APP_UID`, `APP_GID`, and `HOST_DATA_DIR`. Existing deployments must change the
+This service-name change does not rename any existing Portainer variables. Continue using
+`APP_IMAGE`, `NGINX_IMAGE`, `APP_UID`, `APP_GID`, and `HOST_DATA_DIR`; v1.4.1 also adds
+`HOST_BACKUP_DIR`. Existing deployments must change the
 Cloudflare Tunnel origin from `http://nginx` to `http://mlnginx` when updating the stack. Swarm
 will replace the former `<stack>_app` and `<stack>_nginx` services with `<stack>_mlapp` and
 `<stack>_mlnginx`; a short interruption is expected during that replacement.
@@ -381,11 +386,15 @@ The Swarm stack intentionally does not publish nginx directly. If you add a publ
 remember Swarm publishes it on the node interface, not as the normal Compose-only
 `127.0.0.1:${HTTP_PORT}` binding.
 
-Keep `HOST_DATA_DIR` available on every Swarm node that can run the `mlapp` task. The optional
+Keep `HOST_DATA_DIR` and `HOST_BACKUP_DIR` available on every Swarm node that can run the `mlapp`
+task. The optional
 `postgres_data` named volume is node-local unless your Swarm volume driver provides shared storage.
 The Swarm `mlapp` task runs as `${APP_UID:-1000}:${APP_GID:-100}`. Set `APP_UID` and `APP_GID` in the
-Portainer stack environment when your shared-storage ownership differs, and ensure both
-`HOST_DATA_DIR` and its `backups/` directory already exist and are writable by that identity.
+Portainer stack environment when your shared-storage ownership differs, and ensure both host
+directories already exist and are writable by that identity. To remove the old shared-storage
+layout, set `HOST_DATA_DIR` to the `mileage-logger` directory and set `HOST_BACKUP_DIR` to its
+`backups` child. v1.4.1 starts a fresh automatic backup set there; it does not move
+files from `mileage-logger/logs/backups`.
 
 The diagnostics page is available at:
 
@@ -563,14 +572,17 @@ PUSHOVER_PRIORITY=0
 APP_HEALTH_MONITOR_INTERVAL_SECONDS=60
 APP_HEALTH_DB_LATENCY_WARNING_MS=500
 APP_HEALTH_DB_LATENCY_CRITICAL_MS=2000
-APP_HEALTH_DISK_WARNING_PERCENT=85.0
-APP_HEALTH_DISK_CRITICAL_PERCENT=95.0
+APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS=15
+APP_HEALTH_DISK_WARNING_FREE_MB=1000
+APP_HEALTH_DISK_CRITICAL_FREE_MB=250
 APP_HEALTH_STATE_PATH=/data/app-health-state.json
 HTTP_PORT=80
 APP_DATA_DIR=/data
 HOST_DATA_DIR=/var/lib/mileage-logger
+HOST_BACKUP_DIR=/var/lib/mileage-logger/backups
 AUTOMATIC_BACKUPS_ENABLED=true
 AUTOMATIC_BACKUP_DIR=/data/backups
+AUTOMATIC_BACKUP_RETRY_SECONDS=60
 MAX_BACKUP_RESTORE_BYTES=262144000
 ```
 
@@ -609,7 +621,11 @@ should never be blocked by this app.
 Set `PUSHOVER_ENABLED=true`, `PUSHOVER_TOKEN` to your Pushover app API token, and `PUSHOVER_USER`
 to your user/group key to receive app-health notifications. `PUSHOVER_APP_KEY` and
 `PUSHOVER_USER_KEY` are accepted aliases. The app watches database availability and latency,
-runtime disk usage, active web-login lockouts, and app-managed Cloudflare blocks. It sends one
+free disk space, active web-login lockouts, and app-managed Cloudflare blocks. High latency must
+remain above its warning or critical threshold for
+`APP_HEALTH_DB_LATENCY_SUSTAINED_SECONDS` before Pushover sends an alert. Disk warning and critical
+alerts use `APP_HEALTH_DISK_WARNING_FREE_MB` and `APP_HEALTH_DISK_CRITICAL_FREE_MB`, not a disk-used
+percentage. It sends one
 degraded/unavailable notification when the issue
 set changes and one restored notification when all monitored checks are healthy.
 The Diagnostics page marks travel when recent OwnTracks movement outside saved waypoints covers at
@@ -845,8 +861,10 @@ table rows in one transaction. Backup files contain sensitive location history a
 securely.
 
 The app also creates one automatic startup full-data backup and then 6-hour full-data backups by
-default. In Docker they are stored under `/data/backups`, backed by `HOST_DATA_DIR` on the
-host, unless `AUTOMATIC_BACKUP_DIR` is set to another private path. Diagnostics labels startup
+default. In Docker they are stored under `/data/backups`, backed by the dedicated
+`HOST_BACKUP_DIR` on the host, unless `AUTOMATIC_BACKUP_DIR` is set to another private path.
+Storage failures, including stale file handles, pause backup creation and retry every
+`AUTOMATIC_BACKUP_RETRY_SECONDS` until a backup succeeds. Diagnostics labels startup
 backups, lists retained automatic backups, and can restore a selected file after you type
 `RESTORE`. Retention keeps the newest 4 recent automatic backups plus one daily backup for each of
 the prior 2 days.
