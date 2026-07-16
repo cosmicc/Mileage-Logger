@@ -105,11 +105,11 @@ When trip processor runs:
    odometer
 7. Run the missing-trip-odometer backfill pass so existing rows with blank odometers can be filled
    from the master checkpoint when retained OwnTracks path data is available.
-8. Generated, edited, deleted, and resequenced trip rows do not normally update the master rolling
-   checkpoint. When the user manually enters odometer, reset anchor to exact value. The only
-   trip-row-driven repair is forward-only: if the latest chronological trip end odometer is greater
-   than the current master checkpoint, roll the checkpoint forward to that trip end. Never roll the
-   master checkpoint backward from trip rows.
+8. Generated, edited, deleted, resequenced, and backfilled trip rows never update the master rolling
+   checkpoint. Only OwnTracks distance processing and an explicit manual odometer entry may update
+   it. When a manual reading is entered while OwnTracks reports the vehicle inside the exact `Home`
+   waypoint, align all trip display odometers backward from that reading while preserving trip
+   miles and every positive between-trip gap.
 9. Before old raw OwnTracks rows are purged, refresh monthly OwnTracks summary rollups so older
    month web totals and event counts remain stable after raw location/event cleanup.
 
@@ -203,7 +203,7 @@ or `docker service logs -f <stack>_mlapp`; do not add a trip-calculation file ha
 - Returns list of unprocessed OwnTracks location rows since last checkpoint
 - Used to detect new events
 
-**`update_odometer_anchor_from_reading(db, odometer_miles, recorded_at, source)`**
+**`update_odometer_anchor_from_manual_reading(db, odometer_miles, recorded_at)`**
 - Called when user manually enters odometer on `/diagnostics` page
 - Resets rolling checkpoint to exact value
 

@@ -78,11 +78,11 @@
       {% for trip in trips %}
       {% set form_id = "trip-form-" ~ trip.id %}
       {% set is_manual_trip_entry = trip.source == 'manual' and trip.notes == manual_trip_note %}
-      {% set has_edited_mileage = trip.mileage_source == manual_mileage_source and not is_manual_trip_entry %}
+      {% set is_edited_trip = trip.mileage_source == manual_mileage_source and not is_manual_trip_entry %}
       <tr
-        class="trip-row {% if is_manual_trip_entry %}trip-row-manual{% else %}trip-row-auto{% endif %}"
+        class="trip-row {% if is_manual_trip_entry %}trip-row-manual{% elif is_edited_trip %}trip-row-edited{% else %}trip-row-auto{% endif %}"
         data-trip-source="{{ 'manual' if is_manual_trip_entry else 'auto' }}"
-        {% if has_edited_mileage %}data-trip-mileage-edited="true"{% endif %}
+        {% if is_edited_trip %}data-trip-mileage-edited="true"{% endif %}
       >
         <td>
           <form id="{{ form_id }}" action="/trips/{{ trip.id }}" method="post"></form>
@@ -117,7 +117,6 @@
         <td>
           <div class="miles-edit-cell">
             <input form="{{ form_id }}" class="miles-input" type="number" name="miles" min="0" step="0.1" required value="{{ "%.1f"|format(trip.miles) }}">
-            {% if has_edited_mileage %}<span class="pill muted trip-edit-pill">Edited</span>{% endif %}
           </div>
         </td>
         <td>
@@ -134,6 +133,20 @@
       {% endfor %}
     </tbody>
   </table>
+  <div class="trip-row-key" role="list" aria-label="Trip row color key">
+    <div class="trip-row-key-item" role="listitem">
+      <span class="trip-row-key-swatch trip-row-key-swatch-auto" aria-hidden="true"></span>
+      <span><strong>Automatic</strong> OwnTracks-generated trip</span>
+    </div>
+    <div class="trip-row-key-item" role="listitem">
+      <span class="trip-row-key-swatch trip-row-key-swatch-edited" aria-hidden="true"></span>
+      <span><strong>Edited</strong> Existing trip changed from its generated values</span>
+    </div>
+    <div class="trip-row-key-item" role="listitem">
+      <span class="trip-row-key-swatch trip-row-key-swatch-manual" aria-hidden="true"></span>
+      <span><strong>Manual</strong> Added from the Add Work Trip form</span>
+    </div>
+  </div>
 </section>
 
 <section class="panel">

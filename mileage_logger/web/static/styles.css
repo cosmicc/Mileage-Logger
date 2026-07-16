@@ -1198,6 +1198,16 @@ tbody tr:hover {
     linear-gradient(90deg, rgba(75, 163, 255, 0.16), rgba(75, 163, 255, 0.055) 48%, rgba(255, 255, 255, 0.025));
 }
 
+.trip-row-edited {
+  background:
+    linear-gradient(90deg, rgba(168, 85, 247, 0.13), rgba(168, 85, 247, 0.04) 42%, transparent);
+}
+
+.trip-row-edited:hover {
+  background:
+    linear-gradient(90deg, rgba(168, 85, 247, 0.18), rgba(168, 85, 247, 0.06) 48%, rgba(255, 255, 255, 0.025));
+}
+
 .trip-row-manual,
 .deleted-trip-row-manual {
   background:
@@ -1235,9 +1245,45 @@ td input[type="text"] {
   gap: 8px;
 }
 
-.trip-edit-pill {
-  min-height: 23px;
-  padding-inline: 8px;
+.trip-row-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trip-row-key-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.trip-row-key-item strong {
+  color: var(--text-soft);
+}
+
+.trip-row-key-swatch {
+  width: 30px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+}
+
+.trip-row-key-swatch-auto {
+  background: rgba(75, 163, 255, 0.32);
+}
+
+.trip-row-key-swatch-edited {
+  background: rgba(168, 85, 247, 0.36);
+}
+
+.trip-row-key-swatch-manual {
+  background: rgba(226, 173, 69, 0.36);
 }
 
 .waypoint-select {

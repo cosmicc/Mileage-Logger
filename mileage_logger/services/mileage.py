@@ -79,6 +79,10 @@ class TimedOdometerReading(OdometerReading):
     order_id: int
 
 
+class TripOdometerAdjustmentError(ValueError):
+    """Raised when trip odometers cannot be aligned to a manual reading safely."""
+
+
 def haversine_miles(
     lat1: Decimal | float,
     lon1: Decimal | float,
@@ -1426,6 +1430,16 @@ def _trips_from_trip_ordered(db: Session, first_trip: Trip) -> list[Trip]:
     )
 
 
+def _all_trips_ordered(db: Session) -> list[Trip]:
+    """Load every trip in chronological odometer order."""
+
+    return list(
+        db.scalars(
+            select(Trip).order_by(Trip.trip_date.asc(), Trip.started_at.asc(), Trip.id.asc())
+        )
+    )
+
+
 def _latest_checkpoint(db: Session) -> TripProcessingCheckpoint | None:
     """Return the rolling odometer checkpoint when it already exists."""
 
@@ -1434,59 +1448,6 @@ def _latest_checkpoint(db: Session) -> TripProcessingCheckpoint | None:
         .where(TripProcessingCheckpoint.name == AUTOMATIC_TRIP_PROCESSING_CHECKPOINT)
         .limit(1)
     )
-
-
-def _latest_trip_with_end_odometer(db: Session) -> Trip | None:
-    """Return the latest chronological trip that has a saved end odometer."""
-
-    return db.scalar(
-        select(Trip)
-        .where(Trip.end_odometer_miles.is_not(None))
-        .order_by(Trip.ended_at.desc(), Trip.id.desc())
-        .limit(1)
-    )
-
-
-def sync_master_odometer_to_latest_trip_end(db: Session) -> bool:
-    """Move the master odometer forward when the latest trip end is ahead of it.
-
-    This is the only trip-row-driven checkpoint repair path. It never lowers the
-    master rolling OwnTracks odometer and does not make odometers a distance source.
-    """
-
-    db.flush()
-    checkpoint = _latest_checkpoint(db)
-    latest_trip = _latest_trip_with_end_odometer(db)
-    if (
-        checkpoint is None
-        or checkpoint.odometer_anchor_miles is None
-        or latest_trip is None
-        or latest_trip.end_odometer_miles is None
-    ):
-        return False
-
-    current_odometer = Decimal(checkpoint.odometer_anchor_miles).quantize(
-        ODOMETER_PRECISION,
-        rounding=ROUND_HALF_UP,
-    )
-    latest_trip_end_odometer = Decimal(latest_trip.end_odometer_miles).quantize(
-        ODOMETER_PRECISION,
-        rounding=ROUND_HALF_UP,
-    )
-    if latest_trip_end_odometer <= current_odometer:
-        return False
-
-    checkpoint.odometer_anchor_miles = latest_trip_end_odometer
-    checkpoint.odometer_anchor_recorded_at = datetime_to_utc(latest_trip.ended_at)
-    trip_logger.info(
-        "Rolled master odometer forward to latest trip end trip_id=%s "
-        "previous_odometer=%s odometer=%s recorded_at=%s",
-        latest_trip.id,
-        current_odometer,
-        latest_trip_end_odometer,
-        datetime_to_utc(latest_trip.ended_at).isoformat(),
-    )
-    return True
 
 
 def _month_resequence_anchor(db: Session, first_trip: Trip) -> Decimal:
@@ -1549,6 +1510,83 @@ def _resequence_start_source(
     return ODOMETER_SOURCE_PREVIOUS_TRIP
 
 
+def resequence_all_trip_odometers_to_manual_reading(
+    db: Session,
+    odometer_miles: Decimal,
+) -> int:
+    """Align all trip odometers so the latest trip ends at a manual Home reading.
+
+    The calculation works backward from the exact reading. Each stored trip distance and every
+    existing positive between-trip odometer gap are preserved. The master rolling checkpoint is
+    intentionally not changed here; its explicit manual update remains the caller's responsibility.
+    """
+
+    ordered_trips = _all_trips_ordered(db)
+    if not ordered_trips:
+        return 0
+
+    target_end_odometer = Decimal(odometer_miles).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    odometer_gaps = _odometer_gaps_for_ordered_trips(ordered_trips)
+    adjusted_values: list[tuple[Decimal, Decimal]] = [
+        (Decimal("0.0"), Decimal("0.0")) for _trip in ordered_trips
+    ]
+    current_end_odometer = target_end_odometer
+
+    for index in range(len(ordered_trips) - 1, -1, -1):
+        trip = ordered_trips[index]
+        trip_distance = Decimal(trip.miles).quantize(
+            DISTANCE_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        start_odometer = (current_end_odometer - trip_distance).quantize(
+            ODOMETER_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        if start_odometer < 0:
+            raise TripOdometerAdjustmentError(
+                "The manual odometer reading is too low to preserve all saved trip miles and gaps."
+            )
+
+        adjusted_values[index] = (start_odometer, current_end_odometer)
+        if index > 0:
+            previous_end_odometer = (start_odometer - odometer_gaps[index]).quantize(
+                ODOMETER_PRECISION,
+                rounding=ROUND_HALF_UP,
+            )
+            if previous_end_odometer < 0:
+                raise TripOdometerAdjustmentError(
+                    "The manual odometer reading is too low to preserve all saved trip miles "
+                    "and gaps."
+                )
+            current_end_odometer = previous_end_odometer
+
+    final_index = len(ordered_trips) - 1
+    for index, trip in enumerate(ordered_trips):
+        start_odometer, end_odometer = adjusted_values[index]
+        trip.start_odometer_miles = start_odometer
+        trip.end_odometer_miles = end_odometer
+        trip.start_odometer_source = _resequence_start_source(
+            index=index,
+            first_start_source=trip.start_odometer_source or ODOMETER_SOURCE_ESTIMATED,
+            odometer_gap=odometer_gaps[index],
+        )
+        trip.end_odometer_source = (
+            ODOMETER_SOURCE_MANUAL if index == final_index else ODOMETER_SOURCE_ESTIMATED
+        )
+
+    trip_logger.info(
+        "Aligned all trip odometers to manual Home reading trips=%s "
+        "start_odometer=%s end_odometer=%s",
+        len(ordered_trips),
+        ordered_trips[0].start_odometer_miles,
+        ordered_trips[-1].end_odometer_miles,
+    )
+    return len(ordered_trips)
+
+
 def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
     """Recalculate every trip odometer in a month from ordered trip distances."""
 
@@ -1593,7 +1631,6 @@ def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
         month_trips[0].start_odometer_miles,
         month_trips[-1].end_odometer_miles,
     )
-    sync_master_odometer_to_latest_trip_end(db)
     return len(month_trips)
 
 
@@ -1689,7 +1726,6 @@ def resequence_trip_odometers_from(
         ordered_trips[0].start_odometer_miles,
         ordered_trips[-1].end_odometer_miles,
     )
-    sync_master_odometer_to_latest_trip_end(db)
     return len(ordered_trips)
 
 
@@ -1759,7 +1795,6 @@ def backfill_missing_trip_odometers(db: Session) -> int:
 
     if updated_count:
         trip_logger.info("Backfilled missing trip odometers trips=%s", updated_count)
-        sync_master_odometer_to_latest_trip_end(db)
     return updated_count
 
 
@@ -1942,7 +1977,6 @@ def generate_trips(
         last_arrival = transition
         pending_leave = None
 
-    sync_master_odometer_to_latest_trip_end(db)
     db.commit()
     for trip in generated:
         db.refresh(trip)

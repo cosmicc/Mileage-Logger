@@ -20,8 +20,8 @@ from mileage_logger.services.mileage import (
     backfill_missing_trip_odometers,
     generate_trips,
     owntracks_segment_miles,
+    resequence_all_trip_odometers_to_manual_reading,
     site_indexes,
-    sync_master_odometer_to_latest_trip_end,
 )
 from mileage_logger.services.retention import RetentionResult, purge_processed_owntracks_locations
 from mileage_logger.services.timezone import datetime_to_local_date, datetime_to_utc
@@ -90,25 +90,35 @@ def _quantize_odometer(value: Decimal) -> Decimal:
     return Decimal(str(value)).quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
 
 
-def update_odometer_anchor_from_reading(
+def update_odometer_anchor_from_manual_reading(
     db: Session,
     odometer_miles: Decimal,
     *,
     recorded_at: datetime,
-    source: str,
+    align_trip_odometers: bool = False,
 ) -> TripProcessingCheckpoint:
-    """Update the rolling checkpoint from a manual odometer reading."""
+    """Update the rolling checkpoint from an explicit manual odometer reading.
 
+    When the caller confirms the vehicle is inside Home, all trip display odometers are aligned
+    to the reading in the same transaction. No trip-derived value is written to the checkpoint.
+    """
+
+    adjusted_trip_count = 0
+    if align_trip_odometers:
+        adjusted_trip_count = resequence_all_trip_odometers_to_manual_reading(
+            db,
+            odometer_miles,
+        )
     checkpoint = _get_or_create_checkpoint(db)
     normalized_odometer = _quantize_odometer(odometer_miles)
     checkpoint.odometer_anchor_miles = normalized_odometer
     checkpoint.odometer_anchor_recorded_at = datetime_to_utc(recorded_at)
     db.commit()
     trip_logger.info(
-        "Updated odometer anchor from %s miles=%s recorded_at=%s",
-        source,
+        "Updated odometer anchor from manual reading miles=%s recorded_at=%s adjusted_trips=%s",
         normalized_odometer,
         datetime_to_utc(recorded_at).isoformat(),
+        adjusted_trip_count,
     )
     return checkpoint
 
@@ -316,8 +326,7 @@ def run_automatic_trip_processing(
             generated += _generate_for_date(db, day, processed_dates, as_of=current_dt)
 
         repaired_trip_count = backfill_missing_trip_odometers(db)
-        odometer_sync_applied = sync_master_odometer_to_latest_trip_end(db)
-        if repaired_trip_count or odometer_sync_applied:
+        if repaired_trip_count:
             db.commit()
 
         if new_locations:

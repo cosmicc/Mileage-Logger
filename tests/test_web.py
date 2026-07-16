@@ -4058,7 +4058,7 @@ def test_trips_page_creates_manual_trip(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
-def test_trips_page_shades_manual_trip_rows() -> None:
+def test_trips_page_shades_automatic_edited_and_manual_trip_rows() -> None:
     client, session_factory = _test_client_session()
     try:
         with session_factory() as db:
@@ -4141,14 +4141,24 @@ def test_trips_page_shades_manual_trip_rows() -> None:
         assert response.status_code == 200
         assert 'class="trip-row trip-row-manual"' in response.text
         assert 'data-trip-source="manual"' in response.text
-        assert response.text.count('class="trip-row trip-row-auto"') == 3
+        assert response.text.count('class="trip-row trip-row-auto"') == 1
+        assert response.text.count('class="trip-row trip-row-edited"') == 2
         assert response.text.count('data-trip-mileage-edited="true"') == 2
-        assert response.text.count("Edited") == 2
+        assert "trip-edit-pill" not in response.text
+        assert 'aria-label="Trip row color key"' in response.text
+        assert response.text.count("<strong>Automatic</strong>") == 1
+        assert response.text.count("<strong>Edited</strong>") == 1
+        assert response.text.count("<strong>Manual</strong>") == 1
         styles = Path("mileage_logger/web/static/styles.css").read_text()
         assert (
             ".trip-row-auto,\n.deleted-trip-row-auto {\n  background:\n    "
             "linear-gradient(90deg, "
             "rgba(75, 163, 255, 0.11)"
+        ) in styles
+        assert (
+            ".trip-row-edited {\n  background:\n    "
+            "linear-gradient(90deg, "
+            "rgba(168, 85, 247, 0.13)"
         ) in styles
         assert (
             ".trip-row-manual,\n.deleted-trip-row-manual {\n  background:\n    "
@@ -4578,9 +4588,9 @@ def test_trips_page_updates_existing_trip_distance_without_editing_date() -> Non
         assert "2026-06-16" not in content_response.text
         assert "New Home" in content_response.text
         assert "New Client" in content_response.text
-        assert 'class="trip-row trip-row-auto"' in content_response.text
+        assert 'class="trip-row trip-row-edited"' in content_response.text
         assert 'data-trip-mileage-edited="true"' in content_response.text
-        assert "Edited" in content_response.text
+        assert "trip-edit-pill" not in content_response.text
         with session_factory() as db:
             trip = db.get(Trip, 1)
             assert trip is not None
@@ -4809,6 +4819,81 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
             )
             assert checkpoint is not None
             assert checkpoint.odometer_anchor_miles == Decimal("12345.7")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_manual_odometer_at_home_aligns_all_trips_and_preserves_gaps() -> None:
+    client, session_factory = _test_client_session()
+    first_start = datetime(2026, 7, 13, 13, 0, tzinfo=UTC)
+    second_start = datetime(2026, 7, 14, 13, 0, tzinfo=UTC)
+    try:
+        with session_factory() as db:
+            home = _site("Home")
+            db.add_all(
+                [
+                    home,
+                    Trip(
+                        trip_date=first_start.date(),
+                        started_at=first_start,
+                        ended_at=first_start + timedelta(minutes=30),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("10.0"),
+                        start_odometer_miles=Decimal("1000.0"),
+                        end_odometer_miles=Decimal("1010.0"),
+                        source="auto",
+                    ),
+                    Trip(
+                        trip_date=second_start.date(),
+                        started_at=second_start,
+                        ended_at=second_start + timedelta(minutes=30),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("5.0"),
+                        start_odometer_miles=Decimal("1025.0"),
+                        end_odometer_miles=Decimal("1030.0"),
+                        source="auto",
+                    ),
+                ]
+            )
+            db.flush()
+            db.add(
+                OwnTracksLocation(
+                    captured_at=datetime(2026, 7, 15, 12, 0, tzinfo=UTC),
+                    received_at=datetime(2026, 7, 15, 12, 0, tzinfo=UTC),
+                    latitude=home.latitude,
+                    longitude=home.longitude,
+                    raw_payload={"_type": "location", "inregions": ["Home"]},
+                )
+            )
+            db.commit()
+
+        response = client.post(
+            "/diagnostics/odometer",
+            data={"odometer_miles": "2000.0"},
+        )
+
+        assert response.status_code == 200
+        assert (
+            "Manual odometer reading saved and trip odometers adjusted from Home."
+            in response.text
+        )
+        with session_factory() as db:
+            trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+            checkpoint = db.scalar(select(TripProcessingCheckpoint))
+            assert trips[0].start_odometer_miles == Decimal("1970.0")
+            assert trips[0].end_odometer_miles == Decimal("1980.0")
+            assert trips[1].start_odometer_miles == Decimal("1995.0")
+            assert trips[1].end_odometer_miles == Decimal("2000.0")
+            assert trips[1].start_odometer_miles - trips[0].end_odometer_miles == Decimal("15.0")
+            assert trips[1].end_odometer_source == "manual"
+            assert checkpoint is not None
+            assert checkpoint.odometer_anchor_miles == Decimal("2000.0")
     finally:
         app.dependency_overrides.clear()
 

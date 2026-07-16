@@ -213,11 +213,13 @@ dates. Manual trips are not restricted by those indexes.
 ### Odometer Checkpoint System
 - Rolling odometer anchor tracks cumulative distance from OwnTracks path
 - Manual odometer readings reset the anchor to an exact value
-- Trips do not normally update the master rolling odometer checkpoint. Only OwnTracks location
-  processing and manual odometer entries move that checkpoint; trip odometer resequencing is
-  display state for trip rows. The single exception is the forward-only sync repair: if the latest
-  chronological trip's end odometer is greater than the current master rolling odometer, the master
-  odometer is rolled forward to that trip end. This repair never rolls the master odometer back.
+- Only OwnTracks location processing and explicit manual odometer entries update the master rolling
+  odometer checkpoint. Trip creation, editing, deletion, resequencing, and odometer backfill must
+  never update it; trip odometers are display state for trip rows.
+- When a manual odometer is entered while the current OwnTracks state is inside the exact `Home`
+  waypoint, align all trip display odometers backward from that reading so the latest trip end
+  matches it. Preserve every trip's stored mileage and every existing positive odometer gap between
+  trips so non-trip driving remains represented.
 - Manual trip starts use the current rolling OwnTracks odometer checkpoint before falling back to
   zero when no master checkpoint exists; later resequencing preserves existing positive non-trip
   odometer gaps between trips.
@@ -259,7 +261,9 @@ dates. Manual trips are not restricted by those indexes.
 - The active app palette is defined with CSS variables in
   [styles.css](mileage_logger/web/static/styles.css).
 - Saved palette samples live in [docs/design/color-palettes.svg](docs/design/color-palettes.svg).
-  Option A is the current app palette; the other options are proposals only.
+  Option A is the current app palette; the other options are proposals only. The approved Work
+  Trips row-state colors are blue (`#4BA3FF`) for automatic trips, purple (`#A855F7`) for edited
+  trips, and gold (`#E2AD45`) for manual trips.
 - The source app logo is saved as [docs/design/mileage-logger-logo-original.png](docs/design/mileage-logger-logo-original.png),
   with a matching SVG wrapper at [docs/design/mileage-logger-logo.svg](docs/design/mileage-logger-logo.svg).
   Additional source variants are saved as
@@ -350,12 +354,12 @@ dates. Manual trips are not restricted by those indexes.
   then resequence that trip and all later trips when the inserted date is before existing trip rows.
   New manual trips are placed after existing trips on the selected local date, and resequencing keeps
   existing positive odometer gaps between trips so non-trip driving remains represented. Monthly
-  Work Trips rows use creation-source tinting without changing the table layout: automatic
-  OwnTracks-generated rows use the same subtle blue as automatic deleted records, and only trips
-  created from the Add Work Trip form use the existing subtle yellow. Automatic rows with corrected
-  mileage show a compact Edited indicator beside the miles field instead of changing to the manual
-  tint. Deleted Work Trip Records also use creation-source tinting so true manual deleted records
-  and automatic deleted records remain visually distinct.
+  Work Trips rows use distinct full-row tinting without changing the table layout: unedited
+  OwnTracks-generated rows use subtle blue, edited non-manual rows use purple, and only trips
+  created from the Add Work Trip form use subtle gold. Do not add a separate Edited pill. Keep the
+  three-color explanation key directly below the Monthly Work Trips list. Deleted Work Trip Records
+  continue using creation-source tinting so true manual deleted records and automatic deleted
+  records remain visually distinct.
 - Dashboard work trip plus non-work trip distance cards use OwnTracks path distance as the
   total-distance source but floor the combined total at the stored work trip total after
   one-decimal rounding, so the displayed non-work trip remainder is never negative.

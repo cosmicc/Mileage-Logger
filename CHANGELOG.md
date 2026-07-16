@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.4.2 - 07.15.2026
+
+### Added
+- Added regression coverage for Home-based manual odometer alignment, preserved between-trip
+  gaps, and strict master odometer ownership.
+- Added a three-color key below Monthly Work Trips that explains automatic, edited, and manual row
+  shading.
+
+### Changed
+- Bumped the Mileage Logger package version to 1.4.2.
+- Changed manual odometer entries made while OwnTracks reports the vehicle inside the `Home`
+  waypoint to align all displayed trip odometers so the latest trip end matches the entered
+  reading while preserving each trip's mileage and every positive between-trip gap.
+- Changed master rolling odometer ownership so only OwnTracks distance processing and an explicit
+  manual odometer entry can update it.
+- Changed edited Work Trips from a compact Edited pill to a full-row purple tint, distinct from
+  blue automatic rows and gold manual rows.
+
+### Fixed
+- Fixed Home-based trip odometer recalculation collapsing non-trip driving gaps into continuous
+  trip-to-trip odometer chains.
+- Fixed trip creation, editing, resequencing, and missing-odometer repair being able to roll the
+  master odometer forward from a trip row.
+
 ## 1.4.1 - 07.13.2026
 
 ### Added

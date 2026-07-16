@@ -88,22 +88,19 @@ class TripProcessingCheckpoint(Base):
 4. **Sum point-to-point distances** for all other locations
 5. **Advance checkpoint**: `new_odometer = anchor + distance_sum`
 6. **Update `last_owntracks_location_id`** to latest processed location
-7. Trip creation, deletion, and resequencing normally must not update the master checkpoint. Trip
-   odometers are row display values; the checkpoint is moved only by OwnTracks location processing
-   or manual odometer entry. The one repair exception is forward-only: if the latest chronological
-   trip's end odometer is greater than the current master checkpoint, roll the master checkpoint
-   forward to that trip end and never roll it back from trip rows.
+7. Trip creation, deletion, resequencing, and missing-odometer backfill must not update the master
+   checkpoint. Trip odometers are row display values; only OwnTracks location processing and an
+   explicit manual odometer entry may move the checkpoint.
 
 ### Resetting the Anchor
 
 When user manually enters odometer on `/diagnostics` page:
 
 ```python
-update_odometer_anchor_from_reading(
+update_odometer_anchor_from_manual_reading(
     db,
     odometer_miles=Decimal("50123.5"),
     recorded_at=datetime.now(UTC),
-    source="manual"
 )
 ```
 
@@ -111,6 +108,9 @@ Effect:
 - `odometer_anchor_miles` = 50123.5
 - `odometer_anchor_recorded_at` = now
 - Next distances calculate from 50123.5
+- If the current OwnTracks state is inside the exact `Home` waypoint, all trip row odometers are
+  also aligned backward so the latest trip end is 50123.5. Each trip's stored mileage and every
+  existing positive between-trip odometer gap remain unchanged.
 
 ---
 
@@ -273,7 +273,7 @@ Effects:
 - Updates trip fields
 - Sets `mileage_source="manual"`
 - Preserves the trip's creation `source`; an automatic trip with edited mileage remains an
-  automatic trip and displays an Edited indicator on the Trips page
+  automatic trip and receives the purple edited-row tint on the Trips page
 - **Re-sequences month's trips**: Recalculates all odometer chains for that month
 
 On the Trips page, existing row dates and odometers remain read-only. From/To edits are validated
@@ -301,18 +301,16 @@ This ensures:
 3. Existing positive gaps between a previous end odometer and the next start odometer are reapplied
 4. End odometer = start odometer + trip miles
 
-Resequencing changes trip row odometer display values only. It must not move the master rolling
-OwnTracks odometer checkpoint except for the forward-only latest-trip-end sync repair when the
-latest trip end is greater than the current master checkpoint.
+Resequencing changes trip row odometer display values only. It must never move the master rolling
+OwnTracks odometer checkpoint.
 
 ### Backfilling Blank Odometers
 
 `backfill_missing_trip_odometers(db)` fills existing trip rows that are missing start or end
 odometers when a master OwnTracks checkpoint and retained path rows can support the estimate. It
-does not alter trip distance, route fields, source fields, or deleted-trip tombstones. After trip
-odometers are repaired, the app may run the forward-only latest-trip-end sync so the master
-checkpoint is not behind the latest trip end. Automatic trip processing runs this repair pass so
-recently recorded rows with blank odometers are healed after deployment.
+does not alter trip distance, route fields, source fields, deleted-trip tombstones, or the master
+rolling checkpoint. Automatic trip processing runs this repair pass so recently recorded rows with
+blank odometers are healed after deployment.
 
 ---
 

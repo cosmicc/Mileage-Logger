@@ -247,6 +247,10 @@ curl -X POST http://localhost:8000/api/owntracks \
   the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
+- The Diagnostics manual odometer route always saves the explicit reading as the master checkpoint.
+  When current OwnTracks state is inside the exact `Home` waypoint, it must also align all trip row
+  odometers so the latest trip end matches the reading while preserving stored trip miles and
+  positive between-trip gaps. No trip-only workflow may update the master checkpoint.
 - Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
   gallons, monthly gas price, `VEHICLE_MPG`, and manual extra expense total as
   `generate_monthly_pdf()` so the home card matches the downloadable report. Keep displayed
@@ -282,18 +286,21 @@ curl -X POST http://localhost:8000/api/owntracks \
   fallback on authenticated app pages so phone system navigation remains visible. The brand
   icon/text is display-only and not a home link.
 - The active app color palette lives in `mileage_logger/web/static/styles.css`. Palette samples are
-  saved in `docs/design/color-palettes.svg`; Option A is the current palette. Do not apply a new
-  palette until the user chooses one. Palette changes must keep `styles.css`, nginx error pages,
-  `theme-color` metadata, `manifest.webmanifest`, and the app icon visually coordinated.
+  saved in `docs/design/color-palettes.svg`; Option A is the current palette. Approved Monthly Work
+  Trips row colors are blue (`#4BA3FF`) for automatic trips, purple (`#A855F7`) for edited trips,
+  and gold (`#E2AD45`) for manual trips. Do not apply a new app-wide palette until the user chooses
+  one. Palette changes must keep `styles.css`, nginx error pages, `theme-color` metadata,
+  `manifest.webmanifest`, and the app icon visually coordinated.
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
   `Showing June 2026 (06/2026)` style text under the page title.
 - `trips_content.html` shows compact selected-month cards directly below the month selector rule.
   Keep these scoped to the selected month: work trips plus non-work trips, work trips only,
   OwnTracks events by captured time, work trip count, reimbursement, and monthly average gas price.
-- Monthly Work Trips and Deleted Work Trip Records rows use creation-source tinting: automatic rows
-  use a subtle blue, only trips created from Add Work Trip use a subtle yellow, and automatic rows
-  with corrected mileage show an Edited indicator beside the miles field.
+- Monthly Work Trips rows use full-row tinting: unedited automatic rows use subtle blue, edited
+  non-manual rows use purple, and only trips created from Add Work Trip use subtle gold. Do not add
+  an Edited pill. Keep the three-color explanation key below the list. Deleted Work Trip Records
+  continue using creation-source blue and gold tinting.
 - The Work Trips page order is selected-month cards, Monthly Work Trips, Add Work Trip, Extra
   Report Expenses, then Deleted Work Trip Records.
 - The extra report expenses card sits above Deleted Work Trip Records. It accepts a date, expense

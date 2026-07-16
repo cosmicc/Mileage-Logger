@@ -25,13 +25,14 @@ from mileage_logger.services.mileage import (
     MILEAGE_SOURCE_OWNTRACKS_PATH,
     MILEAGE_SOURCE_WAYPOINT_DISTANCE,
     ODOMETER_SOURCE_ESTIMATED,
+    ODOMETER_SOURCE_MANUAL,
     ODOMETER_SOURCE_OWNTRACKS_ROLLING,
     ODOMETER_SOURCE_PREVIOUS_TRIP,
     create_manual_trip,
     delete_trip,
     generate_trips,
     haversine_miles,
-    sync_master_odometer_to_latest_trip_end,
+    resequence_all_trip_odometers_to_manual_reading,
     update_trip_details,
 )
 from mileage_logger.services.owntracks_rollups import (
@@ -1303,36 +1304,40 @@ def test_delete_trip_does_not_move_newer_odometer_checkpoint_backward() -> None:
     assert checkpoint.odometer_anchor_recorded_at == _naive(day + timedelta(hours=1))
 
 
-def test_sync_master_odometer_rolls_forward_to_latest_trip_end_only() -> None:
+def test_manual_reading_resequence_preserves_trip_gaps_without_changing_checkpoint() -> None:
     db = _session()
     older_day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     latest_day = datetime(2026, 6, 12, 13, 0, tzinfo=UTC)
+    older_trip = Trip(
+        trip_date=older_day.date(),
+        started_at=older_day,
+        ended_at=older_day + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("10.0"),
+        start_odometer_miles=Decimal("1000.0"),
+        end_odometer_miles=Decimal("1010.0"),
+        source="auto",
+    )
+    latest_trip = Trip(
+        trip_date=latest_day.date(),
+        started_at=latest_day,
+        ended_at=latest_day + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("5.0"),
+        start_odometer_miles=Decimal("1025.0"),
+        end_odometer_miles=Decimal("1030.0"),
+        source="manual",
+    )
     db.add_all(
         [
-            Trip(
-                trip_date=older_day.date(),
-                started_at=older_day,
-                ended_at=older_day + timedelta(minutes=30),
-                start_latitude=Decimal("42.3314"),
-                start_longitude=Decimal("-83.0458"),
-                end_latitude=Decimal("42.3440"),
-                end_longitude=Decimal("-83.0600"),
-                miles=Decimal("10.0"),
-                end_odometer_miles=Decimal("6000.0"),
-                source="auto",
-            ),
-            Trip(
-                trip_date=latest_day.date(),
-                started_at=latest_day,
-                ended_at=latest_day + timedelta(minutes=30),
-                start_latitude=Decimal("42.3314"),
-                start_longitude=Decimal("-83.0458"),
-                end_latitude=Decimal("42.3440"),
-                end_longitude=Decimal("-83.0600"),
-                miles=Decimal("5.0"),
-                end_odometer_miles=Decimal("5005.0"),
-                source="manual",
-            ),
+            older_trip,
+            latest_trip,
             TripProcessingCheckpoint(
                 name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
                 odometer_anchor_miles=Decimal("5000.0"),
@@ -1342,48 +1347,19 @@ def test_sync_master_odometer_rolls_forward_to_latest_trip_end_only() -> None:
     )
     db.commit()
 
-    assert sync_master_odometer_to_latest_trip_end(db) is True
+    assert resequence_all_trip_odometers_to_manual_reading(db, Decimal("2000.0")) == 2
     db.commit()
 
     checkpoint = db.scalar(select(TripProcessingCheckpoint))
+    assert older_trip.start_odometer_miles == Decimal("1970.0")
+    assert older_trip.end_odometer_miles == Decimal("1980.0")
+    assert latest_trip.start_odometer_miles == Decimal("1995.0")
+    assert latest_trip.end_odometer_miles == Decimal("2000.0")
+    assert latest_trip.start_odometer_miles - older_trip.end_odometer_miles == Decimal("15.0")
+    assert latest_trip.end_odometer_source == ODOMETER_SOURCE_MANUAL
     assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("5005.0")
-    assert checkpoint.odometer_anchor_recorded_at == _naive(latest_day + timedelta(minutes=30))
-
-
-def test_sync_master_odometer_never_rolls_backward() -> None:
-    db = _session()
-    day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
-    db.add_all(
-        [
-            Trip(
-                trip_date=day.date(),
-                started_at=day,
-                ended_at=day + timedelta(minutes=30),
-                start_latitude=Decimal("42.3314"),
-                start_longitude=Decimal("-83.0458"),
-                end_latitude=Decimal("42.3440"),
-                end_longitude=Decimal("-83.0600"),
-                miles=Decimal("5.0"),
-                end_odometer_miles=Decimal("1005.0"),
-                source="auto",
-            ),
-            TripProcessingCheckpoint(
-                name=AUTOMATIC_TRIP_PROCESSING_CHECKPOINT,
-                odometer_anchor_miles=Decimal("1010.0"),
-                odometer_anchor_recorded_at=day + timedelta(hours=1),
-            ),
-        ]
-    )
-    db.commit()
-
-    assert sync_master_odometer_to_latest_trip_end(db) is False
-    db.commit()
-
-    checkpoint = db.scalar(select(TripProcessingCheckpoint))
-    assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("1010.0")
-    assert checkpoint.odometer_anchor_recorded_at == _naive(day + timedelta(hours=1))
+    assert checkpoint.odometer_anchor_miles == Decimal("5000.0")
+    assert checkpoint.odometer_anchor_recorded_at == _naive(latest_day - timedelta(hours=1))
 
 
 def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None:
@@ -1545,7 +1521,7 @@ def test_generate_trips_does_not_carry_previous_generated_trip_end_to_next_start
     assert trips[1].start_odometer_source == ODOMETER_SOURCE_OWNTRACKS_ROLLING
 
 
-def test_manual_trip_rolls_master_odometer_forward_to_trip_end() -> None:
+def test_manual_trip_does_not_modify_master_odometer() -> None:
     db = _session()
     trip_start = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
     db.add(
@@ -1568,8 +1544,8 @@ def test_manual_trip_rolls_master_odometer_forward_to_trip_end() -> None:
     assert trip.start_odometer_miles == Decimal("5000.0")
     assert trip.end_odometer_miles == Decimal("5005.0")
     assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("5005.0")
-    assert checkpoint.odometer_anchor_recorded_at == _naive(trip.ended_at)
+    assert checkpoint.odometer_anchor_miles == Decimal("5000.0")
+    assert checkpoint.odometer_anchor_recorded_at == _naive(trip_start + timedelta(days=1))
 
 
 def test_generate_trips_ignores_same_waypoint_trip_under_one_mile() -> None:
@@ -2269,7 +2245,7 @@ def test_automatic_trip_processing_backfills_existing_missing_trip_odometers() -
     assert trip.end_odometer_source == ODOMETER_SOURCE_ESTIMATED
 
 
-def test_automatic_trip_processing_rolls_master_odometer_forward_when_out_of_sync() -> None:
+def test_automatic_trip_processing_does_not_sync_master_odometer_from_trip() -> None:
     db = _session()
     day = datetime(2026, 7, 1, 13, 0, tzinfo=UTC)
     db.add_all(
@@ -2302,8 +2278,8 @@ def test_automatic_trip_processing_rolls_master_odometer_forward_when_out_of_syn
     assert result.generated == 0
     assert result.repaired_trip_count == 0
     assert checkpoint is not None
-    assert checkpoint.odometer_anchor_miles == Decimal("1005.0")
-    assert checkpoint.odometer_anchor_recorded_at == _naive(day + timedelta(minutes=30))
+    assert checkpoint.odometer_anchor_miles == Decimal("1000.0")
+    assert checkpoint.odometer_anchor_recorded_at == _naive(day - timedelta(hours=1))
 
 
 def test_automatic_trip_processing_keeps_current_local_day_after_utc_midnight() -> None:

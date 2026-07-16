@@ -76,8 +76,10 @@ from mileage_logger.services.login_failures import (
     tail_login_success_entries,
 )
 from mileage_logger.services.mileage import (
+    HOME_WAYPOINT_NAME,
     MANUAL_TRIP_NOTE,
     MILEAGE_SOURCE_MANUAL,
+    TripOdometerAdjustmentError,
     create_manual_trip,
     delete_trip,
     mark_trip_user_edited,
@@ -113,7 +115,7 @@ from mileage_logger.services.timezone import (
     local_now,
     local_today,
 )
-from mileage_logger.services.trip_processor import update_odometer_anchor_from_reading
+from mileage_logger.services.trip_processor import update_odometer_anchor_from_manual_reading
 from mileage_logger.services.waypoints import owntracks_waypoints_json
 from mileage_logger.web.auth import (
     PUBLIC_DEVICE_IDLE_TIMEOUT_SECONDS,
@@ -2852,17 +2854,36 @@ def set_manual_odometer(
             },
         )
 
-    checkpoint = update_odometer_anchor_from_reading(
-        db,
-        odometer_miles,
-        recorded_at=datetime.now(UTC),
-        source="manual",
+    movement_state = owntracks_movement_diagnostics(db, state_change_limit=1).current_state
+    inside_home = (
+        movement_state.state == "waypoint"
+        and (movement_state.site_name or "").casefold() == HOME_WAYPOINT_NAME.casefold()
     )
+    try:
+        checkpoint = update_odometer_anchor_from_manual_reading(
+            db,
+            odometer_miles,
+            recorded_at=datetime.now(UTC),
+            align_trip_odometers=inside_home,
+        )
+    except TripOdometerAdjustmentError as exc:
+        db.rollback()
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "odometer_test": "fail",
+                "odometer_message": str(exc),
+            },
+        )
+
+    success_message = "Manual odometer reading saved."
+    if inside_home:
+        success_message = "Manual odometer reading saved and trip odometers adjusted from Home."
     return _diagnostics_redirect(
         "api-tests",
         {
             "odometer_test": "pass",
-            "odometer_message": "Manual odometer reading saved.",
+            "odometer_message": success_message,
             "odometer_value": f"{checkpoint.odometer_anchor_miles:.1f} miles",
         },
     )

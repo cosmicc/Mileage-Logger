@@ -133,8 +133,8 @@ Docker Swarm deployments use [docker-stack.yml](docker-stack.yml) instead of `do
 Swarm cannot build images, use Compose profiles, or keep the normal Compose loopback-only port
 binding. The `Build and publish Swarm images` GitHub workflow publishes versioned, `latest`, and
 commit-SHA app and nginx images to GHCR. Set `APP_IMAGE` to
-`ghcr.io/cosmicc/mileage-logger-app:1.4.1` and `NGINX_IMAGE` to
-`ghcr.io/cosmicc/mileage-logger-nginx:1.4.1` through Portainer or the shell, and deploy the base
+`ghcr.io/cosmicc/mileage-logger-app:1.4.2` and `NGINX_IMAGE` to
+`ghcr.io/cosmicc/mileage-logger-nginx:1.4.2` through Portainer or the shell, and deploy the base
 stack for remote PostgreSQL. Add
 [docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
 PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel
@@ -357,12 +357,11 @@ is placed after the existing work trips on the selected local date, so backdated
 land at the end of that day and today's manual entries become the latest work trip for today. If
 the manual work trip is inserted before existing work trips, the app resequences that work trip and
 every later work trip so odometers remain cumulative across month boundaries while preserving
-existing positive odometer gaps between work trips for non-work trip driving. Only work trips
-created from the Add Work Trip form use the subtle yellow manual-row shade. Automatic
-OwnTracks-generated rows use the same subtle blue shade as automatic deleted records, and an
-automatic row with corrected mileage shows an Edited indicator beside its miles field instead of
-becoming a manual-colored row. Deleted work-trip records also keep source-based shading for true
-manual entries and automatic entries. Deleting a work trip from the `Work Trips` page also saves an
+existing positive odometer gaps between work trips for non-work trip driving. Work trip rows use
+subtle blue for unedited OwnTracks-generated trips, purple for edited trips, and gold for trips
+created from the Add Work Trip form. A color key below the list explains each row shade. Deleted
+work-trip records continue using source-based shading for true manual entries and automatic
+entries. Deleting a work trip from the `Work Trips` page also saves an
 exact deleted-trip record so only that same OwnTracks transition pair is not generated again;
 future work trips with the same route are still generated normally.
 Automatic same-waypoint work trips under 1.0 mile are also removed with an exact suppression record
@@ -378,11 +377,13 @@ missing displayed odometers, automatic trip processing can backfill those blanks
 checkpoint when retained OwnTracks path rows support the estimate. Segments fully inside the same
 saved waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics
 reset the checkpoint to the entered value and OwnTracks distance continues from that new rolling
-value.
-Trip creation, editing, deletion, and resequencing do not normally move the master rolling odometer
-checkpoint. The only trip-row repair exception is forward-only: when the latest chronological work
-trip's end odometer is greater than the current master rolling odometer, the app rolls the master
-odometer forward to that trip end. The app never rolls the master odometer backward from trip rows.
+value. When OwnTracks reports the vehicle inside the `Home` waypoint, the same manual entry also
+aligns all displayed work trip odometers so the latest trip end matches the entered reading. The
+alignment preserves every trip's mileage and existing positive odometer gaps between trips so
+non-work driving is not collapsed.
+Trip creation, editing, deletion, resequencing, and missing-odometer repair never move the master
+rolling odometer checkpoint. Only OwnTracks distance processing and an explicit manual odometer
+entry can update the master rolling odometer.
 Dashboard total-driven cards and the Work Trips selected-month cards sum OwnTracks coordinate
 segments directly for the selected local day or month, so manual odometer resets do not affect work
 trip plus non-work trip totals.
