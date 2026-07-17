@@ -1,17 +1,3 @@
-<section class="page-header">
-  <div>
-    <h1>Dashboard</h1>
-    <p>Review automatic OwnTracks intake, waypoint work trips, and monthly mileage.</p>
-    <p class="page-meta">
-      App time:
-      <time datetime="{{ app_local_datetime.isoformat() }}">
-        {{ app_local_datetime.strftime("%Y-%m-%d %I:%M:%S %p") }}
-      </time>
-      {{ app_timezone }} {{ app_timezone_abbr }}
-    </p>
-  </div>
-</section>
-
 <section class="stats-grid">
   <div class="stat state-stat state-{{ location_state.state }}">
     <span>Location State</span>
@@ -135,3 +121,13 @@
     </tbody>
   </table>
 </section>
+
+<footer class="page-footer">
+  <p class="page-meta">
+    App time:
+    <time datetime="{{ app_local_datetime.isoformat() }}">
+      {{ app_local_datetime.strftime("%Y-%m-%d %I:%M:%S %p") }}
+    </time>
+    {{ app_timezone }} {{ app_timezone_abbr }}
+  </p>
+</footer>

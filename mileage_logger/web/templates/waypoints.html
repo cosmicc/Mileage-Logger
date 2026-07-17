@@ -1,15 +1,5 @@
 {% extends "layout.html" %}
 {% block content %}
-<section class="page-header">
-  <div>
-    <h1>Waypoints</h1>
-    <p>OwnTracks waypoints saved by the app for waypoint detection and backup export.</p>
-  </div>
-  <div class="header-actions">
-    <a class="button-link" href="/waypoints/export">Export OwnTracks Waypoints</a>
-  </div>
-</section>
-
 <section id="waypoints-list" class="panel">
   <div class="panel-toolbar">
     <div>
@@ -78,4 +68,8 @@
     </tbody>
   </table>
 </section>
+
+<footer class="page-footer">
+  <a class="button-link" href="/waypoints/export">Export OwnTracks Waypoints</a>
+</footer>
 {% endblock %}

@@ -1286,6 +1286,51 @@ def test_trips_page_renders_loading_shell() -> None:
         app.dependency_overrides.clear()
 
 
+def test_authenticated_pages_use_compact_page_intro_and_footer_layout() -> None:
+    client, _ = _test_client_session()
+    try:
+        dashboard_response = client.get("/dashboard/content")
+        trips_response = client.get("/trips/content?year=2026&month=6")
+        waypoints_response = client.get("/waypoints")
+        diagnostics_response = client.get("/diagnostics")
+
+        assert dashboard_response.status_code == 200
+        assert '<section class="page-header">' not in dashboard_response.text
+        assert "<h1>Dashboard</h1>" not in dashboard_response.text
+        assert "Review automatic OwnTracks intake" not in dashboard_response.text
+        assert '<footer class="page-footer">' in dashboard_response.text
+        assert dashboard_response.text.index("<h2>Recent Work Trips</h2>") < (
+            dashboard_response.text.index("App time:")
+        )
+
+        assert trips_response.status_code == 200
+        assert '<section class="page-header trips-page-header">' in trips_response.text
+        trip_actions_index = trips_response.text.index('<div class="header-actions">')
+        trip_title_index = trips_response.text.index("<h1>Work Trips</h1>")
+        trip_description_index = trips_response.text.index("Showing June 2026 (06/2026)")
+        trip_summary_index = trips_response.text.index(
+            '<section class="trips-summary-grid"'
+        )
+        assert trip_title_index < trip_description_index < trip_actions_index < trip_summary_index
+
+        assert waypoints_response.status_code == 200
+        assert '<section class="page-header">' not in waypoints_response.text
+        assert "<h1>Waypoints</h1>" not in waypoints_response.text
+        assert "OwnTracks waypoints saved by the app" not in waypoints_response.text
+        assert waypoints_response.text.index("<h2>OwnTracks Waypoints</h2>") < (
+            waypoints_response.text.index('href="/waypoints/export"')
+        )
+
+        assert diagnostics_response.status_code == 200
+        assert '<section class="page-header">' not in diagnostics_response.text
+        assert "<h1>Diagnostics</h1>" not in diagnostics_response.text
+        assert "Runtime status, data counts, and operational diagnostics." not in (
+            diagnostics_response.text
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_install_assets_stay_available_when_web_login_is_enabled(monkeypatch) -> None:
     FAILED_LOGIN_ATTEMPTS.clear()
     settings = Settings(

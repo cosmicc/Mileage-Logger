@@ -290,6 +290,28 @@ nav .nav-link:not(.nav-link-disabled):active {
   overflow-wrap: anywhere;
 }
 
+.trips-page-header {
+  align-items: flex-end;
+  flex-direction: row;
+  gap: 24px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+}
+
+.trips-page-header > .trips-page-heading {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.trips-page-heading p {
+  margin-bottom: 0;
+}
+
+.trips-page-header .header-actions {
+  flex: 0 0 auto;
+  width: auto;
+}
+
 .header-actions {
   display: flex;
   flex-wrap: wrap;
@@ -391,6 +413,12 @@ p {
   color: var(--text-soft);
   font-size: 14px;
   font-weight: 700;
+}
+
+.page-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
 }
 
 .dashboard-loading-shell {
@@ -1851,6 +1879,15 @@ td input[type="text"] {
 
   .page-header p {
     max-width: 34ch;
+  }
+
+  .trips-page-header > .trips-page-heading,
+  .trips-page-header .header-actions {
+    width: 100%;
+  }
+
+  .page-footer {
+    justify-content: flex-start;
   }
 
   .app-health-banner li {

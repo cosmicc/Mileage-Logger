@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.3 - 07.17.2026
+
+### Added
+- Added regression coverage for the compact authenticated page layout and the new footer placement
+  of Dashboard app time and the Waypoints export action.
+
+### Changed
+- Bumped the Mileage Logger package version to 1.4.3.
+- Removed the top-level title, description, and separator from Dashboard, Waypoints, and
+  Diagnostics while preserving their functional card and table headings.
+- Changed Work Trips to place its title and selected-month description beside the month and PDF
+  controls in one compact, bottom-aligned desktop row directly above the page separator.
+- Moved the OwnTracks waypoint export action to the bottom of Waypoints and the app-local time to
+  the bottom of Dashboard.
+
+### Fixed
+- Fixed unnecessary introductory header space pushing the primary authenticated page content
+  farther down the screen.
+
 ## 1.4.2 - 07.15.2026
 
 ### Added

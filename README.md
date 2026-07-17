@@ -8,7 +8,7 @@ monthly mileage and expense PDF logs.
 
 - FastAPI web app with server-rendered review screens.
 - Dashboard opens with a loading message before fetching calculated mileage and reimbursement
-  summaries.
+  summaries, starts the loaded page with its summary cards, and shows app-local time at the bottom.
 - PostgreSQL models and Alembic migration.
 - OwnTracks HTTP endpoint at `/api/owntracks` and Recorder-compatible `/api/pub`.
 - Retry-safe HTTP ingestion that returns `503 Service Unavailable` while PostgreSQL is unavailable
@@ -20,8 +20,11 @@ monthly mileage and expense PDF logs.
 - Optional Pushover app-health notifications for degraded or unavailable app state and restoration.
 - Manual trip entry defaults to today's local date and uses saved waypoint dropdowns for From/To,
   with trip-row waypoint and mileage review on the Work Trips page. Work Trips uses one month/year
-  picker that loads the selected month automatically and shows compact selected-month summary
-  cards.
+  picker that loads the selected month automatically, keeps its title, selected-month line, and
+  report controls in one compact desktop row above the divider, and shows compact selected-month
+  summary cards.
+- Waypoints starts with the saved-waypoint list and keeps the OwnTracks waypoint export action at
+  the bottom of the page.
 - Monthly gas price cache with a provider layer.
 - Monthly PDF report generation with optional extra expense lines.
 - GitHub Actions CI for linting and tests.
@@ -56,7 +59,8 @@ Mileage Logger is intended to run as a Docker Compose stack. It runs the complet
 - Persistent Docker volume for database data, plus separate host bind mounts for backups and
   health state.
 - In-app diagnostics page for database-backed successful and failed web-login audit records and
-  OwnTracks state in the configured local timezone. The top Diagnostics cards
+  OwnTracks state in the configured local timezone. The page starts directly with its operational
+  content instead of a separate title block, and the top Diagnostics cards
   are grouped into a three-column desktop grid, hard drive rows combine matching used and total
   space readings, database latency includes a green/yellow/red status dot, a yellow or red degraded
   banner appears when monitored app-health checks need attention, detailed lists use compact 10-row
@@ -133,8 +137,8 @@ Docker Swarm deployments use [docker-stack.yml](docker-stack.yml) instead of `do
 Swarm cannot build images, use Compose profiles, or keep the normal Compose loopback-only port
 binding. The `Build and publish Swarm images` GitHub workflow publishes versioned, `latest`, and
 commit-SHA app and nginx images to GHCR. Set `APP_IMAGE` to
-`ghcr.io/cosmicc/mileage-logger-app:1.4.2` and `NGINX_IMAGE` to
-`ghcr.io/cosmicc/mileage-logger-nginx:1.4.2` through Portainer or the shell, and deploy the base
+`ghcr.io/cosmicc/mileage-logger-app:1.4.3` and `NGINX_IMAGE` to
+`ghcr.io/cosmicc/mileage-logger-nginx:1.4.3` through Portainer or the shell, and deploy the base
 stack for remote PostgreSQL. Add
 [docker-stack.local-postgres.yml](docker-stack.local-postgres.yml) only when the bundled
 PostgreSQL service should be part of the Swarm stack. In Swarm, configure the Cloudflare Tunnel

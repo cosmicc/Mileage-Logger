@@ -26,13 +26,6 @@
 Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.total }}{{ suffix }}
 {%- endmacro %}
 
-<section class="page-header">
-  <div>
-    <h1>Diagnostics</h1>
-    <p>Runtime status, data counts, and operational diagnostics.</p>
-  </div>
-</section>
-
 {% if app_health_snapshot.is_degraded %}
 <section class="app-health-banner {{ app_health_snapshot.banner_class }}" role="alert">
   <div>

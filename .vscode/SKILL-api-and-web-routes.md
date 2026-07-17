@@ -266,7 +266,9 @@ curl -X POST http://localhost:8000/api/owntracks \
 - In `dashboard_content.html`, keep Location State as the first visible home card before the other
   stat cards and distance summary cards. Full-width Dashboard stat cards and distance cards should
   use the same compact sizing as the Work Trips selected-month cards while still spanning the app
-  width by row; mobile should continue stacking those cards one per row.
+  width by row; mobile should continue stacking those cards one per row. Do not add a separate
+  Dashboard title, description, or header divider above those cards. Keep app-local time in a
+  footer below the Recent Work Trips panel.
 - The Trips root route renders a lightweight loading shell. Keep selected-month Work Trips queries,
   summary cards, forms, work trip rows, extra report expense rows, and deleted-trip rows in
   `/trips/content` and render `trips_content.html` there so direct Work Trips loads can show a
@@ -293,7 +295,13 @@ curl -X POST http://localhost:8000/api/owntracks \
   `manifest.webmanifest`, and the app icon visually coordinated.
 - `trips.html` uses a single native month/year picker for the selected report month. It should
   default to the current local month, auto-load the chosen month, and show the month as
-  `Showing June 2026 (06/2026)` style text under the page title.
+  `Showing June 2026 (06/2026)` style text under the page title. Keep the title and selected-month
+  description on the left and the selector and PDF download controls on the right in one compact,
+  bottom-aligned desktop row directly above the header divider. Collapse the groups vertically on
+  narrow screens instead of squeezing or clipping them.
+- Dashboard, Waypoints, and Diagnostics start directly with their functional content and do not
+  render separate top-level page titles, descriptions, or dividers. Keep the OwnTracks waypoint
+  export action in a footer below the saved-waypoint list.
 - `trips_content.html` shows compact selected-month cards directly below the month selector rule.
   Keep these scoped to the selected month: work trips plus non-work trips, work trips only,
   OwnTracks events by captured time, work trip count, reimbursement, and monthly average gas price.

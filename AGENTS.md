@@ -345,6 +345,11 @@ dates. Manual trips are not restricted by those indexes.
   Add Work Trip form, work trip rows, extra report expense rows, and deleted-trip rows render
   through `/trips/content`, which is fetched by the shell so direct Work Trips loads show a loading
   message before month calculations finish.
+- Work Trips is the only authenticated page that keeps its page title, description, and header
+  divider. Keep the title and selected-month description on the left and the month selector and PDF
+  download controls on the right in one compact, bottom-aligned desktop row directly above the
+  divider. Collapse the two groups vertically on narrow screens instead of squeezing or clipping
+  them.
 - The Work Trips extra report expenses card sits above Deleted Work Trip Records. It accepts a
   date, expense reason, and price, enforces a hard cap of five expenses per report month, and
   includes those expenses as the final PDF table entries after trip rows.
@@ -378,7 +383,12 @@ dates. Manual trips are not restricted by those indexes.
 - The Dashboard home content shows the Location State card as the first visible card before other
   stat cards and distance summary cards. On full-width layouts, keep Dashboard top statistic cards
   and distance summary cards compact like the Work Trips selected-month cards, with each row still
-  spanning the app width. Mobile should continue stacking those cards one per row.
+  spanning the app width. Mobile should continue stacking those cards one per row. Do not add a
+  separate Dashboard page title, description, or divider above the cards; keep app-local time in a
+  footer below the Recent Work Trips panel.
+- Authenticated Waypoints and Diagnostics pages start directly with their functional content and
+  do not render separate page titles, descriptions, or header dividers. Keep the OwnTracks waypoint
+  export action in a footer below the saved-waypoint list.
 - The shared top bar uses a transparent brand logo plus centered blue raised navigation buttons with icons and labels on
   authenticated desktop pages. Show the current app version as a small readable line directly under
   the Mileage Logger brand title. On mobile, hide the brand/icon and keep the blue navigation
