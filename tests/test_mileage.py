@@ -30,9 +30,11 @@ from mileage_logger.services.mileage import (
     ODOMETER_SOURCE_PREVIOUS_TRIP,
     create_manual_trip,
     delete_trip,
+    emergency_rebuild_trip_odometers_to_manual_reading,
     generate_trips,
     haversine_miles,
     resequence_all_trip_odometers_to_manual_reading,
+    resequence_month_trip_odometers_from,
     update_trip_details,
 )
 from mileage_logger.services.owntracks_rollups import (
@@ -382,6 +384,43 @@ def test_generate_trips_from_leave_and_enter_transitions() -> None:
         client.longitude,
     )
     assert trips[0].mileage_source == MILEAGE_SOURCE_WAYPOINT_DISTANCE
+
+
+def test_generate_trips_keeps_start_day_and_path_when_trip_crosses_midnight() -> None:
+    db = _session()
+    local_start_day = date(2026, 7, 31)
+    leave_at = datetime(2026, 8, 1, 3, 50, tzinfo=UTC)  # 11:50 PM EDT
+    arrive_at = datetime(2026, 8, 1, 4, 20, tzinfo=UTC)  # 12:20 AM EDT
+    home = _site("Home", "42.3314", "-83.0458")
+    client = _site("Client", "42.3600", "-83.0900")
+    db.add_all(
+        [
+            home,
+            client,
+            _transition(leave_at, home, "leave"),
+            _location(
+                datetime(2026, 8, 1, 4, 5, tzinfo=UTC),
+                "42.3450",
+                "-83.0670",
+            ),
+            _transition(arrive_at, client, "enter"),
+            _dwell_confirmation(arrive_at, client),
+        ]
+    )
+    db.commit()
+
+    trips = generate_trips(
+        db,
+        local_start_day,
+        local_start_day,
+        as_of=arrive_at + timedelta(minutes=6),
+    )
+
+    assert len(trips) == 1
+    assert trips[0].trip_date == local_start_day
+    assert trips[0].started_at == _naive(leave_at)
+    assert trips[0].ended_at == _naive(arrive_at)
+    assert trips[0].mileage_source == MILEAGE_SOURCE_OWNTRACKS_PATH
 
 
 def test_generate_trips_confirms_inside_arrival_after_dwell_deadline() -> None:
@@ -1360,6 +1399,155 @@ def test_manual_reading_resequence_preserves_trip_gaps_without_changing_checkpoi
     assert checkpoint is not None
     assert checkpoint.odometer_anchor_miles == Decimal("5000.0")
     assert checkpoint.odometer_anchor_recorded_at == _naive(latest_day - timedelta(hours=1))
+
+
+def test_emergency_rebuild_reconstructs_large_gap_without_changing_trip_distances() -> None:
+    db = _session()
+    first_day = datetime(2026, 6, 11, 13, 0, tzinfo=UTC)
+    second_day = datetime(2026, 6, 12, 13, 0, tzinfo=UTC)
+    first_trip = Trip(
+        trip_date=first_day.date(),
+        started_at=first_day,
+        ended_at=first_day + timedelta(minutes=30),
+        start_latitude=Decimal("42.3314"),
+        start_longitude=Decimal("-83.0458"),
+        end_latitude=Decimal("42.3440"),
+        end_longitude=Decimal("-83.0600"),
+        miles=Decimal("10.0"),
+        start_odometer_miles=Decimal("1000.0"),
+        end_odometer_miles=Decimal("1010.0"),
+        source="auto",
+    )
+    second_trip = Trip(
+        trip_date=second_day.date(),
+        started_at=second_day,
+        ended_at=second_day + timedelta(minutes=30),
+        start_latitude=Decimal("42.3600"),
+        start_longitude=Decimal("-83.0900"),
+        end_latitude=Decimal("42.3700"),
+        end_longitude=Decimal("-83.1000"),
+        miles=Decimal("5.0"),
+        start_odometer_miles=Decimal("1510.0"),
+        end_odometer_miles=Decimal("1515.0"),
+        source="auto",
+    )
+    db.add_all(
+        [
+            first_trip,
+            second_trip,
+            _location(
+                first_trip.ended_at,
+                "42.3440",
+                "-83.0600",
+            ),
+            _location(
+                second_trip.started_at,
+                "42.3600",
+                "-83.0900",
+            ),
+        ]
+    )
+    db.commit()
+
+    result = emergency_rebuild_trip_odometers_to_manual_reading(
+        db,
+        Decimal("2000.0"),
+    )
+    db.commit()
+
+    assert result.adjusted_trip_count == 2
+    assert result.reconstructed_gap_count == 1
+    assert result.discarded_gap_count == 0
+    assert first_trip.miles == Decimal("10.0")
+    assert second_trip.miles == Decimal("5.0")
+    assert second_trip.end_odometer_miles == Decimal("2000.0")
+    assert (
+        second_trip.start_odometer_miles - first_trip.end_odometer_miles
+        < Decimal("200.0")
+    )
+
+
+def test_emergency_rebuild_discards_unrecoverable_large_and_excess_smaller_gaps() -> None:
+    db = _session()
+    starts = [
+        datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+        datetime(2026, 6, 11, 13, 0, tzinfo=UTC),
+        datetime(2026, 6, 12, 13, 0, tzinfo=UTC),
+    ]
+    trips = [
+        Trip(
+            trip_date=started_at.date(),
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=30),
+            start_latitude=Decimal("42.3314"),
+            start_longitude=Decimal("-83.0458"),
+            end_latitude=Decimal("42.3440"),
+            end_longitude=Decimal("-83.0600"),
+            miles=Decimal("10.0"),
+            start_odometer_miles=start_odometer,
+            end_odometer_miles=start_odometer + Decimal("10.0"),
+            source="auto",
+        )
+        for started_at, start_odometer in zip(
+            starts,
+            [Decimal("100.0"), Decimal("610.0"), Decimal("720.0")],
+            strict=True,
+        )
+    ]
+    db.add_all(trips)
+    db.commit()
+
+    result = emergency_rebuild_trip_odometers_to_manual_reading(db, Decimal("50.0"))
+    db.commit()
+
+    assert result.discarded_gap_count == 2
+    assert [trip.miles for trip in trips] == [Decimal("10.0")] * 3
+    assert trips[0].start_odometer_miles == Decimal("20.0")
+    assert trips[-1].end_odometer_miles == Decimal("50.0")
+
+
+def test_edit_resequence_changes_only_edited_and_later_trips_in_same_month() -> None:
+    db = _session()
+    starts = [
+        datetime(2026, 6, 10, 13, 0, tzinfo=UTC),
+        datetime(2026, 6, 11, 13, 0, tzinfo=UTC),
+        datetime(2026, 6, 12, 13, 0, tzinfo=UTC),
+        datetime(2026, 7, 1, 13, 0, tzinfo=UTC),
+    ]
+    trips = []
+    current_odometer = Decimal("1000.0")
+    for started_at in starts:
+        trip = Trip(
+            trip_date=started_at.date(),
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=30),
+            start_latitude=Decimal("42.3314"),
+            start_longitude=Decimal("-83.0458"),
+            end_latitude=Decimal("42.3440"),
+            end_longitude=Decimal("-83.0600"),
+            miles=Decimal("5.0"),
+            start_odometer_miles=current_odometer,
+            end_odometer_miles=current_odometer + Decimal("5.0"),
+            source="auto",
+        )
+        trips.append(trip)
+        current_odometer += Decimal("5.0")
+    db.add_all(trips)
+    db.commit()
+
+    trips[1].miles = Decimal("8.0")
+    adjusted_count = resequence_month_trip_odometers_from(db, trips[1])
+    db.commit()
+
+    assert adjusted_count == 2
+    assert trips[0].start_odometer_miles == Decimal("1000.0")
+    assert trips[0].end_odometer_miles == Decimal("1005.0")
+    assert trips[1].start_odometer_miles == Decimal("1005.0")
+    assert trips[1].end_odometer_miles == Decimal("1013.0")
+    assert trips[2].start_odometer_miles == Decimal("1013.0")
+    assert trips[2].end_odometer_miles == Decimal("1018.0")
+    assert trips[3].start_odometer_miles == Decimal("1015.0")
+    assert trips[3].end_odometer_miles == Decimal("1020.0")
 
 
 def test_generate_trips_estimates_transition_only_trip_from_checkpoint() -> None:

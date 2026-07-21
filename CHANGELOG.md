@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.4.4 - Unreleased
+
+### Added
+- Added a red Diagnostics Emergency Rebuild action that creates a full safety backup, treats the
+  entered reading as the current master odometer, and rebuilds all displayed trip odometers without
+  changing any stored trip distances.
+- Added best-effort emergency gap recovery from retained OwnTracks history, with automatic removal
+  of gaps at or above 200 miles and largest-first removal of smaller gaps only when needed to keep
+  the rebuilt odometer sequence valid.
+- Added trip-generation coverage for journeys that start before midnight and finish after midnight.
+
+### Changed
+- Changed manual odometer saves to require the exact `Home` waypoint in both the Diagnostics UI and
+  server route; the normal Save button is disabled away from Home while Emergency Rebuild remains
+  available.
+- Changed a trip-distance edit to recalculate only the edited trip and later trips in that trip's
+  start month, leaving earlier trips and every other month unchanged.
+- Changed cross-midnight trip processing to assign the trip to its local start day and include
+  OwnTracks path events through the actual arrival event after midnight.
+- Bumped the unreleased Mileage Logger package version to 1.4.4.
+
+### Fixed
+- Fixed late-month trip-distance corrections being able to replay corrupted gaps across the whole
+  month and produce implausibly large displayed odometers.
+- Fixed Home-based manual alignment failing when oversized historical gaps could not fit below the
+  entered current odometer.
+
 ## 1.4.3 - 07.17.2026
 
 ### Added

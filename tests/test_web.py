@@ -4843,9 +4843,24 @@ def test_trips_page_distance_edit_resequences_month_odometers() -> None:
         app.dependency_overrides.clear()
 
 
-def test_diagnostics_manual_odometer_form_saves_reading() -> None:
+def test_diagnostics_manual_odometer_form_saves_reading_at_home() -> None:
     client, session_factory = _test_client_session()
     try:
+        with session_factory() as db:
+            home = _site("Home")
+            db.add(home)
+            db.flush()
+            db.add(
+                OwnTracksLocation(
+                    captured_at=datetime(2026, 7, 20, 12, 0, tzinfo=UTC),
+                    received_at=datetime(2026, 7, 20, 12, 0, tzinfo=UTC),
+                    latitude=home.latitude,
+                    longitude=home.longitude,
+                    raw_payload={"_type": "location", "inregions": ["Home"]},
+                )
+            )
+            db.commit()
+
         response = client.post(
             "/diagnostics/odometer",
             data={"odometer_miles": "12345.678"},
@@ -4864,6 +4879,95 @@ def test_diagnostics_manual_odometer_form_saves_reading() -> None:
             )
             assert checkpoint is not None
             assert checkpoint.odometer_anchor_miles == Decimal("12345.7")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_manual_odometer_rejects_save_away_from_home() -> None:
+    client, session_factory = _test_client_session()
+    try:
+        response = client.post(
+            "/diagnostics/odometer",
+            data={"odometer_miles": "12345.6"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert "only+be+saved+while+inside+the+Home+waypoint" in response.headers["location"]
+        with session_factory() as db:
+            assert db.scalar(select(TripProcessingCheckpoint)) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_diagnostics_emergency_rebuild_backs_up_then_repairs_away_from_home(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    settings = Settings(
+        database_url="sqlite://",
+        automatic_backup_dir=str(tmp_path / "backups"),
+    )
+    monkeypatch.setattr("mileage_logger.web.routes.get_settings", lambda: settings)
+    client, session_factory = _test_client_session()
+    first_start = datetime(2026, 7, 18, 13, 0, tzinfo=UTC)
+    second_start = datetime(2026, 7, 19, 13, 0, tzinfo=UTC)
+    try:
+        with session_factory() as db:
+            db.add_all(
+                [
+                    Trip(
+                        trip_date=first_start.date(),
+                        started_at=first_start,
+                        ended_at=first_start + timedelta(minutes=30),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("10.0"),
+                        start_odometer_miles=Decimal("1000.0"),
+                        end_odometer_miles=Decimal("1010.0"),
+                        source="auto",
+                    ),
+                    Trip(
+                        trip_date=second_start.date(),
+                        started_at=second_start,
+                        ended_at=second_start + timedelta(minutes=30),
+                        start_latitude=Decimal("42.3314"),
+                        start_longitude=Decimal("-83.0458"),
+                        end_latitude=Decimal("42.3440"),
+                        end_longitude=Decimal("-83.0600"),
+                        miles=Decimal("5.0"),
+                        start_odometer_miles=Decimal("3010.0"),
+                        end_odometer_miles=Decimal("3015.0"),
+                        source="auto",
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.post(
+            "/diagnostics/odometer/emergency-rebuild",
+            data={"odometer_miles": "2000.0"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert "odometer_test=pass" in response.headers["location"]
+        assert "discarded+1+odometer+gaps" in response.headers["location"]
+        backup_files = list_automatic_backup_files(settings.automatic_backup_dir)
+        assert len(backup_files) == 1
+        assert backup_files[0].reason == "emergency"
+        backup_payload = json.loads(gzip.decompress(backup_files[0].path.read_bytes()))
+        assert backup_payload["tables"]["trips"][1]["start_odometer_miles"] == "3010.0"
+        with session_factory() as db:
+            trips = list(db.scalars(select(Trip).order_by(Trip.started_at.asc())))
+            checkpoint = db.scalar(select(TripProcessingCheckpoint))
+            assert [trip.miles for trip in trips] == [Decimal("10.0"), Decimal("5.0")]
+            assert trips[0].start_odometer_miles == Decimal("1985.0")
+            assert trips[1].end_odometer_miles == Decimal("2000.0")
+            assert checkpoint is not None
+            assert checkpoint.odometer_anchor_miles == Decimal("2000.0")
     finally:
         app.dependency_overrides.clear()
 
@@ -5066,6 +5170,7 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
                 detected_at=None,
                 distance_miles=None,
             ),
+            "inside_home": False,
             "movement_state_changes": [],
             "movement_state_changes_page": SimpleNamespace(
                 first_item=0,
@@ -5130,6 +5235,9 @@ def test_diagnostics_manual_odometer_card_shows_current_odometer() -> None:
     assert "43,210.4 miles" in manual_card
     assert "OwnTracks estimate" in manual_card
     assert "Rolling" in manual_card
+    assert 'formaction="/diagnostics/odometer/emergency-rebuild"' in manual_card
+    assert "Emergency Rebuild" in manual_card
+    assert "Available only while inside the Home waypoint" in manual_card
 
     api_tests_start = rendered.index('<section id="api-tests" class="diagnostics-grid">')
     app_card_start = rendered.index("<h2>Application</h2>")

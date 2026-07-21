@@ -40,6 +40,8 @@ ODOMETER_SOURCE_PREVIOUS_TRIP = "previous_trip"
 ODOMETER_SOURCE_OWNTRACKS_ROLLING = "owntracks_rolling"
 HOME_WAYPOINT_NAME = "Home"
 SAME_WAYPOINT_MINIMUM_TRIP_MILES = Decimal("1.0")
+EMERGENCY_MAX_PRESERVED_GAP_MILES = Decimal("200.0")
+TRIP_END_CROSS_DAY_LOOKAHEAD = timedelta(days=1)
 WAYPOINT_DEPARTURE_CONFIRMATION_DISTANCE_M = Decimal("500")
 WAYPOINT_TRIP_NOTE = "Auto-generated from OwnTracks waypoint transitions."
 MISSING_LEAVE_NOTE = "Missing leave event inferred from previous waypoint."
@@ -81,6 +83,16 @@ class TimedOdometerReading(OdometerReading):
 
 class TripOdometerAdjustmentError(ValueError):
     """Raised when trip odometers cannot be aligned to a manual reading safely."""
+
+
+@dataclass(frozen=True)
+class EmergencyOdometerRebuildResult:
+    """Summary of one best-effort emergency trip odometer reconstruction."""
+
+    adjusted_trip_count: int
+    preserved_gap_count: int
+    reconstructed_gap_count: int
+    discarded_gap_count: int
 
 
 def haversine_miles(
@@ -1634,6 +1646,234 @@ def resequence_month_trip_odometers(db: Session, year: int, month: int) -> int:
     return len(month_trips)
 
 
+def resequence_month_trip_odometers_from(db: Session, first_trip: Trip) -> int:
+    """Recalculate an edited trip and later trips in its start month only.
+
+    The edited trip keeps its existing start odometer. Existing positive non-trip gaps after that
+    row are captured before any values are changed, then reapplied to the later rows. Trips before
+    the edited row and trips whose start date belongs to another month are never modified.
+    """
+
+    db.flush()
+    month_trips = _month_trips_ordered(
+        db,
+        first_trip.trip_date.year,
+        first_trip.trip_date.month,
+    )
+    ordered_trips = [
+        trip
+        for trip in month_trips
+        if (
+            trip.started_at > first_trip.started_at
+            or (trip.started_at == first_trip.started_at and trip.id >= first_trip.id)
+        )
+    ]
+    if not ordered_trips:
+        return 0
+
+    current_odometer = first_trip.start_odometer_miles
+    if current_odometer is None:
+        previous_trip = _latest_trip_before(db, first_trip.started_at)
+        if previous_trip is not None and previous_trip.end_odometer_miles is not None:
+            current_odometer = previous_trip.end_odometer_miles
+        else:
+            current_odometer = _month_resequence_anchor(db, first_trip)
+    current_odometer = Decimal(current_odometer).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    odometer_gaps = _odometer_gaps_for_ordered_trips(ordered_trips)
+    first_start_source = ODOMETER_SOURCE_PREVIOUS_TRIP
+
+    for index, trip in enumerate(ordered_trips):
+        if index > 0:
+            current_odometer = (current_odometer + odometer_gaps[index]).quantize(
+                ODOMETER_PRECISION,
+                rounding=ROUND_HALF_UP,
+            )
+        trip_distance = Decimal(trip.miles).quantize(
+            DISTANCE_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        trip.start_odometer_miles = current_odometer
+        trip.end_odometer_miles = (current_odometer + trip_distance).quantize(
+            ODOMETER_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        trip.start_odometer_source = _resequence_start_source(
+            index=index,
+            first_start_source=first_start_source,
+            odometer_gap=odometer_gaps[index] if index > 0 else Decimal("0.0"),
+        )
+        trip.end_odometer_source = ODOMETER_SOURCE_ESTIMATED
+        current_odometer = trip.end_odometer_miles
+
+    trip_logger.info(
+        "Resequenced edited trip and later same-month odometers from_trip_id=%s trips=%s "
+        "start_odometer=%s end_odometer=%s",
+        first_trip.id,
+        len(ordered_trips),
+        ordered_trips[0].start_odometer_miles,
+        ordered_trips[-1].end_odometer_miles,
+    )
+    return len(ordered_trips)
+
+
+def _reconstructed_non_trip_gap(
+    db: Session,
+    previous_trip: Trip,
+    current_trip: Trip,
+) -> Decimal | None:
+    """Reconstruct one between-trip gap from retained OwnTracks history when possible."""
+
+    if current_trip.started_at <= previous_trip.ended_at:
+        return Decimal("0.0")
+    locations = list(
+        db.scalars(
+            select(OwnTracksLocation)
+            .where(OwnTracksLocation.captured_at >= previous_trip.ended_at)
+            .where(OwnTracksLocation.captured_at <= current_trip.started_at)
+            .order_by(OwnTracksLocation.captured_at.asc(), OwnTracksLocation.id.asc())
+        )
+    )
+    if not locations:
+        return None
+    sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
+    sites_by_name, sites_by_region_id = site_indexes(sites)
+    reconstructed_gap = _path_distance_miles(
+        locations,
+        sites,
+        sites_by_name,
+        sites_by_region_id,
+    )
+    if reconstructed_gap is None:
+        return None
+    return reconstructed_gap.quantize(ODOMETER_PRECISION, rounding=ROUND_HALF_UP)
+
+
+def emergency_rebuild_trip_odometers_to_manual_reading(
+    db: Session,
+    odometer_miles: Decimal,
+) -> EmergencyOdometerRebuildResult:
+    """Best-effort rebuild every trip odometer against one trusted current reading.
+
+    Stored trip distances are immutable in this operation. Positive gaps below 200 miles are
+    preserved. Gaps of 200 miles or more are first reconstructed from retained OwnTracks history;
+    when that is unavailable or still 200 miles or more, the gap is discarded. If the remaining
+    gaps would push the oldest reconstructed odometer below zero, the largest remaining gaps are
+    discarded until the sequence fits.
+    """
+
+    ordered_trips = _all_trips_ordered(db)
+    if not ordered_trips:
+        return EmergencyOdometerRebuildResult(0, 0, 0, 0)
+
+    target_end_odometer = Decimal(odometer_miles).quantize(
+        ODOMETER_PRECISION,
+        rounding=ROUND_HALF_UP,
+    )
+    trip_distances = [
+        Decimal(trip.miles).quantize(DISTANCE_PRECISION, rounding=ROUND_HALF_UP)
+        for trip in ordered_trips
+    ]
+    total_trip_distance = sum(trip_distances, Decimal("0.0"))
+    if total_trip_distance > target_end_odometer:
+        raise TripOdometerAdjustmentError(
+            "The manual odometer reading is lower than the total saved trip distance; "
+            "trip distances were not changed."
+        )
+
+    original_gaps = _odometer_gaps_for_ordered_trips(ordered_trips)
+    selected_gaps = list(original_gaps)
+    reconstructed_gap_indexes: set[int] = set()
+    discarded_gap_indexes: set[int] = set()
+    for index in range(1, len(ordered_trips)):
+        if selected_gaps[index] < EMERGENCY_MAX_PRESERVED_GAP_MILES:
+            continue
+        reconstructed_gap = _reconstructed_non_trip_gap(
+            db,
+            ordered_trips[index - 1],
+            ordered_trips[index],
+        )
+        if (
+            reconstructed_gap is not None
+            and reconstructed_gap < EMERGENCY_MAX_PRESERVED_GAP_MILES
+        ):
+            selected_gaps[index] = reconstructed_gap
+            reconstructed_gap_indexes.add(index)
+        else:
+            selected_gaps[index] = Decimal("0.0")
+            discarded_gap_indexes.add(index)
+
+    required_distance = total_trip_distance + sum(selected_gaps, Decimal("0.0"))
+    if required_distance > target_end_odometer:
+        for index in sorted(
+            range(1, len(selected_gaps)),
+            key=lambda gap_index: selected_gaps[gap_index],
+            reverse=True,
+        ):
+            if required_distance <= target_end_odometer:
+                break
+            if selected_gaps[index] <= 0:
+                continue
+            required_distance -= selected_gaps[index]
+            selected_gaps[index] = Decimal("0.0")
+            discarded_gap_indexes.add(index)
+            reconstructed_gap_indexes.discard(index)
+
+    adjusted_values: list[tuple[Decimal, Decimal]] = [
+        (Decimal("0.0"), Decimal("0.0")) for _trip in ordered_trips
+    ]
+    current_end_odometer = target_end_odometer
+    for index in range(len(ordered_trips) - 1, -1, -1):
+        start_odometer = (current_end_odometer - trip_distances[index]).quantize(
+            ODOMETER_PRECISION,
+            rounding=ROUND_HALF_UP,
+        )
+        adjusted_values[index] = (start_odometer, current_end_odometer)
+        if index > 0:
+            current_end_odometer = (start_odometer - selected_gaps[index]).quantize(
+                ODOMETER_PRECISION,
+                rounding=ROUND_HALF_UP,
+            )
+
+    final_index = len(ordered_trips) - 1
+    for index, trip in enumerate(ordered_trips):
+        start_odometer, end_odometer = adjusted_values[index]
+        trip.start_odometer_miles = start_odometer
+        trip.end_odometer_miles = end_odometer
+        trip.start_odometer_source = _resequence_start_source(
+            index=index,
+            first_start_source=trip.start_odometer_source or ODOMETER_SOURCE_ESTIMATED,
+            odometer_gap=selected_gaps[index],
+        )
+        trip.end_odometer_source = (
+            ODOMETER_SOURCE_MANUAL if index == final_index else ODOMETER_SOURCE_ESTIMATED
+        )
+
+    preserved_gap_count = sum(
+        1
+        for index, gap in enumerate(selected_gaps)
+        if index > 0 and gap > 0 and index not in reconstructed_gap_indexes
+    )
+    result = EmergencyOdometerRebuildResult(
+        adjusted_trip_count=len(ordered_trips),
+        preserved_gap_count=preserved_gap_count,
+        reconstructed_gap_count=len(reconstructed_gap_indexes),
+        discarded_gap_count=len(discarded_gap_indexes),
+    )
+    trip_logger.warning(
+        "Emergency rebuilt trip odometers trips=%s preserved_gaps=%s reconstructed_gaps=%s "
+        "discarded_gaps=%s end_odometer=%s",
+        result.adjusted_trip_count,
+        result.preserved_gap_count,
+        result.reconstructed_gap_count,
+        result.discarded_gap_count,
+        target_end_odometer,
+    )
+    return result
+
+
 def _manual_trip_start_odometer(db: Session, trip: Trip) -> tuple[Decimal, str]:
     """Return the starting odometer and source for a newly added manual trip."""
 
@@ -1809,7 +2049,12 @@ def generate_trips(
     dwell_padding = timedelta(minutes=get_settings().owntracks_waypoint_dwell_minutes)
     sites = list(db.scalars(select(Site).order_by(Site.name.asc())))
     sites_by_name, sites_by_region_id = site_indexes(sites)
-    locations = _locations_for_range(db, start_date, end_date, end_padding=dwell_padding)
+    locations = _locations_for_range(
+        db,
+        start_date,
+        end_date,
+        end_padding=TRIP_END_CROSS_DAY_LOOKAHEAD + dwell_padding,
+    )
     if not locations:
         trip_logger.debug(
             "trip generation skipped reason=no_locations start_date=%s end_date=%s",
@@ -1818,13 +2063,28 @@ def generate_trips(
         )
         return []
 
+    all_transitions = _waypoint_transitions(locations, sites, as_of=as_of)
     transitions = [
         transition
-        for transition in _waypoint_transitions(locations, sites, as_of=as_of)
+        for transition in all_transitions
         if generation_start_dt
         <= datetime_to_utc(transition.location.captured_at)
         < generation_end_dt
     ]
+    if transitions and transitions[-1].event == "leave":
+        cross_day_arrival = next(
+            (
+                transition
+                for transition in all_transitions
+                if transition.event == "enter"
+                and datetime_to_utc(transition.location.captured_at) >= generation_end_dt
+                and datetime_to_utc(transition.location.captured_at)
+                > datetime_to_utc(transitions[-1].location.captured_at)
+            ),
+            None,
+        )
+        if cross_day_arrival is not None:
+            transitions.append(cross_day_arrival)
     if not transitions:
         trip_logger.debug(
             "trip generation skipped reason=no_waypoint_transitions start_date=%s end_date=%s",

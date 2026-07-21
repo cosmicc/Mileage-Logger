@@ -190,8 +190,22 @@ Showing {{ pagination.first_item }}-{{ pagination.last_item }} of {{ pagination.
           required
         >
       </label>
-      <button type="submit" class="small-button">Save</button>
+      <button
+        type="submit"
+        class="small-button"
+        {% if not inside_home %}disabled title="Available only while inside the Home waypoint"{% endif %}
+      >Save</button>
+      <button
+        type="submit"
+        class="small-button danger"
+        formaction="/diagnostics/odometer/emergency-rebuild"
+        formmethod="post"
+        onclick="return confirm('Create a full backup and rebuild every trip odometer from this current reading? Stored trip distances will not change.');"
+      >Emergency Rebuild</button>
     </form>
+    {% if not inside_home %}
+    <p class="panel-meta">Save is available only at Home. Emergency Rebuild remains available.</p>
+    {% endif %}
     <dl class="diagnostic-list">
       <dt>Current Odometer</dt>
       <dd>

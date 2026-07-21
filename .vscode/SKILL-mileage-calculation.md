@@ -94,7 +94,8 @@ class TripProcessingCheckpoint(Base):
 
 ### Resetting the Anchor
 
-When user manually enters odometer on `/diagnostics` page:
+When the user saves a normal manual odometer on `/diagnostics` while inside the exact `Home`
+waypoint:
 
 ```python
 update_odometer_anchor_from_manual_reading(
@@ -108,9 +109,13 @@ Effect:
 - `odometer_anchor_miles` = 50123.5
 - `odometer_anchor_recorded_at` = now
 - Next distances calculate from 50123.5
-- If the current OwnTracks state is inside the exact `Home` waypoint, all trip row odometers are
-  also aligned backward so the latest trip end is 50123.5. Each trip's stored mileage and every
-  existing positive between-trip odometer gap remain unchanged.
+- Normal saves are refused away from Home. At Home, all trip row odometers are aligned backward so
+  the latest trip end is 50123.5. Each trip's stored mileage and every existing positive
+  between-trip odometer gap remain unchanged.
+- Emergency Rebuild remains available away from Home. It first creates a full backup, preserves all
+  stored trip distances, uses the entered reading as the latest trip end and master checkpoint,
+  reconstructs gaps at or above 200 miles from retained OwnTracks data when possible, and discards
+  invalid gaps largest-first as needed to keep the sequence nonnegative.
 
 ---
 
@@ -274,7 +279,8 @@ Effects:
 - Sets `mileage_source="manual"`
 - Preserves the trip's creation `source`; an automatic trip with edited mileage remains an
   automatic trip and receives the purple edited-row tint on the Trips page
-- **Re-sequences month's trips**: Recalculates all odometer chains for that month
+- Recalculates only the edited trip and later trips in the same start month. The edited trip keeps
+  its existing start odometer; earlier trips and other months remain untouched.
 
 On the Trips page, existing row dates and odometers remain read-only. From/To edits are validated
 waypoint dropdown selections; changing them stores the selected waypoint IDs, names, and
@@ -283,10 +289,10 @@ miles value still drives odometer resequencing.
 
 ### Resequencing Logic
 
-When trip miles change, all trips in that month are reordered by date/time, then odometer values are recalculated to maintain consistency:
+When trip miles change, recalculate from that trip forward through the same start month only:
 
 ```python
-resequence_month_trip_odometers(db, trip.trip_date)
+resequence_month_trip_odometers_from(db, trip)
 ```
 
 When a manual trip is newly inserted, use the broader forward resequence:
@@ -296,7 +302,7 @@ resequence_trip_odometers_from(db, trip)
 ```
 
 This ensures:
-1. Trip chains are chronologically ordered
+1. The edited trip and same-month later rows are chronologically ordered
 2. Manual trip start odometer comes from the current rolling checkpoint when available
 3. Existing positive gaps between a previous end odometer and the next start odometer are reapplied
 4. End odometer = start odometer + trip miles

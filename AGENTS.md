@@ -199,7 +199,9 @@ The application is Docker-only. Do not add or document a non-Docker app runtime 
    trip start, and ends are start plus the selected trip distance. If only a later master
    checkpoint is available, missing generated-trip odometers may be estimated from retained
    OwnTracks path rows between the trip start and that checkpoint. Generated trips must not use
-   prior trip end odometers as the source for a new trip start.
+   prior trip end odometers as the source for a new trip start. A trip that crosses local midnight
+   belongs to the local day on which it started; include OwnTracks path rows through its actual
+   destination arrival after midnight.
 6. Trip is stored and shown on `/trips` page for review/editing
 
 Exact automatic generation signatures are unique at the PostgreSQL layer by origin waypoint,
@@ -216,10 +218,17 @@ dates. Manual trips are not restricted by those indexes.
 - Only OwnTracks location processing and explicit manual odometer entries update the master rolling
   odometer checkpoint. Trip creation, editing, deletion, resequencing, and odometer backfill must
   never update it; trip odometers are display state for trip rows.
-- When a manual odometer is entered while the current OwnTracks state is inside the exact `Home`
-  waypoint, align all trip display odometers backward from that reading so the latest trip end
-  matches it. Preserve every trip's stored mileage and every existing positive odometer gap between
-  trips so non-trip driving remains represented.
+- Refuse normal manual odometer saves unless the current OwnTracks state is inside the exact `Home`
+  waypoint. Disable the normal Diagnostics Save button away from Home and enforce the same rule in
+  the server route.
+- A normal Home save aligns all trip display odometers backward from that reading so the latest
+  trip end matches it. Preserve every trip's stored mileage and every existing positive odometer
+  gap between trips so non-trip driving remains represented.
+- Diagnostics Emergency Rebuild stays available away from Home. It must create a full backup first,
+  never alter stored trip distances, use the entered reading for both the latest trip end and master
+  checkpoint, reconstruct oversized gaps from retained OwnTracks rows when possible, discard gaps
+  at or above 200 miles, and discard smaller gaps largest-first only when required for a valid
+  nonnegative sequence.
 - Manual trip starts use the current rolling OwnTracks odometer checkpoint before falling back to
   zero when no master checkpoint exists; later resequencing preserves existing positive non-trip
   odometer gaps between trips.
@@ -332,6 +341,9 @@ dates. Manual trips are not restricted by those indexes.
 - Existing trip rows display trip dates and odometers as read-only values. Row update forms accept
   selected origin/destination waypoint IDs from dropdowns plus mileage edits; posted dates,
   free-text names, and odometer fields are not accepted for existing rows.
+- A distance edit keeps the edited trip's existing start odometer and recalculates only that trip
+  and later trips in the same start month. Do not change earlier trips or any other month, and never
+  change another trip's stored distance.
 - The Work Trips page month selector is a single browser month/year picker. It defaults to the app's
   current `LOCAL_TIMEZONE` month, auto-loads the selected month, and displays the month as
   `Showing June 2026 (06/2026)` style text under the Work Trips title.

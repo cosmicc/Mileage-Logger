@@ -247,10 +247,15 @@ curl -X POST http://localhost:8000/api/owntracks \
   the same waypoint dropdown list for the origin and destination. Its service path calculates
   start/end odometers from the latest known odometer reading and resequences that trip plus every
   later trip when a prior-date manual trip is inserted.
-- The Diagnostics manual odometer route always saves the explicit reading as the master checkpoint.
-  When current OwnTracks state is inside the exact `Home` waypoint, it must also align all trip row
-  odometers so the latest trip end matches the reading while preserving stored trip miles and
-  positive between-trip gaps. No trip-only workflow may update the master checkpoint.
+- The Diagnostics manual odometer route saves the explicit reading as the master checkpoint only
+  when current OwnTracks state is inside the exact `Home` waypoint. Refuse normal saves and disable
+  the normal Save button away from Home. At Home, align all trip row odometers so the latest trip
+  end matches the reading while preserving stored trip miles and positive between-trip gaps.
+  Emergency Rebuild stays available away from Home, creates a full backup first, preserves stored
+  distances, repairs or discards invalid gaps, and updates the same master checkpoint. No trip-only
+  workflow may update the master checkpoint.
+- A trip-distance edit must keep the edited trip's current start odometer and resequence only that
+  row and later rows in the same start month. Do not modify earlier rows or rows in another month.
 - Dashboard reimbursement summaries must reuse the same monthly trip-mile total, reimbursement
   gallons, monthly gas price, `VEHICLE_MPG`, and manual extra expense total as
   `generate_monthly_pdf()` so the home card matches the downloadable report. Keep displayed

@@ -285,8 +285,9 @@ and retries every `AUTOMATIC_BACKUP_RETRY_SECONDS` until one succeeds; the norma
 then resumes.
 Diagnostics lists retained automatic backups and can restore one after you type `RESTORE`. The
 retention policy keeps the newest 4 recent automatic backups plus one daily backup for each of the
-prior 2 days. Startup-created automatic backups are labeled in the table. Each listed automatic
-backup also has its own download button. Backup downloads use `Cache-Control: no-store` and
+prior 2 days. Startup-created and emergency-rebuild safety backups are labeled in the table. Each
+listed automatic backup also has its own download button. Backup downloads use
+`Cache-Control: no-store` and
 require the same web login as restore because the files contain location history.
 
 To restore, upload the same backup file on Diagnostics and type `RESTORE`. Restore validates the
@@ -333,6 +334,9 @@ Before inserting, the app checks both signatures and reuses the existing automat
 shifted duplicate transition pair cannot roll back the processing checkpoint or block later trips.
 OwnTracks `tst` event time is the authoritative timestamp for trip dates and ordering; the server
 receive time is kept separately for diagnostics because phone data can be buffered.
+Trips that cross local midnight stay assigned to the day on which the trip started, and OwnTracks
+path points are included through the destination arrival event even when that event is after
+midnight.
 The server can run on UTC; app day/month selection, dashboard time, and gas snapshot dates use
 `LOCAL_TIMEZONE`, default `America/Detroit` for EST/EDT.
 
@@ -353,7 +357,8 @@ Dashboard work trip plus non-work trip cards are floored at the stored work trip
 one-decimal rounding, so the displayed combined total is never lower than the work-trips-only total
 and the implied non-work trip remainder is never negative. Edit a work trip's saved waypoint route
 or miles on the `Work Trips` page when generated values need correction. A distance correction
-resequences that month's displayed start and end odometers in chronological work trip order.
+keeps the edited trip's start odometer and resequences only that trip and later trips in the same
+start month. Earlier trips and trips in other months are not changed.
 Manual work trips entered from the `Work Trips` page default to today's local
 date, use saved waypoint dropdowns for From/To, and save start/end odometers immediately from the
 current rolling OwnTracks odometer checkpoint plus the entered work trip miles. A manual work trip
@@ -379,12 +384,16 @@ trip starts. The trip end odometer is always advanced from the start odometer by
 distance so the odometer display follows the trip miles. If a recently recorded work trip is
 missing displayed odometers, automatic trip processing can backfill those blanks from the master
 checkpoint when retained OwnTracks path rows support the estimate. Segments fully inside the same
-saved waypoint are ignored to reduce stationary GPS drift. Manual odometer entries on Diagnostics
-reset the checkpoint to the entered value and OwnTracks distance continues from that new rolling
-value. When OwnTracks reports the vehicle inside the `Home` waypoint, the same manual entry also
-aligns all displayed work trip odometers so the latest trip end matches the entered reading. The
-alignment preserves every trip's mileage and existing positive odometer gaps between trips so
-non-work driving is not collapsed.
+saved waypoint are ignored to reduce stationary GPS drift. Normal manual odometer entries on
+Diagnostics are accepted only while OwnTracks reports the exact `Home` waypoint; the normal Save
+button is disabled elsewhere. A Home save resets the checkpoint and aligns all displayed work trip
+odometers so the latest trip end matches the entered reading while preserving every trip's mileage
+and existing positive odometer gaps between trips.
+If those gaps are corrupted, the red Emergency Rebuild action remains available away from Home. It
+first writes a full backup, never changes stored trip distances, treats the entered value as the
+current master and latest trip odometer, reconstructs oversized gaps from retained OwnTracks data
+when possible, discards gaps of 200 miles or more, and removes smaller gaps largest-first only when
+needed to produce a valid best-effort sequence.
 Trip creation, editing, deletion, resequencing, and missing-odometer repair never move the master
 rolling odometer checkpoint. Only OwnTracks distance processing and an explicit manual odometer
 entry can update the master rolling odometer.

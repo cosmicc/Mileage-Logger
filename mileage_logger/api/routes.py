@@ -16,7 +16,10 @@ from mileage_logger.services.gas_prices import (
     fetch_and_save_current_snapshot,
     upsert_manual_monthly_price,
 )
-from mileage_logger.services.mileage import update_trip_details
+from mileage_logger.services.mileage import (
+    resequence_month_trip_odometers_from,
+    update_trip_details,
+)
 from mileage_logger.services.owntracks import (
     EmptyOwnTracksPayload,
     OwnTracksEncryptionNotConfigured,
@@ -160,6 +163,7 @@ def update_trip(trip_id: int, update: TripUpdate, db: Session = Depends(get_db))
     trip = db.get(Trip, trip_id)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
+    original_miles = trip.miles
     update_trip_details(
         trip,
         update.origin_name,
@@ -167,6 +171,8 @@ def update_trip(trip_id: int, update: TripUpdate, db: Session = Depends(get_db))
         update.miles,
         update.trip_date,
     )
+    if update.miles is not None and trip.miles != original_miles:
+        resequence_month_trip_odometers_from(db, trip)
     db.commit()
     logger.info(
         "Updated trip via API trip_id=%s origin=%s destination=%s miles=%s",

@@ -43,6 +43,7 @@ from mileage_logger.services.backups import (
     BACKUP_MEDIA_TYPE,
     AutomaticBackupFile,
     BackupValidationError,
+    create_automatic_backup,
     create_full_backup,
     list_automatic_backup_files,
     read_automatic_backup_content,
@@ -82,10 +83,11 @@ from mileage_logger.services.mileage import (
     TripOdometerAdjustmentError,
     create_manual_trip,
     delete_trip,
+    emergency_rebuild_trip_odometers_to_manual_reading,
     mark_trip_user_edited,
     monthly_miles,
     owntracks_segment_miles,
-    resequence_month_trip_odometers,
+    resequence_month_trip_odometers_from,
     site_indexes,
 )
 from mileage_logger.services.owntracks_rollups import (
@@ -952,12 +954,22 @@ def _serialize_automatic_backup(
 ) -> DiagnosticAutomaticBackup:
     """Return display-safe metadata for one automatic backup file."""
 
-    source_label = "Startup" if backup_file.reason == "startup" else "6-Hour"
+    source_labels = {
+        "emergency": "Emergency",
+        "startup": "Startup",
+    }
+    source_label = source_labels.get(backup_file.reason, "6-Hour")
     return DiagnosticAutomaticBackup(
         filename=backup_file.filename,
         created_at_display=_format_local_datetime(backup_file.created_at_utc),
         source_label=source_label,
-        source_css_class="warning" if backup_file.reason == "startup" else "muted",
+        source_css_class=(
+            "bad"
+            if backup_file.reason == "emergency"
+            else "warning"
+            if backup_file.reason == "startup"
+            else "muted"
+        ),
         size_display=_format_file_size(backup_file.size_bytes),
         download_url=(
             "/diagnostics/automatic-backups/download?"
@@ -1227,21 +1239,21 @@ def _update_trip_row_values(
     origin_site: Site,
     destination_site: Site,
     miles: Decimal,
-) -> set[tuple[int, int]]:
+) -> bool:
     """Apply only the editable Trips-page fields to one trip row."""
 
     manual_review_needed = _apply_trip_waypoints(trip, origin_site, destination_site)
-    resequence_months: set[tuple[int, int]] = set()
+    distance_changed = False
     rounded_miles = Decimal(str(miles)).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
     if trip.miles != rounded_miles:
         trip.miles = rounded_miles
         trip.mileage_source = MILEAGE_SOURCE_MANUAL
-        resequence_months.add((trip.trip_date.year, trip.trip_date.month))
+        distance_changed = True
         manual_review_needed = True
 
     if manual_review_needed:
         mark_trip_user_edited(trip)
-    return resequence_months
+    return distance_changed
 
 
 def _diagnostics_redirect(fragment: str, params: dict[str, str]) -> RedirectResponse:
@@ -1942,24 +1954,25 @@ def update_trip_form(
     origin_site = _load_trip_form_waypoint(db, origin_site_id)
     destination_site = _load_trip_form_waypoint(db, destination_site_id)
 
-    resequence_months = _update_trip_row_values(
+    distance_changed = _update_trip_row_values(
         trip,
         origin_site=origin_site,
         destination_site=destination_site,
         miles=miles,
     )
-    for resequence_year, resequence_month in sorted(resequence_months):
-        resequence_month_trip_odometers(db, resequence_year, resequence_month)
+    adjusted_trip_count = (
+        resequence_month_trip_odometers_from(db, trip) if distance_changed else 0
+    )
     db.commit()
     logger.info(
         "Updated trip via web form trip_id=%s date=%s origin=%s destination=%s miles=%s "
-        "resequence_months=%s",
+        "adjusted_same_month_trips=%s",
         trip.id,
         trip.trip_date.isoformat(),
         trip.origin_display_name,
         trip.destination_display_name,
         trip.miles,
-        sorted(resequence_months),
+        adjusted_trip_count,
     )
     return RedirectResponse(
         url=f"/trips?year={trip.trip_date.year}&month={trip.trip_date.month}",
@@ -2295,6 +2308,11 @@ def diagnostics(
         db,
         state_change_limit=DIAGNOSTICS_STATE_CHANGE_LIMIT,
     )
+    movement_state = movement_diagnostics.current_state
+    inside_home = (
+        movement_state.state == "waypoint"
+        and (movement_state.site_name or "").casefold() == HOME_WAYPOINT_NAME.casefold()
+    )
     movement_state_changes, movement_state_changes_page = _paginate_items(
         movement_diagnostics.state_changes,
         page=state_changes_page,
@@ -2390,7 +2408,8 @@ def diagnostics(
             "database_summary": database_summary,
             "recent_locations": owntracks_entries_page.entries,
             "owntracks_entries_page": owntracks_entries_page,
-            "movement_state": movement_diagnostics.current_state,
+            "movement_state": movement_state,
+            "inside_home": inside_home,
             "movement_state_changes": movement_state_changes,
             "movement_state_changes_page": movement_state_changes_page,
             "login_success_entries": login_success_entries,
@@ -2859,12 +2878,22 @@ def set_manual_odometer(
         movement_state.state == "waypoint"
         and (movement_state.site_name or "").casefold() == HOME_WAYPOINT_NAME.casefold()
     )
+    if not inside_home:
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "odometer_test": "fail",
+                "odometer_message": (
+                    "Manual odometer readings can only be saved while inside the Home waypoint."
+                ),
+            },
+        )
     try:
         checkpoint = update_odometer_anchor_from_manual_reading(
             db,
             odometer_miles,
             recorded_at=datetime.now(UTC),
-            align_trip_odometers=inside_home,
+            align_trip_odometers=True,
         )
     except TripOdometerAdjustmentError as exc:
         db.rollback()
@@ -2876,15 +2905,97 @@ def set_manual_odometer(
             },
         )
 
-    success_message = "Manual odometer reading saved."
-    if inside_home:
-        success_message = "Manual odometer reading saved and trip odometers adjusted from Home."
     return _diagnostics_redirect(
         "api-tests",
         {
             "odometer_test": "pass",
-            "odometer_message": success_message,
+            "odometer_message": (
+                "Manual odometer reading saved and trip odometers adjusted from Home."
+            ),
             "odometer_value": f"{checkpoint.odometer_anchor_miles:.1f} miles",
+        },
+    )
+
+
+@router.post("/diagnostics/odometer/emergency-rebuild")
+def emergency_rebuild_odometer(
+    odometer_miles: Decimal = Form(...),
+    db: Session = Depends(get_db),
+) -> RedirectResponse:
+    """Back up app data, then best-effort rebuild trip and master odometers."""
+
+    if odometer_miles <= 0:
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "odometer_test": "fail",
+                "odometer_message": "Odometer reading must be greater than zero.",
+            },
+        )
+
+    settings = get_settings()
+    try:
+        backup_result = create_automatic_backup(
+            db,
+            settings.automatic_backup_dir,
+            reason="emergency",
+        )
+        rebuild_result = emergency_rebuild_trip_odometers_to_manual_reading(
+            db,
+            odometer_miles,
+        )
+        checkpoint = update_odometer_anchor_from_manual_reading(
+            db,
+            odometer_miles,
+            recorded_at=datetime.now(UTC),
+        )
+    except TripOdometerAdjustmentError as exc:
+        db.rollback()
+        logger.warning("Emergency odometer rebuild rejected: %s", exc)
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "odometer_test": "fail",
+                "odometer_message": f"Emergency rebuild failed: {exc}",
+            },
+        )
+    except (BackupValidationError, OSError, SQLAlchemyError):
+        db.rollback()
+        logger.exception("Emergency odometer rebuild failed")
+        return _diagnostics_redirect(
+            "api-tests",
+            {
+                "odometer_test": "fail",
+                "odometer_message": (
+                    "Emergency rebuild stopped because the safety backup or database update "
+                    "failed. No odometer changes were saved."
+                ),
+            },
+        )
+
+    logger.warning(
+        "Emergency odometer rebuild completed backup=%s trips=%s preserved_gaps=%s "
+        "reconstructed_gaps=%s discarded_gaps=%s",
+        backup_result.backup_file.filename,
+        rebuild_result.adjusted_trip_count,
+        rebuild_result.preserved_gap_count,
+        rebuild_result.reconstructed_gap_count,
+        rebuild_result.discarded_gap_count,
+    )
+    return _diagnostics_redirect(
+        "api-tests",
+        {
+            "odometer_test": "pass",
+            "odometer_message": (
+                f"Emergency rebuild adjusted {rebuild_result.adjusted_trip_count} trips; "
+                f"preserved {rebuild_result.preserved_gap_count}, reconstructed "
+                f"{rebuild_result.reconstructed_gap_count}, and discarded "
+                f"{rebuild_result.discarded_gap_count} odometer gaps."
+            ),
+            "odometer_value": (
+                f"Current odometer {checkpoint.odometer_anchor_miles:.1f} miles; "
+                f"backup {backup_result.backup_file.filename}"
+            ),
         },
     )
 

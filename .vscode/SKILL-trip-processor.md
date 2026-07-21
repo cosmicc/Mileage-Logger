@@ -45,6 +45,10 @@ state evidence, such as a same-waypoint `leave` after the dwell window. `desc`, 
 `inregions` labels alone must not override outside-radius coordinates without that later state
 confirmation.
 
+A trip that begins before local midnight and arrives after midnight belongs to its local start day.
+Load enough lookahead to include the destination arrival, dwell confirmation, and OwnTracks path
+points through the arrival without starting unrelated next-day trips during the prior-day pass.
+
 ### Key Entry Point
 
 [`generate_trips(db, day, checkpoint)`](mileage_logger/services/mileage.py) in `mileage.py`:
@@ -108,8 +112,10 @@ When trip processor runs:
 8. Generated, edited, deleted, resequenced, and backfilled trip rows never update the master rolling
    checkpoint. Only OwnTracks distance processing and an explicit manual odometer entry may update
    it. When a manual reading is entered while OwnTracks reports the vehicle inside the exact `Home`
-   waypoint, align all trip display odometers backward from that reading while preserving trip
-   miles and every positive between-trip gap.
+   waypoint. Refuse normal manual saves away from Home. At Home, align all trip display odometers
+   backward from that reading while preserving trip miles and every positive between-trip gap.
+   The separate Emergency Rebuild action remains available away from Home, creates a full backup,
+   preserves trip distances, and repairs or discards corrupt gaps before updating the master.
 9. Before old raw OwnTracks rows are purged, refresh monthly OwnTracks summary rollups so older
    month web totals and event counts remain stable after raw location/event cleanup.
 

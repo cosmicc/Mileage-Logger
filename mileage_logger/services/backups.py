@@ -36,11 +36,12 @@ BACKUP_TABLES = tuple(Base.metadata.sorted_tables)
 BACKUP_TABLE_NAMES = tuple(table.name for table in BACKUP_TABLES)
 AUTOMATIC_BACKUP_FILENAME_PREFIX = "mileage-logger-auto-backup-"
 AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX = "mileage-logger-auto-backup-startup-"
+AUTOMATIC_BACKUP_EMERGENCY_FILENAME_PREFIX = "mileage-logger-auto-backup-emergency-"
 AUTOMATIC_BACKUP_FILENAME_SUFFIX = ".json.gz"
 AUTOMATIC_BACKUP_INTERVAL_SECONDS = 6 * 60 * 60
 AUTOMATIC_RECENT_BACKUPS_TO_KEEP = 4
 AUTOMATIC_PRIOR_DAILY_BACKUP_DAYS_TO_KEEP = 2
-AUTOMATIC_BACKUP_REASONS = {"scheduled", "startup"}
+AUTOMATIC_BACKUP_REASONS = {"emergency", "scheduled", "startup"}
 _BACKUP_RESTORE_LOCK = threading.RLock()
 
 
@@ -107,14 +108,15 @@ def automatic_backup_filename(
     """Return a timestamped automatic backup filename safe for filesystem use."""
 
     if reason not in AUTOMATIC_BACKUP_REASONS:
-        raise ValueError("Automatic backup reason must be scheduled or startup.")
+        raise ValueError("Automatic backup reason must be emergency, scheduled, or startup.")
     current_dt = (now or datetime.now(UTC)).astimezone(UTC)
     timestamp = current_dt.strftime("%Y%m%d-%H%M%SZ")
-    prefix = (
-        AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX
-        if reason == "startup"
-        else AUTOMATIC_BACKUP_FILENAME_PREFIX
-    )
+    if reason == "startup":
+        prefix = AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX
+    elif reason == "emergency":
+        prefix = AUTOMATIC_BACKUP_EMERGENCY_FILENAME_PREFIX
+    else:
+        prefix = AUTOMATIC_BACKUP_FILENAME_PREFIX
     return f"{prefix}{timestamp}{AUTOMATIC_BACKUP_FILENAME_SUFFIX}"
 
 
@@ -389,6 +391,9 @@ def _parse_automatic_backup_filename(filename: str) -> tuple[datetime, str] | No
     if filename.startswith(AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX):
         prefix = AUTOMATIC_BACKUP_STARTUP_FILENAME_PREFIX
         reason = "startup"
+    elif filename.startswith(AUTOMATIC_BACKUP_EMERGENCY_FILENAME_PREFIX):
+        prefix = AUTOMATIC_BACKUP_EMERGENCY_FILENAME_PREFIX
+        reason = "emergency"
     elif filename.startswith(AUTOMATIC_BACKUP_FILENAME_PREFIX):
         prefix = AUTOMATIC_BACKUP_FILENAME_PREFIX
         reason = "scheduled"
